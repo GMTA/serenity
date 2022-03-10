@@ -1,0 +1,126 @@
+From 5207c9f2b2045a6649abceddfaa30c0b6700bd8a Mon Sep 17 00:00:00 2001
+From: Jelle Raaijmakers <jelle@gmta.nl>
+Date: Thu, 10 Mar 2022 12:26:07 +0100
+Subject: [PATCH 2/2] Harness: Disable Linux-specific backtrace and signal
+ logic
+
+These are not supported and only get in the way of regular debugging
+tools.
+---
+ src/harness/stack_trace_handler.h | 76 -------------------------------
+ 1 file changed, 76 deletions(-)
+
+diff --git a/src/harness/stack_trace_handler.h b/src/harness/stack_trace_handler.h
+index 38c5e67..2ba8ae6 100644
+--- a/src/harness/stack_trace_handler.h
++++ b/src/harness/stack_trace_handler.h
+@@ -20,12 +20,9 @@
+ #define Ebp Rbp
+ #endif
+ #else
+-#include <err.h>
+-#include <execinfo.h>
+ #endif
+ 
+ static int stack_nbr = 0;
+-static char _program_name[1024];
+ 
+ /* Resolve symbol name and source location given the path to the executable 
+    and an address */
+@@ -157,28 +154,7 @@ void install_signal_handler(char* program_name) {
+ }
+ #else
+ 
+-#define MAX_STACK_FRAMES 64
+-static void* stack_traces[MAX_STACK_FRAMES];
+-
+ void posix_print_stack_trace() {
+-    int i, trace_size = 0;
+-    char** messages = (char**)NULL;
+-
+-    fputs("\nStack trace:\n", stderr);
+-
+-    trace_size = backtrace(stack_traces, MAX_STACK_FRAMES);
+-    messages = backtrace_symbols(stack_traces, trace_size);
+-
+-    /* skip the first couple stack frames (as they are this function and
+-     our handler) and also skip the last frame as it's (always?) junk. */
+-    for (i = 3; i < (trace_size - 1); ++i) {
+-        if (addr2line(_program_name, stack_traces[i]) != 0) {
+-            printf("  error determining line # for: %s\n", messages[i]);
+-        }
+-    }
+-    if (messages) {
+-        free(messages);
+-    }
+ }
+ 
+ void posix_signal_handler(int sig, siginfo_t* siginfo, void* context) {
+@@ -268,8 +244,6 @@ void posix_signal_handler(int sig, siginfo_t* siginfo, void* context) {
+     exit(1);
+ }
+ 
+-static uint8_t alternate_stack[SIGSTKSZ];
+-
+ void resolve_full_path(char* path, const char* argv0) {
+     if (argv0[0] == '/') { // run with absolute path
+         strcpy(path, argv0);
+@@ -284,55 +258,5 @@ void resolve_full_path(char* path, const char* argv0) {
+ }
+ 
+ void install_signal_handler(char* program_name) {
+-
+-    resolve_full_path(_program_name, program_name);
+-
+-    /* setup alternate stack */
+-    {
+-        stack_t ss = {};
+-        /* malloc is usually used here, I'm not 100% sure my static allocation
+-         is valid but it seems to work just fine. */
+-        ss.ss_sp = (void*)alternate_stack;
+-        ss.ss_size = SIGSTKSZ;
+-        ss.ss_flags = 0;
+-
+-        if (sigaltstack(&ss, NULL) != 0) {
+-            err(1, "sigaltstack");
+-        }
+-    }
+-
+-    /* register our signal handlers */
+-    {
+-        struct sigaction sig_action = {};
+-        sig_action.sa_sigaction = posix_signal_handler;
+-        sigemptyset(&sig_action.sa_mask);
+-
+-#ifdef __APPLE__
+-        /* for some reason we backtrace() doesn't work on osx
+-             when we use an alternate stack */
+-        sig_action.sa_flags = SA_SIGINFO;
+-#else
+-        sig_action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+-#endif
+-
+-        if (sigaction(SIGSEGV, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-        if (sigaction(SIGFPE, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-        if (sigaction(SIGINT, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-        if (sigaction(SIGILL, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-        if (sigaction(SIGTERM, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-        if (sigaction(SIGABRT, &sig_action, NULL) != 0) {
+-            err(1, "sigaction");
+-        }
+-    }
+ }
+ #endif
+-- 
+2.32.0
+

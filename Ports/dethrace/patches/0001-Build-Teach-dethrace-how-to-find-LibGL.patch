@@ -1,0 +1,30 @@
+From 03fb65b657e314862f9e9b804384a6f6723805ff Mon Sep 17 00:00:00 2001
+From: Jelle Raaijmakers <jelle@gmta.nl>
+Date: Thu, 10 Mar 2022 12:25:53 +0100
+Subject: [PATCH 1/2] Build: Teach dethrace how to find LibGL
+
+---
+ src/DETHRACE/CMakeLists.txt | 7 +------
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/src/DETHRACE/CMakeLists.txt b/src/DETHRACE/CMakeLists.txt
+index fd2220c..904c27e 100644
+--- a/src/DETHRACE/CMakeLists.txt
++++ b/src/DETHRACE/CMakeLists.txt
+@@ -169,12 +169,7 @@ if(NOT MSVC)
+         target_link_options(dethrace PRIVATE -fno-pie)
+     else()
+         set(OpenGL_GL_PREFERENCE GLVND)
+-        find_package(OpenGL REQUIRED)
+-        if(TARGET OpenGL::OpenGL)
+-            target_link_libraries(dethrace PRIVATE OpenGL::OpenGL)
+-        else()
+-            target_link_libraries(dethrace PRIVATE OpenGL::GL)
+-        endif()
++        target_link_libraries(dethrace PRIVATE gl)
+     endif()
+ else()
+     target_link_libraries(dethrace PRIVATE dbghelp)
+-- 
+2.32.0
+
