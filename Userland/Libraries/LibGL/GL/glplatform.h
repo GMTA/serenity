@@ -42,7 +42,11 @@ typedef unsigned int GLbitfield;
 #if defined(__x86_64__) || defined(__aarch64__)
 typedef long GLint64;
 typedef unsigned long GLuint64;
+typedef long GLintptr;
+typedef unsigned long GLsizeiptr;
 #else
 typedef long long GLint64;
 typedef unsigned long long GLuint64;
+typedef long long GLintptr;
+typedef unsigned long long GLsizeiptr;
 #endif
