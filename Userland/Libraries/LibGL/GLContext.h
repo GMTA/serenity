@@ -81,7 +81,6 @@ struct ContextParameter {
 struct VertexAttribPointer {
     GLint size { 4 };
     GLenum type { GL_FLOAT };
-    bool normalize { true };
     GLsizei stride { 0 };
     void const* pointer { 0 };
 };

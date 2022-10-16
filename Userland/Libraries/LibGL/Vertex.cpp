@@ -16,7 +16,6 @@ namespace GL {
 static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib, int index, float* elements)
 {
     auto const* byte_ptr = reinterpret_cast<char const*>(attrib.pointer);
-    auto normalize = attrib.normalize;
     size_t stride = attrib.stride;
 
     switch (attrib.type) {
@@ -26,8 +25,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLbyte const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0x80;
+            elements[i] /= 0x80;
         }
         break;
     }
@@ -37,8 +35,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLubyte const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0xff;
+            elements[i] /= 0xff;
         }
         break;
     }
@@ -48,8 +45,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLshort const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0x8000;
+            elements[i] /= 0x8000;
         }
         break;
     }
@@ -59,8 +55,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLushort const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0xffff;
+            elements[i] /= 0xffff;
         }
         break;
     }
@@ -70,8 +65,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLint const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0x80000000;
+            elements[i] /= 0x80000000;
         }
         break;
     }
@@ -81,8 +75,7 @@ static void read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib
 
         for (int i = 0; i < attrib.size; i++) {
             elements[i] = *(reinterpret_cast<GLuint const*>(byte_ptr + stride * index) + i);
-            if (normalize)
-                elements[i] /= 0xffffffff;
+            elements[i] /= 0xffffffff;
         }
         break;
     }
