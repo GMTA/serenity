@@ -7,7 +7,6 @@
 #pragma once
 
 #include <LibWeb/DOM/Element.h>
-#include <LibWeb/HTML/DOMStringMap.h>
 
 namespace Web::SVG {
 
@@ -29,5 +28,3 @@ protected:
 };
 
 }
-
-WRAPPER_HACK(SVGElement, Web::SVG)

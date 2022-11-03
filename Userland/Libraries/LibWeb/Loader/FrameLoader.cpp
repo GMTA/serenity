@@ -11,6 +11,7 @@
 #include <LibGemini/Document.h>
 #include <LibGfx/ImageDecoder.h>
 #include <LibMarkdown/Document.h>
+#include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/Cookie/ParsedCookie.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/ElementFactory.h>
@@ -19,10 +20,10 @@
 #include <LibWeb/HTML/HTMLIFrameElement.h>
 #include <LibWeb/HTML/NavigationParams.h>
 #include <LibWeb/HTML/Parser/HTMLParser.h>
-#include <LibWeb/ImageDecoding.h>
 #include <LibWeb/Loader/FrameLoader.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Page/Page.h>
+#include <LibWeb/Platform/ImageCodecPlugin.h>
 #include <LibWeb/XML/XMLDocumentBuilder.h>
 
 namespace Web {
@@ -52,7 +53,50 @@ static bool build_markdown_document(DOM::Document& document, ByteBuffer const& d
     if (!markdown_document)
         return false;
 
-    auto parser = HTML::HTMLParser::create(document, markdown_document->render_to_html(), "utf-8");
+    auto extra_head_contents = R"~~~(
+<style>
+    .zoomable {
+        cursor: zoom-in;
+        max-width: 100%;
+    }
+    .zoomable.zoomed-in {
+        cursor: zoom-out;
+        max-width: none;
+    }
+</style>
+<script>
+    function imageClickEventListener(event) {
+        let image = event.target;
+        if (image.classList.contains("zoomable")) {
+            image.classList.toggle("zoomed-in");
+        }
+    }
+    function processImages() {
+        let images = document.querySelectorAll("img");
+        let windowWidth = window.innerWidth;
+        images.forEach((image) => {
+            if (image.naturalWidth > windowWidth) {
+                image.classList.add("zoomable");
+            } else {
+                image.classList.remove("zoomable");
+                image.classList.remove("zoomed-in");
+            }
+
+            image.addEventListener("click", imageClickEventListener);
+        });
+    }
+
+    document.addEventListener("load", () => {
+        processImages();
+    });
+
+    window.addEventListener("resize", () => {
+        processImages();
+    });
+</script>
+)~~~"sv;
+
+    auto parser = HTML::HTMLParser::create(document, markdown_document->render_to_html(extra_head_contents), "utf-8");
     parser->run(document.url());
     return true;
 }
@@ -60,29 +104,29 @@ static bool build_markdown_document(DOM::Document& document, ByteBuffer const& d
 static bool build_text_document(DOM::Document& document, ByteBuffer const& data)
 {
     auto html_element = document.create_element("html").release_value();
-    document.append_child(html_element);
+    MUST(document.append_child(html_element));
 
     auto head_element = document.create_element("head").release_value();
-    html_element->append_child(head_element);
+    MUST(html_element->append_child(head_element));
     auto title_element = document.create_element("title").release_value();
-    head_element->append_child(title_element);
+    MUST(head_element->append_child(title_element));
 
     auto title_text = document.create_text_node(document.url().basename());
-    title_element->append_child(title_text);
+    MUST(title_element->append_child(title_text));
 
     auto body_element = document.create_element("body").release_value();
-    html_element->append_child(body_element);
+    MUST(html_element->append_child(body_element));
 
     auto pre_element = document.create_element("pre").release_value();
-    body_element->append_child(pre_element);
+    MUST(body_element->append_child(pre_element));
 
-    pre_element->append_child(document.create_text_node(String::copy(data)));
+    MUST(pre_element->append_child(document.create_text_node(String::copy(data))));
     return true;
 }
 
 static bool build_image_document(DOM::Document& document, ByteBuffer const& data)
 {
-    auto image = ImageDecoding::Decoder::the().decode_image(data);
+    auto image = Platform::ImageCodecPlugin::the().decode_image(data);
     if (!image.has_value() || image->frames.is_empty())
         return false;
     auto const& frame = image->frames[0];
@@ -91,23 +135,23 @@ static bool build_image_document(DOM::Document& document, ByteBuffer const& data
         return false;
 
     auto html_element = document.create_element("html").release_value();
-    document.append_child(html_element);
+    MUST(document.append_child(html_element));
 
     auto head_element = document.create_element("head").release_value();
-    html_element->append_child(head_element);
+    MUST(html_element->append_child(head_element));
     auto title_element = document.create_element("title").release_value();
-    head_element->append_child(title_element);
+    MUST(head_element->append_child(title_element));
 
     auto basename = LexicalPath::basename(document.url().path());
     auto title_text = document.heap().allocate<DOM::Text>(document.realm(), document, String::formatted("{} [{}x{}]", basename, bitmap->width(), bitmap->height()));
-    title_element->append_child(*title_text);
+    MUST(title_element->append_child(*title_text));
 
     auto body_element = document.create_element("body").release_value();
-    html_element->append_child(body_element);
+    MUST(html_element->append_child(body_element));
 
     auto image_element = document.create_element("img").release_value();
-    image_element->set_attribute(HTML::AttributeNames::src, document.url().to_string());
-    body_element->append_child(image_element);
+    MUST(image_element->set_attribute(HTML::AttributeNames::src, document.url().to_string()));
+    MUST(body_element->append_child(image_element));
 
     return true;
 }
@@ -172,8 +216,10 @@ bool FrameLoader::load(LoadRequest& request, Type type)
     auto& url = request.url();
 
     if (type == Type::Navigation || type == Type::Reload) {
-        if (auto* page = browsing_context().page())
-            page->client().page_did_start_loading(url);
+        if (auto* page = browsing_context().page()) {
+            if (&page->top_level_browsing_context() == &m_browsing_context)
+                page->client().page_did_start_loading(url);
+        }
     }
 
     // https://fetch.spec.whatwg.org/#concept-fetch
@@ -184,7 +230,6 @@ bool FrameLoader::load(LoadRequest& request, Type type)
     //              -> "frame"
     //              -> "iframe"
     //                   `text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`
-    // FIXME: This should be case-insensitive.
     if (!request.headers().contains("Accept"))
         request.set_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 
@@ -197,9 +242,9 @@ bool FrameLoader::load(LoadRequest& request, Type type)
     if (document && document->has_active_favicon())
         return true;
 
-    if (url.protocol() == "http" || url.protocol() == "https") {
+    if (url.scheme() == "http" || url.scheme() == "https") {
         AK::URL favicon_url;
-        favicon_url.set_protocol(url.protocol());
+        favicon_url.set_scheme(url.scheme());
         favicon_url.set_host(url.host());
         favicon_url.set_port(url.port_or_default());
         favicon_url.set_paths({ "favicon.ico" });
@@ -215,7 +260,7 @@ bool FrameLoader::load(LoadRequest& request, Type type)
                 if (data.is_empty())
                     return;
                 RefPtr<Gfx::Bitmap> favicon_bitmap;
-                auto decoded_image = ImageDecoding::Decoder::the().decode_image(data);
+                auto decoded_image = Platform::ImageCodecPlugin::the().decode_image(data);
                 if (!decoded_image.has_value() || decoded_image->frames.is_empty()) {
                     dbgln("Could not decode favicon {}", favicon_url);
                 } else {
@@ -254,12 +299,13 @@ bool FrameLoader::load(const AK::URL& url, Type type)
 
 void FrameLoader::load_html(StringView html, const AK::URL& url)
 {
-    auto response = make<Fetch::Infrastructure::Response>();
+    auto& vm = Bindings::main_thread_vm();
+    auto response = Fetch::Infrastructure::Response::create(vm);
     response->url_list().append(url);
     HTML::NavigationParams navigation_params {
         .id = {},
         .request = nullptr,
-        .response = move(response),
+        .response = response,
         .origin = HTML::Origin {},
         .policy_container = HTML::PolicyContainer {},
         .final_sandboxing_flag_set = HTML::SandboxingFlagSet {},
@@ -272,10 +318,10 @@ void FrameLoader::load_html(StringView html, const AK::URL& url)
         DOM::Document::Type::HTML,
         "text/html",
         move(navigation_params));
+    browsing_context().set_active_document(document);
 
     auto parser = HTML::HTMLParser::create(document, html, "utf-8");
     parser->run(url);
-    browsing_context().set_active_document(&parser->document());
 }
 
 static String s_error_page_url = "file:///res/html/error.html";
@@ -374,15 +420,16 @@ void FrameLoader::resource_did_load()
     // FIXME: Pass incumbentNavigationOrigin
     auto response_origin = HTML::determine_the_origin(browsing_context(), url, final_sandboxing_flag_set, {});
 
-    auto response = make<Fetch::Infrastructure::Response>();
+    auto& vm = Bindings::main_thread_vm();
+    auto response = Fetch::Infrastructure::Response::create(vm);
     response->url_list().append(url);
     HTML::NavigationParams navigation_params {
         .id = {},
         .request = nullptr,
-        .response = move(response),
+        .response = response,
         .origin = move(response_origin),
         .policy_container = HTML::PolicyContainer {},
-        .final_sandboxing_flag_set = move(final_sandboxing_flag_set),
+        .final_sandboxing_flag_set = final_sandboxing_flag_set,
         .cross_origin_opener_policy = HTML::CrossOriginOpenerPolicy {},
         .coop_enforcement_result = HTML::CrossOriginOpenerPolicyEnforcementResult {},
         .reserved_environment = {},
@@ -398,6 +445,8 @@ void FrameLoader::resource_did_load()
     document->set_content_type(resource()->mime_type());
 
     browsing_context().set_active_document(document);
+    if (auto* page = browsing_context().page())
+        page->client().page_did_create_main_document();
 
     if (!parse_document(*document, resource()->encoded_data())) {
         load_error_page(url, "Failed to parse content.");

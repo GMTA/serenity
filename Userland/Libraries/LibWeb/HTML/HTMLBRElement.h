@@ -16,12 +16,10 @@ class HTMLBRElement final : public HTMLElement {
 public:
     virtual ~HTMLBRElement() override;
 
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
 private:
     HTMLBRElement(DOM::Document&, DOM::QualifiedName);
 };
 
 }
-
-WRAPPER_HACK(HTMLBRElement, Web::HTML)

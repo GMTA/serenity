@@ -370,12 +370,15 @@ bool Screen::set_resolution(bool initial)
         if (!return_value.is_error())
             return true;
     }
-    if (return_value.is_error()) {
+    if (return_value.is_error() && return_value.error() != Error::from_errno(EOVERFLOW)) {
         dbgln("Screen #{}: Failed to set resolution {}: {}", index(), info.resolution, return_value.error());
         MUST(on_change_resolution());
         return false;
     }
-    VERIFY_NOT_REACHED();
+    dbgln("Screen #{}: Failed to set resolution {}: {}, falling back to safe resolution", index(), info.resolution, return_value.error());
+    MUST(m_backend->set_safe_head_mode_setting());
+    MUST(on_change_resolution());
+    return false;
 }
 
 void Screen::set_buffer(int index)
@@ -466,7 +469,7 @@ void Screen::constrain_pending_flush_rects()
     if (flush_rects.pending_flush_rects.is_empty())
         return;
     Gfx::IntRect screen_rect({}, rect().size());
-    Gfx::DisjointRectSet rects;
+    Gfx::DisjointIntRectSet rects;
     for (auto& fb_rect : flush_rects.pending_flush_rects) {
         Gfx::IntRect rect { (int)fb_rect.x, (int)fb_rect.y, (int)fb_rect.width, (int)fb_rect.height };
         auto intersected_rect = rect.intersected(screen_rect);

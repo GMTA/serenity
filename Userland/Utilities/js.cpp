@@ -1472,7 +1472,9 @@ public:
         }
 
         auto output = String::join(' ', arguments.get<JS::MarkedVector<JS::Value>>());
+#ifdef AK_OS_SERENITY
         m_console.output_debug_message(log_level, output);
+#endif
 
         switch (log_level) {
         case JS::Console::LogLevel::Debug:
@@ -1505,9 +1507,7 @@ private:
 
 ErrorOr<int> serenity_main(Main::Arguments arguments)
 {
-#ifdef __serenity__
     TRY(Core::System::pledge("stdio rpath wpath cpath tty sigaction"));
-#endif
 
     bool gc_on_every_allocation = false;
     bool disable_syntax_highlight = false;

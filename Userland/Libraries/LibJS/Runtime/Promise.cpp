@@ -12,6 +12,7 @@
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/JobCallback.h>
 #include <LibJS/Runtime/Promise.h>
+#include <LibJS/Runtime/PromiseCapability.h>
 #include <LibJS/Runtime/PromiseJobs.h>
 #include <LibJS/Runtime/PromiseReaction.h>
 #include <LibJS/Runtime/PromiseResolvingFunction.h>
@@ -35,10 +36,10 @@ ThrowCompletionOr<Object*> promise_resolve(VM& vm, Object& constructor, Value va
     auto promise_capability = TRY(new_promise_capability(vm, &constructor));
 
     // 3. Perform ? Call(promiseCapability.[[Resolve]], undefined, « x »).
-    (void)TRY(call(vm, *promise_capability.resolve, js_undefined(), value));
+    (void)TRY(call(vm, *promise_capability->resolve(), js_undefined(), value));
 
     // 4. Return promiseCapability.[[Promise]].
-    return promise_capability.promise;
+    return promise_capability->promise().ptr();
 }
 
 Promise* Promise::create(Realm& realm)
@@ -146,7 +147,7 @@ Promise::ResolvingFunctions Promise::create_resolving_functions()
         auto then_job_callback = vm.host_make_job_callback(then_action.as_function());
 
         // 14. Let job be NewPromiseResolveThenableJob(promise, resolution, thenJobCallback).
-        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / PromiseResolvingFunction]: Creating PromiseResolveThenableJob for thenable {}", &promise, resolution);
+        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / PromiseResolvingFunction]: Creating PromiseJob for thenable {}", &promise, resolution);
         auto job = create_promise_resolve_thenable_job(vm, promise, resolution, move(then_job_callback));
 
         // 15. Perform HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
@@ -270,7 +271,7 @@ void Promise::trigger_reactions() const
     // 1. For each element reaction of reactions, do
     for (auto& reaction : reactions) {
         // a. Let job be NewPromiseReactionJob(reaction, argument).
-        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / trigger_reactions()]: Creating PromiseReactionJob for PromiseReaction @ {} with argument {}", this, &reaction, m_result);
+        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / trigger_reactions()]: Creating PromiseJob for PromiseReaction @ {} with argument {}", this, &reaction, m_result);
         auto [job, realm] = create_promise_reaction_job(vm, *reaction, m_result);
 
         // b. Perform HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
@@ -287,7 +288,7 @@ void Promise::trigger_reactions() const
 }
 
 // 27.2.5.4.1 PerformPromiseThen ( promise, onFulfilled, onRejected [ , resultCapability ] ), https://tc39.es/ecma262/#sec-performpromisethen
-Value Promise::perform_then(Value on_fulfilled, Value on_rejected, Optional<PromiseCapability> result_capability)
+Value Promise::perform_then(Value on_fulfilled, Value on_rejected, GCPtr<PromiseCapability> result_capability)
 {
     auto& vm = this->vm();
 
@@ -340,7 +341,7 @@ Value Promise::perform_then(Value on_fulfilled, Value on_rejected, Optional<Prom
         auto value = m_result;
 
         // b. Let fulfillJob be NewPromiseReactionJob(fulfillReaction, value).
-        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: State is State::Fulfilled, creating PromiseReactionJob for PromiseReaction @ {} with argument {}", this, fulfill_reaction, value);
+        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: State is State::Fulfilled, creating PromiseJob for PromiseReaction @ {} with argument {}", this, fulfill_reaction, value);
         auto [fulfill_job, realm] = create_promise_reaction_job(vm, *fulfill_reaction, value);
 
         // c. Perform HostEnqueuePromiseJob(fulfillJob.[[Job]], fulfillJob.[[Realm]]).
@@ -360,7 +361,7 @@ Value Promise::perform_then(Value on_fulfilled, Value on_rejected, Optional<Prom
             vm.host_promise_rejection_tracker(*this, RejectionOperation::Handle);
 
         // d. Let rejectJob be NewPromiseReactionJob(rejectReaction, reason).
-        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: State is State::Rejected, creating PromiseReactionJob for PromiseReaction @ {} with argument {}", this, reject_reaction, reason);
+        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: State is State::Rejected, creating PromiseJob for PromiseReaction @ {} with argument {}", this, reject_reaction, reason);
         auto [reject_job, realm] = create_promise_reaction_job(vm, *reject_reaction, reason);
 
         // e. Perform HostEnqueuePromiseJob(rejectJob.[[Job]], rejectJob.[[Realm]]).
@@ -376,17 +377,16 @@ Value Promise::perform_then(Value on_fulfilled, Value on_rejected, Optional<Prom
     m_is_handled = true;
 
     // 13. If resultCapability is undefined, then
-    if (!result_capability.has_value()) {
+    if (result_capability == nullptr) {
         // a. Return undefined.
-        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: No ResultCapability, returning undefined", this);
+        dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: No result PromiseCapability, returning undefined", this);
         return js_undefined();
     }
 
     // 14. Else,
     //     a. Return resultCapability.[[Promise]].
-    auto* promise = result_capability.value().promise;
-    dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: Returning Promise @ {} from ResultCapability @ {}", this, promise, &result_capability.value());
-    return promise;
+    dbgln_if(PROMISE_DEBUG, "[Promise @ {} / perform_then()]: Returning Promise @ {} from result PromiseCapability @ {}", this, result_capability->promise().ptr(), result_capability.ptr());
+    return result_capability->promise();
 }
 
 void Promise::visit_edges(Cell::Visitor& visitor)

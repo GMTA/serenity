@@ -6,7 +6,9 @@ serenity_component(
 
 set(SOURCES
     main.cpp
+    VideoFrameWidget.cpp
+    VideoPlayerWidget.cpp
 )
 
 serenity_bin(VideoPlayer)
-target_link_libraries(VideoPlayer LibVideo LibAudio LibGUI LibMain)
+target_link_libraries(VideoPlayer PRIVATE LibVideo LibAudio LibCore LibGfx LibGUI LibMain)

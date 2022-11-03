@@ -25,7 +25,10 @@ public:
 
     JS::GCPtr<HTMLOptionsCollection> const& options();
 
-    DOM::ExceptionOr<void> add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before = {});
+    size_t length();
+    DOM::Element* item(size_t index);
+    DOM::Element* named_item(FlyString const& name);
+    WebIDL::ExceptionOr<void> add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before = {});
 
     int selected_index() const;
     void set_selected_index(int);
@@ -62,5 +65,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(HTMLSelectElement, Web::HTML)

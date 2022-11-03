@@ -12,12 +12,39 @@
 
 namespace IPC {
 
+struct CoreEventLoopDeferredInvoker final : public DeferredInvoker {
+    virtual ~CoreEventLoopDeferredInvoker() = default;
+
+    virtual void schedule(Function<void()> callback) override
+    {
+        Core::deferred_invoke(move(callback));
+    }
+};
+
 ConnectionBase::ConnectionBase(IPC::Stub& local_stub, NonnullOwnPtr<Core::Stream::LocalSocket> socket, u32 local_endpoint_magic)
     : m_local_stub(local_stub)
     , m_socket(move(socket))
     , m_local_endpoint_magic(local_endpoint_magic)
+    , m_deferred_invoker(make<CoreEventLoopDeferredInvoker>())
 {
     m_responsiveness_timer = Core::Timer::create_single_shot(3000, [this] { may_have_become_unresponsive(); });
+}
+
+void ConnectionBase::set_deferred_invoker(NonnullOwnPtr<DeferredInvoker> deferred_invoker)
+{
+    m_deferred_invoker = move(deferred_invoker);
+}
+
+void ConnectionBase::set_fd_passing_socket(NonnullOwnPtr<Core::Stream::LocalSocket> socket)
+{
+    m_fd_passing_socket = move(socket);
+}
+
+Core::Stream::LocalSocket& ConnectionBase::fd_passing_socket()
+{
+    if (m_fd_passing_socket)
+        return *m_fd_passing_socket;
+    return *m_socket;
 }
 
 ErrorOr<void> ConnectionBase::post_message(Message const& message)
@@ -36,17 +63,12 @@ ErrorOr<void> ConnectionBase::post_message(MessageBuffer buffer)
     uint32_t message_size = buffer.data.size();
     TRY(buffer.data.try_prepend(reinterpret_cast<u8 const*>(&message_size), sizeof(message_size)));
 
-#ifdef __serenity__
     for (auto& fd : buffer.fds) {
-        if (auto result = m_socket->send_fd(fd.value()); result.is_error()) {
+        if (auto result = fd_passing_socket().send_fd(fd.value()); result.is_error()) {
             shutdown_with_error(result.error());
             return result;
         }
     }
-#else
-    if (!buffer.fds.is_empty())
-        warnln("fd passing is not supported on this platform, sorry :(");
-#endif
 
     ReadonlyBytes bytes_to_write { buffer.data.span() };
     int writes_done = 0;
@@ -150,7 +172,9 @@ ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_socket_without
 
         auto bytes_read = maybe_bytes_read.release_value();
         if (bytes_read.is_empty()) {
-            deferred_invoke([this] { shutdown(); });
+            m_deferred_invoker->schedule([strong_this = NonnullRefPtr(*this)]() mutable {
+                strong_this->shutdown();
+            });
             if (!bytes.is_empty())
                 break;
             return Error::from_string_literal("IPC connection EOF");
@@ -187,8 +211,8 @@ ErrorOr<void> ConnectionBase::drain_messages_from_peer()
     }
 
     if (!m_unprocessed_messages.is_empty()) {
-        deferred_invoke([this] {
-            handle_messages();
+        m_deferred_invoker->schedule([strong_this = NonnullRefPtr(*this)]() mutable {
+            strong_this->handle_messages();
         });
     }
     return {};

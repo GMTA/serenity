@@ -27,11 +27,6 @@ enum ColorSpace : u8 {
     RGB = 7
 };
 
-enum ColorRange {
-    StudioSwing,
-    FullSwing
-};
-
 enum InterpolationFilter : u8 {
     EightTap = 0,
     EightTapSmooth = 1,
@@ -108,10 +103,10 @@ enum IntraMode : u8 {
 };
 
 enum InterMode : u8 {
-    NearestMv = 0,
-    NearMv = 1,
-    ZeroMv = 2,
-    NewMv = 3,
+    NearestMv = 10,
+    NearMv = 11,
+    ZeroMv = 12,
+    NewMv = 13,
 };
 
 enum MvJoint : u8 {

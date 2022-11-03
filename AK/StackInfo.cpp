@@ -10,11 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 #    include <serenity.h>
-#elif defined(__linux__) or defined(AK_OS_MACOS)
+#elif defined(AK_OS_LINUX) or defined(AK_OS_MACOS)
 #    include <pthread.h>
-#elif defined(__FreeBSD__)
+#elif defined(AK_OS_FREEBSD)
 #    include <pthread.h>
 #    include <pthread_np.h>
 #endif
@@ -23,17 +23,17 @@ namespace AK {
 
 StackInfo::StackInfo()
 {
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     if (get_stack_bounds(&m_base, &m_size) < 0) {
         perror("get_stack_bounds");
         VERIFY_NOT_REACHED();
     }
-#elif defined(__linux__) or defined(__FreeBSD__)
+#elif defined(AK_OS_LINUX) or defined(AK_OS_FREEBSD)
     int rc;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
 
-#    ifdef __linux__
+#    ifdef AK_OS_LINUX
     if ((rc = pthread_getattr_np(pthread_self(), &attr)) != 0) {
         fprintf(stderr, "pthread_getattr_np: %s\n", strerror(rc));
         VERIFY_NOT_REACHED();

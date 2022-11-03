@@ -16,7 +16,7 @@ class CSSFontFaceRule final : public CSSRule {
     WEB_PLATFORM_OBJECT(CSSFontFaceRule, CSSRule);
 
 public:
-    static CSSFontFaceRule* create(HTML::Window&, FontFace&&);
+    static CSSFontFaceRule* create(JS::Realm&, FontFace&&);
 
     virtual ~CSSFontFaceRule() override = default;
 
@@ -26,7 +26,7 @@ public:
     CSSStyleDeclaration* style();
 
 private:
-    explicit CSSFontFaceRule(HTML::Window&, FontFace&&);
+    CSSFontFaceRule(JS::Realm&, FontFace&&);
 
     virtual String serialized() const override;
 
@@ -37,5 +37,3 @@ template<>
 inline bool CSSRule::fast_is<CSSFontFaceRule>() const { return type() == CSSRule::Type::FontFace; }
 
 }
-
-WRAPPER_HACK(CSSFontFaceRule, Web::CSS)

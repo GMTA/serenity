@@ -11,8 +11,8 @@
 #include <AK/Vector.h>
 #include <LibWeb/Bindings/BlobPrototype.h>
 #include <LibWeb/Bindings/PlatformObject.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/Forward.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::FileAPI {
 
@@ -33,16 +33,16 @@ class Blob : public Bindings::PlatformObject {
 public:
     virtual ~Blob() override;
 
-    static DOM::ExceptionOr<JS::NonnullGCPtr<Blob>> create(HTML::Window&, Optional<Vector<BlobPart>> const& blob_parts = {}, Optional<BlobPropertyBag> const& options = {});
-    static DOM::ExceptionOr<JS::NonnullGCPtr<Blob>> create(HTML::Window&, ByteBuffer, String type);
-    static DOM::ExceptionOr<JS::NonnullGCPtr<Blob>> create_with_global_object(HTML::Window&, Optional<Vector<BlobPart>> const& blob_parts = {}, Optional<BlobPropertyBag> const& options = {});
+    static JS::NonnullGCPtr<Blob> create(JS::Realm&, ByteBuffer, String type);
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> create(JS::Realm&, Optional<Vector<BlobPart>> const& blob_parts = {}, Optional<BlobPropertyBag> const& options = {});
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> construct_impl(JS::Realm&, Optional<Vector<BlobPart>> const& blob_parts = {}, Optional<BlobPropertyBag> const& options = {});
 
     // https://w3c.github.io/FileAPI/#dfn-size
     u64 size() const { return m_byte_buffer.size(); }
     // https://w3c.github.io/FileAPI/#dfn-type
     String const& type() const { return m_type; }
 
-    DOM::ExceptionOr<JS::NonnullGCPtr<Blob>> slice(Optional<i64> start = {}, Optional<i64> end = {}, Optional<String> const& content_type = {});
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> slice(Optional<i64> start = {}, Optional<i64> end = {}, Optional<String> const& content_type = {});
 
     JS::Promise* text();
     JS::Promise* array_buffer();
@@ -50,16 +50,14 @@ public:
     ReadonlyBytes bytes() const { return m_byte_buffer.bytes(); }
 
 protected:
-    Blob(HTML::Window&, ByteBuffer, String type);
-    Blob(HTML::Window&, ByteBuffer);
+    Blob(JS::Realm&, ByteBuffer, String type);
+    Blob(JS::Realm&, ByteBuffer);
 
 private:
-    explicit Blob(HTML::Window&);
+    explicit Blob(JS::Realm&);
 
     ByteBuffer m_byte_buffer {};
     String m_type {};
 };
 
 }
-
-WRAPPER_HACK(Blob, Web::FileAPI)

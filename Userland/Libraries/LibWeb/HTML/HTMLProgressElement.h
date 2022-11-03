@@ -16,7 +16,7 @@ class HTMLProgressElement final : public HTMLElement {
 public:
     virtual ~HTMLProgressElement() override;
 
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
     double value() const;
     void set_value(double);
@@ -41,5 +41,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(HTMLProgressElement, Web::HTML)

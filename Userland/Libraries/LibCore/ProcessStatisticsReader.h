@@ -34,7 +34,7 @@ struct ThreadStatistics {
 };
 
 struct ProcessStatistics {
-    // Keep this in sync with /proc/all.
+    // Keep this in sync with /sys/kernel/processes.
     // From the kernel side:
     pid_t pid;
     pid_t pgid;
@@ -72,8 +72,8 @@ struct AllProcessesStatistics {
 
 class ProcessStatisticsReader {
 public:
-    static Optional<AllProcessesStatistics> get_all(RefPtr<Core::File>&);
-    static Optional<AllProcessesStatistics> get_all();
+    static Optional<AllProcessesStatistics> get_all(RefPtr<Core::File>&, bool include_usernames = true);
+    static Optional<AllProcessesStatistics> get_all(bool include_usernames = true);
 
 private:
     static String username_from_uid(uid_t);

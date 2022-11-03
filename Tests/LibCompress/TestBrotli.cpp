@@ -12,7 +12,7 @@
 static void run_test(StringView const file_name)
 {
     // This makes sure that the tests will run both on target and in Lagom.
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     String path = String::formatted("/usr/Tests/LibCompress/brotli-test-files/{}", file_name);
 #else
     String path = String::formatted("brotli-test-files/{}", file_name);
@@ -75,10 +75,20 @@ TEST_CASE(brotli_decompress_katica_regular_10_font)
     run_test("KaticaRegular10.font"sv);
 }
 
+TEST_CASE(brotli_single_z)
+{
+    run_test("single-z.txt"sv);
+}
+
+TEST_CASE(brotli_single_x)
+{
+    run_test("single-x.txt"sv);
+}
+
 TEST_CASE(brotli_decompress_zero_one_bin)
 {
     // This makes sure that the tests will run both on target and in Lagom.
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     String path = "/usr/Tests/LibCompress/brotli-test-files/zero-one.bin";
 #else
     String path = "brotli-test-files/zero-one.bin";

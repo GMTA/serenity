@@ -10,7 +10,7 @@
 #include <AK/HashMap.h>
 #include <AK/SourceGenerator.h>
 #include <AK/StringBuilder.h>
-#include <LibCore/File.h>
+#include <LibCore/Stream.h>
 #include <LibMain/Main.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -751,7 +751,7 @@ public:
 private:
 };
 
-#ifdef __clang__
+#if defined(AK_COMPILER_CLANG)
 #pragma clang diagnostic pop
 #endif)~~~");
 }
@@ -781,7 +781,7 @@ void build(StringBuilder& builder, Vector<Endpoint> const& endpoints)
 #include <LibIPC/Message.h>
 #include <LibIPC/Stub.h>
 
-#ifdef __clang__
+#if defined(AK_COMPILER_CLANG)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdefaulted-function-deleted"
 #endif)~~~");
@@ -797,9 +797,9 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         return 1;
     }
 
-    auto file = TRY(Core::File::open(arguments.strings[1], Core::OpenMode::ReadOnly));
+    auto file = TRY(Core::Stream::File::open(arguments.strings[1], Core::Stream::OpenMode::Read));
 
-    auto file_contents = file->read_all();
+    auto file_contents = TRY(file->read_all());
 
     auto endpoints = parse(file_contents);
 

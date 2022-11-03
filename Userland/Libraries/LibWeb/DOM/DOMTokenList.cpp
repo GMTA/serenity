@@ -5,13 +5,12 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/CharacterTypes.h>
 #include <AK/StringBuilder.h>
-#include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/DOM/DOMTokenList.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
-#include <LibWeb/HTML/Window.h>
+#include <LibWeb/Infra/CharacterTypes.h>
+#include <LibWeb/WebIDL/DOMException.h>
 
 namespace {
 
@@ -55,13 +54,13 @@ namespace Web::DOM {
 
 DOMTokenList* DOMTokenList::create(Element const& associated_element, FlyString associated_attribute)
 {
-    auto& realm = associated_element.document().window().realm();
+    auto& realm = associated_element.realm();
     return realm.heap().allocate<DOMTokenList>(realm, associated_element, move(associated_attribute));
 }
 
 // https://dom.spec.whatwg.org/#ref-for-domtokenlist%E2%91%A0%E2%91%A2
 DOMTokenList::DOMTokenList(Element const& associated_element, FlyString associated_attribute)
-    : Bindings::LegacyPlatformObject(associated_element.window().cached_web_prototype("DOMTokenList"))
+    : Bindings::LegacyPlatformObject(Bindings::cached_web_prototype(associated_element.realm(), "DOMTokenList"))
     , m_associated_element(associated_element)
     , m_associated_attribute(move(associated_attribute))
 {
@@ -77,7 +76,7 @@ void DOMTokenList::associated_attribute_changed(StringView value)
     if (value.is_empty())
         return;
 
-    auto split_values = value.split_view(' ');
+    auto split_values = value.split_view_if(Infra::is_ascii_whitespace);
     for (auto const& split_value : split_values)
         append_to_ordered_set(m_token_set, split_value);
 }
@@ -108,7 +107,7 @@ bool DOMTokenList::contains(StringView token)
 }
 
 // https://dom.spec.whatwg.org/#dom-domtokenlist-add
-ExceptionOr<void> DOMTokenList::add(Vector<String> const& tokens)
+WebIDL::ExceptionOr<void> DOMTokenList::add(Vector<String> const& tokens)
 {
     // 1. For each token in tokens:
     for (auto const& token : tokens) {
@@ -126,7 +125,7 @@ ExceptionOr<void> DOMTokenList::add(Vector<String> const& tokens)
 }
 
 // https://dom.spec.whatwg.org/#dom-domtokenlist-remove
-ExceptionOr<void> DOMTokenList::remove(Vector<String> const& tokens)
+WebIDL::ExceptionOr<void> DOMTokenList::remove(Vector<String> const& tokens)
 {
     // 1. For each token in tokens:
     for (auto const& token : tokens) {
@@ -144,7 +143,7 @@ ExceptionOr<void> DOMTokenList::remove(Vector<String> const& tokens)
 }
 
 // https://dom.spec.whatwg.org/#dom-domtokenlist-toggle
-ExceptionOr<bool> DOMTokenList::toggle(String const& token, Optional<bool> force)
+WebIDL::ExceptionOr<bool> DOMTokenList::toggle(String const& token, Optional<bool> force)
 {
     // 1. If token is the empty string, then throw a "SyntaxError" DOMException.
     // 2. If token contains any ASCII whitespace, then throw an "InvalidCharacterError" DOMException.
@@ -175,7 +174,7 @@ ExceptionOr<bool> DOMTokenList::toggle(String const& token, Optional<bool> force
 }
 
 // https://dom.spec.whatwg.org/#dom-domtokenlist-replace
-ExceptionOr<bool> DOMTokenList::replace(String const& token, String const& new_token)
+WebIDL::ExceptionOr<bool> DOMTokenList::replace(String const& token, String const& new_token)
 {
     // 1. If either token or newToken is the empty string, then throw a "SyntaxError" DOMException.
     // 2. If either token or newToken contains any ASCII whitespace, then throw an "InvalidCharacterError" DOMException.
@@ -198,13 +197,13 @@ ExceptionOr<bool> DOMTokenList::replace(String const& token, String const& new_t
 
 // https://dom.spec.whatwg.org/#dom-domtokenlist-supports
 // https://dom.spec.whatwg.org/#concept-domtokenlist-validation
-ExceptionOr<bool> DOMTokenList::supports([[maybe_unused]] StringView token)
+WebIDL::ExceptionOr<bool> DOMTokenList::supports([[maybe_unused]] StringView token)
 {
     // FIXME: Implement this fully when any use case defines supported tokens.
 
     // 1. If the associated attribute’s local name does not define supported tokens, throw a TypeError.
-    return DOM::SimpleException {
-        DOM::SimpleExceptionType::TypeError,
+    return WebIDL::SimpleException {
+        WebIDL::SimpleExceptionType::TypeError,
         String::formatted("Attribute {} does not define any supported tokens", m_associated_attribute)
     };
 
@@ -228,15 +227,15 @@ void DOMTokenList::set_value(String value)
     if (!associated_element)
         return;
 
-    associated_element->set_attribute(m_associated_attribute, move(value));
+    MUST(associated_element->set_attribute(m_associated_attribute, move(value)));
 }
 
-ExceptionOr<void> DOMTokenList::validate_token(StringView token) const
+WebIDL::ExceptionOr<void> DOMTokenList::validate_token(StringView token) const
 {
     if (token.is_empty())
-        return SyntaxError::create(global_object(), "Non-empty DOM tokens are not allowed");
-    if (any_of(token, is_ascii_space))
-        return InvalidCharacterError::create(global_object(), "DOM tokens containing ASCII whitespace are not allowed");
+        return WebIDL::SyntaxError::create(realm(), "Non-empty DOM tokens are not allowed");
+    if (any_of(token, Infra::is_ascii_whitespace))
+        return WebIDL::InvalidCharacterError::create(realm(), "DOM tokens containing ASCII whitespace are not allowed");
     return {};
 }
 
@@ -252,7 +251,7 @@ void DOMTokenList::run_update_steps()
         return;
 
     // 2. Set an attribute value for the associated element using associated attribute’s local name and the result of running the ordered set serializer for token set.
-    associated_element->set_attribute(m_associated_attribute, value());
+    MUST(associated_element->set_attribute(m_associated_attribute, value()));
 }
 
 JS::Value DOMTokenList::item_value(size_t index) const

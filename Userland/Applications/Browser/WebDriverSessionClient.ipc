@@ -1,0 +1,40 @@
+#include <AK/URL.h>
+#include <AK/Vector.h>
+#include <LibGfx/Point.h>
+#include <LibGfx/Rect.h>
+#include <LibGfx/ShareableBitmap.h>
+#include <LibGfx/Size.h>
+#include <LibWeb/Cookie/Cookie.h>
+#include <LibWeb/Cookie/ParsedCookie.h>
+#include <LibWeb/WebDriver/ExecuteScript.h>
+
+endpoint WebDriverSessionClient {
+    quit() =|
+
+    get_url() => (URL url)
+    set_url(URL url) =|
+    get_title() => (String title)
+    refresh() =|
+    back() =|
+    forward() =|
+    get_window_rect() => (Gfx::IntRect rect)
+    restore_window() =|
+    set_window_size(Gfx::IntSize size) =|
+    set_window_position(Gfx::IntPoint position) =|
+    maximize_window() =|
+    minimize_window() =|
+    execute_script(String body, Vector<String> json_arguments, Optional<u64> timeout, bool async) => (Web::WebDriver::ExecuteScriptResultType result_type, String json_result)
+    get_all_cookies() => (Vector<Web::Cookie::Cookie> cookies)
+    get_named_cookie(String name) => (Optional<Web::Cookie::Cookie> cookie)
+    add_cookie(Web::Cookie::ParsedCookie cookie) =|
+    update_cookie(Web::Cookie::Cookie cookie) =|
+    get_document_element() => (Optional<i32> document_element_id)
+    query_selector_all(i32 start_node_id, String selector) => (Optional<Vector<i32>> elements_ids)
+    get_element_attribute(i32 element_id, String name) => (Optional<String> atttibute)
+    get_element_property(i32 element_id, String name) => (Optional<String> property)
+    get_active_documents_type() => (String type)
+    get_computed_value_for_element(i32 element_id, String property_name) => (String computed_value)
+    get_element_text(i32 element_id) => (String text)
+    get_element_tag_name(i32 element_id) => (String tag_name)
+    take_screenshot() => (Gfx::ShareableBitmap data)
+}

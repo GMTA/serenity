@@ -12,6 +12,8 @@
 namespace Web::HTML {
 
 class WindowEnvironmentSettingsObject final : public EnvironmentSettingsObject {
+    JS_CELL(WindowEnvironmentSettingsObject, EnvironmentSettingsObject);
+
 public:
     static void setup(AK::URL const& creation_url, NonnullOwnPtr<JS::ExecutionContext>, Optional<Environment>, AK::URL top_level_creation_url, Origin top_level_origin);
 
@@ -21,6 +23,7 @@ public:
     virtual String api_url_character_encoding() override;
     virtual AK::URL api_base_url() override;
     virtual Origin origin() override;
+    virtual PolicyContainer policy_container() override;
     virtual CanUseCrossOriginIsolatedAPIs cross_origin_isolated_capability() override;
 
 private:

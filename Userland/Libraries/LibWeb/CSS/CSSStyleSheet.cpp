@@ -4,24 +4,26 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/CSSStyleSheetPrototype.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/CSS/StyleSheetList.h>
 #include <LibWeb/DOM/Document.h>
-#include <LibWeb/DOM/ExceptionOr.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::CSS {
 
-CSSStyleSheet* CSSStyleSheet::create(HTML::Window& window_object, CSSRuleList& rules, Optional<AK::URL> location)
+CSSStyleSheet* CSSStyleSheet::create(JS::Realm& realm, CSSRuleList& rules, Optional<AK::URL> location)
 {
-    return window_object.heap().allocate<CSSStyleSheet>(window_object.realm(), window_object, rules, move(location));
+    return realm.heap().allocate<CSSStyleSheet>(realm, realm, rules, move(location));
 }
 
-CSSStyleSheet::CSSStyleSheet(HTML::Window& window_object, CSSRuleList& rules, Optional<AK::URL> location)
-    : StyleSheet(window_object)
+CSSStyleSheet::CSSStyleSheet(JS::Realm& realm, CSSRuleList& rules, Optional<AK::URL> location)
+    : StyleSheet(realm)
     , m_rules(&rules)
 {
-    set_prototype(&window_object.cached_web_prototype("CSSStyleSheet"));
+    set_prototype(&Bindings::ensure_web_prototype<Bindings::CSSStyleSheetPrototype>(realm, "CSSStyleSheet"));
 
     if (location.has_value())
         set_location(location->to_string());
@@ -39,7 +41,7 @@ void CSSStyleSheet::visit_edges(Cell::Visitor& visitor)
 }
 
 // https://www.w3.org/TR/cssom/#dom-cssstylesheet-insertrule
-DOM::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsigned index)
+WebIDL::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsigned index)
 {
     // FIXME: 1. If the origin-clean flag is unset, throw a SecurityError exception.
 
@@ -50,7 +52,7 @@ DOM::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsigned 
 
     // 4. If parsed rule is a syntax error, return parsed rule.
     if (!parsed_rule)
-        return DOM::SyntaxError::create(global_object(), "Unable to parse CSS rule.");
+        return WebIDL::SyntaxError::create(realm(), "Unable to parse CSS rule.");
 
     // FIXME: 5. If parsed rule is an @import rule, and the constructed flag is set, throw a SyntaxError DOMException.
 
@@ -71,7 +73,7 @@ DOM::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsigned 
 }
 
 // https://www.w3.org/TR/cssom/#dom-cssstylesheet-deleterule
-DOM::ExceptionOr<void> CSSStyleSheet::delete_rule(unsigned index)
+WebIDL::ExceptionOr<void> CSSStyleSheet::delete_rule(unsigned index)
 {
     // FIXME: 1. If the origin-clean flag is unset, throw a SecurityError exception.
 
@@ -89,7 +91,7 @@ DOM::ExceptionOr<void> CSSStyleSheet::delete_rule(unsigned index)
 }
 
 // https://www.w3.org/TR/cssom/#dom-cssstylesheet-removerule
-DOM::ExceptionOr<void> CSSStyleSheet::remove_rule(unsigned index)
+WebIDL::ExceptionOr<void> CSSStyleSheet::remove_rule(unsigned index)
 {
     // The removeRule(index) method must run the same steps as deleteRule().
     return delete_rule(index);

@@ -8,6 +8,7 @@
 
 #include <AK/Assertions.h>
 #include <AK/Checked.h>
+#include <AK/EnumBits.h>
 #include <AK/Forward.h>
 #include <AK/Optional.h>
 #include <AK/Span.h>
@@ -88,6 +89,7 @@ public:
     [[nodiscard]] bool matches(StringView mask, CaseSensitivity = CaseSensitivity::CaseInsensitive) const;
     [[nodiscard]] bool matches(StringView mask, Vector<MaskSpan>&, CaseSensitivity = CaseSensitivity::CaseInsensitive) const;
     [[nodiscard]] bool contains(char) const;
+    [[nodiscard]] bool contains(u32) const;
     [[nodiscard]] bool contains(StringView, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
     [[nodiscard]] bool equals_ignoring_case(StringView other) const;
 
@@ -106,6 +108,7 @@ public:
     }
     [[nodiscard]] Optional<size_t> find(StringView needle, size_t start = 0) const { return StringUtils::find(*this, needle, start); }
     [[nodiscard]] Optional<size_t> find_last(char needle) const { return StringUtils::find_last(*this, needle); }
+    [[nodiscard]] Optional<size_t> find_last_not(char needle) const { return StringUtils::find_last_not(*this, needle); }
     // FIXME: Implement find_last(StringView) for API symmetry.
 
     [[nodiscard]] Vector<size_t> find_all(StringView needle) const;
@@ -127,10 +130,10 @@ public:
         return substring_view(start, length() - start);
     }
 
-    [[nodiscard]] Vector<StringView> split_view(char, bool keep_empty = false) const;
-    [[nodiscard]] Vector<StringView> split_view(StringView, bool keep_empty = false) const;
+    [[nodiscard]] Vector<StringView> split_view(char, SplitBehavior = SplitBehavior::Nothing) const;
+    [[nodiscard]] Vector<StringView> split_view(StringView, SplitBehavior = SplitBehavior::Nothing) const;
 
-    [[nodiscard]] Vector<StringView> split_view_if(Function<bool(char)> const& predicate, bool keep_empty = false) const;
+    [[nodiscard]] Vector<StringView> split_view_if(Function<bool(char)> const& predicate, SplitBehavior = SplitBehavior::Nothing) const;
 
     [[nodiscard]] StringView find_last_split_view(char separator) const
     {
@@ -149,14 +152,14 @@ public:
     }
 
     template<VoidFunction<StringView> Callback>
-    void for_each_split_view(char separator, bool keep_empty, Callback callback) const
+    void for_each_split_view(char separator, SplitBehavior split_behavior, Callback callback) const
     {
         StringView seperator_view { &separator, 1 };
-        for_each_split_view(seperator_view, keep_empty, callback);
+        for_each_split_view(seperator_view, split_behavior, callback);
     }
 
     template<VoidFunction<StringView> Callback>
-    void for_each_split_view(StringView separator, bool keep_empty, Callback callback) const
+    void for_each_split_view(StringView separator, SplitBehavior split_behavior, Callback callback) const
     {
         VERIFY(!separator.is_empty());
 
@@ -166,11 +169,17 @@ public:
         StringView view { *this };
 
         auto maybe_separator_index = find(separator);
+        bool keep_empty = has_flag(split_behavior, SplitBehavior::KeepEmpty);
+        bool keep_separator = has_flag(split_behavior, SplitBehavior::KeepTrailingSeparator);
         while (maybe_separator_index.has_value()) {
             auto separator_index = maybe_separator_index.value();
             auto part_with_separator = view.substring_view(0, separator_index + separator.length());
-            if (keep_empty || separator_index > 0)
-                callback(part_with_separator.substring_view(0, separator_index));
+            if (keep_empty || separator_index > 0) {
+                if (keep_separator)
+                    callback(part_with_separator);
+                else
+                    callback(part_with_separator.substring_view(0, separator_index));
+            }
             view = view.substring_view_starting_after_substring(part_with_separator);
             maybe_separator_index = view.find(separator);
         }
@@ -188,6 +197,10 @@ public:
     Optional<T> to_int() const;
     template<typename T = unsigned>
     Optional<T> to_uint() const;
+#ifndef KERNEL
+    Optional<double> to_double(TrimWhitespace trim_whitespace = TrimWhitespace::Yes) const;
+    Optional<float> to_float(TrimWhitespace trim_whitespace = TrimWhitespace::Yes) const;
+#endif
 
     // Create a new substring view of this string view, starting either at the beginning of
     // the given substring view, or after its end, and continuing until the end of this string
@@ -225,6 +238,11 @@ public:
                 return false;
         }
         return *cp == '\0';
+    }
+
+    constexpr bool operator==(char const c) const
+    {
+        return m_length == 1 && *m_characters == c;
     }
 
     constexpr bool operator!=(char const* cstring) const
@@ -333,7 +351,7 @@ struct CaseInsensitiveStringViewTraits : public Traits<StringView> {
 
 // FIXME: Remove this when clang fully supports consteval (specifically in the context of default parameter initialization).
 // See: https://stackoverflow.com/questions/68789984/immediate-function-as-default-function-argument-initializer-in-clang
-#if defined(__clang__)
+#if defined(AK_COMPILER_CLANG)
 #    define AK_STRING_VIEW_LITERAL_CONSTEVAL constexpr
 #else
 #    define AK_STRING_VIEW_LITERAL_CONSTEVAL consteval

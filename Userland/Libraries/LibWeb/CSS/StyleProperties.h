@@ -40,7 +40,9 @@ public:
 
     void set_property(CSS::PropertyID, NonnullRefPtr<StyleValue> value);
     NonnullRefPtr<StyleValue> property(CSS::PropertyID) const;
+    RefPtr<StyleValue> maybe_null_property(CSS::PropertyID) const;
 
+    CSS::Size size_value(CSS::PropertyID) const;
     Length length_or_fallback(CSS::PropertyID, Length const& fallback) const;
     LengthPercentage length_percentage_or_fallback(CSS::PropertyID, LengthPercentage const& fallback) const;
     Optional<LengthPercentage> length_percentage(CSS::PropertyID) const;
@@ -67,9 +69,11 @@ public:
     float flex_grow() const;
     float flex_shrink() const;
     int order() const;
+    Optional<CSS::AlignContent> align_content() const;
     Optional<CSS::AlignItems> align_items() const;
     Optional<CSS::AlignSelf> align_self() const;
     Optional<CSS::Appearance> appearance() const;
+    CSS::BackdropFilter backdrop_filter() const;
     float opacity() const;
     Optional<CSS::Visibility> visibility() const;
     Optional<CSS::ImageRendering> image_rendering() const;
@@ -81,8 +85,8 @@ public:
     Optional<CSS::PointerEvents> pointer_events() const;
     Variant<CSS::VerticalAlign, CSS::LengthPercentage> vertical_align() const;
     Optional<CSS::FontVariant> font_variant() const;
-    Vector<CSS::GridTrackSize> grid_template_columns() const;
-    Vector<CSS::GridTrackSize> grid_template_rows() const;
+    CSS::GridTrackSizeList grid_template_columns() const;
+    CSS::GridTrackSizeList grid_template_rows() const;
     CSS::GridTrackPlacement grid_column_end() const;
     CSS::GridTrackPlacement grid_column_start() const;
     CSS::GridTrackPlacement grid_row_end() const;

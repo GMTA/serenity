@@ -30,7 +30,7 @@ static constexpr unsigned const WAVE_FORMAT_EXTENSIBLE = 0xFFFE; // Determined b
 class WavLoaderPlugin : public LoaderPlugin {
 public:
     explicit WavLoaderPlugin(StringView path);
-    explicit WavLoaderPlugin(Bytes const& buffer);
+    explicit WavLoaderPlugin(Bytes buffer);
 
     virtual MaybeLoaderError initialize() override;
 
@@ -48,7 +48,6 @@ public:
     virtual u16 num_channels() override { return m_num_channels; }
     virtual String format_name() override { return "RIFF WAVE (.wav)"; }
     virtual PcmSampleFormat pcm_format() override { return m_sample_format; }
-    virtual RefPtr<Core::File> file() override { return m_file; }
 
 private:
     MaybeLoaderError parse_header();
@@ -56,12 +55,6 @@ private:
     LoaderSamples samples_from_pcm_data(Bytes const& data, size_t samples_to_read) const;
     template<typename SampleReader>
     MaybeLoaderError read_samples_from_stream(Core::Stream::Stream& stream, SampleReader read_sample, FixedArray<Sample>& samples) const;
-
-    // This is only kept around for compatibility for now.
-    RefPtr<Core::File> m_file;
-    OwnPtr<Core::Stream::SeekableStream> m_stream;
-    // The constructor might set this so that we can initialize the data stream later.
-    Optional<Bytes const&> m_backing_memory;
 
     u32 m_sample_rate { 0 };
     u16 m_num_channels { 0 };

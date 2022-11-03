@@ -13,14 +13,14 @@ namespace Web::HTML {
 HTMLBRElement::HTMLBRElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLBRElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLBRElement"));
 }
 
 HTMLBRElement::~HTMLBRElement() = default;
 
-RefPtr<Layout::Node> HTMLBRElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> HTMLBRElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
 {
-    return adopt_ref(*new Layout::BreakNode(document(), *this, move(style)));
+    return heap().allocate_without_realm<Layout::BreakNode>(document(), *this, move(style));
 }
 
 }

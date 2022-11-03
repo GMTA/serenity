@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021, Luke Wilde <lukew@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -28,6 +28,8 @@
 #include <LibWeb/HTML/Parser/HTMLParser.h>
 #include <LibWeb/HTML/Parser/HTMLToken.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/HighResolutionTime/TimeOrigin.h>
+#include <LibWeb/Infra/CharacterTypes.h>
 #include <LibWeb/Namespace.h>
 #include <LibWeb/SVG/TagNames.h>
 
@@ -121,6 +123,7 @@ static bool is_html_integration_point(DOM::Element const& element)
 
 HTMLParser::HTMLParser(DOM::Document& document, StringView input, String const& encoding)
     : m_tokenizer(input, encoding)
+    , m_scripting_enabled(document.is_scripting_enabled())
     , m_document(JS::make_handle(document))
 {
     m_tokenizer.set_parser({}, *this);
@@ -132,7 +135,8 @@ HTMLParser::HTMLParser(DOM::Document& document, StringView input, String const& 
 }
 
 HTMLParser::HTMLParser(DOM::Document& document)
-    : m_document(JS::make_handle(document))
+    : m_scripting_enabled(document.is_scripting_enabled())
+    , m_document(JS::make_handle(document))
 {
     m_document->set_parser({}, *this);
     m_tokenizer.set_parser({}, *this);
@@ -141,6 +145,19 @@ HTMLParser::HTMLParser(DOM::Document& document)
 HTMLParser::~HTMLParser()
 {
     m_document->set_should_invalidate_styles_on_attribute_changes(true);
+}
+
+void HTMLParser::visit_edges(Cell::Visitor& visitor)
+{
+    Base::visit_edges(visitor);
+    visitor.visit(m_document);
+    visitor.visit(m_head_element);
+    visitor.visit(m_form_element);
+    visitor.visit(m_context_element);
+    visitor.visit(m_character_insertion_node);
+
+    m_stack_of_open_elements.visit_edges(visitor);
+    m_list_of_active_formatting_elements.visit_edges(visitor);
 }
 
 void HTMLParser::run()
@@ -234,14 +251,16 @@ void HTMLParser::the_end()
 
     // 6. Queue a global task on the DOM manipulation task source given the Document's relevant global object to run the following substeps:
     old_queue_global_task_with_document(HTML::Task::Source::DOMManipulation, *m_document, [document = m_document]() mutable {
-        // FIXME: 1. Set the Document's load timing info's DOM content loaded event start time to the current high resolution time given the Document's relevant global object.
+        // 1. Set the Document's load timing info's DOM content loaded event start time to the current high resolution time given the Document's relevant global object.
+        document->load_timing_info().dom_content_loaded_event_start_time = HighResolutionTime::unsafe_shared_current_time();
 
         // 2. Fire an event named DOMContentLoaded at the Document object, with its bubbles attribute initialized to true.
-        auto content_loaded_event = DOM::Event::create(document->window(), HTML::EventNames::DOMContentLoaded);
+        auto content_loaded_event = DOM::Event::create(document->realm(), HTML::EventNames::DOMContentLoaded);
         content_loaded_event->set_bubbles(true);
         document->dispatch_event(*content_loaded_event);
 
-        // FIXME: 3. Set the Document's load timing info's DOM content loaded event end time to the current high resolution time given the Document's relevant global object.
+        // 3. Set the Document's load timing info's DOM content loaded event end time to the current high resolution time given the Document's relevant global object.
+        document->load_timing_info().dom_content_loaded_event_end_time = HighResolutionTime::unsafe_shared_current_time();
 
         // FIXME: 4. Enable the client message queue of the ServiceWorkerContainer object whose associated service worker client is the Document object's relevant settings object.
 
@@ -271,18 +290,20 @@ void HTMLParser::the_end()
         // 3. Let window be the Document's relevant global object.
         JS::NonnullGCPtr<Window> window = document->window();
 
-        // FIXME: 4. Set the Document's load timing info's load event start time to the current high resolution time given window.
+        // 4. Set the Document's load timing info's load event start time to the current high resolution time given window.
+        document->load_timing_info().load_event_start_time = HighResolutionTime::unsafe_shared_current_time();
 
         // 5. Fire an event named load at window, with legacy target override flag set.
         // FIXME: The legacy target override flag is currently set by a virtual override of dispatch_event()
         //        We should reorganize this so that the flag appears explicitly here instead.
-        window->dispatch_event(*DOM::Event::create(document->window(), HTML::EventNames::load));
+        window->dispatch_event(*DOM::Event::create(document->realm(), HTML::EventNames::load));
 
         // FIXME: 6. Invoke WebDriver BiDi load complete with the Document's browsing context, and a new WebDriver BiDi navigation status whose id is the Document object's navigation id, status is "complete", and url is the Document object's URL.
 
         // FIXME: 7. Set the Document object's navigation id to null.
 
-        // FIXME: 8. Set the Document's load timing info's load event end time to the current high resolution time given window.
+        // 8. Set the Document's load timing info's load event end time to the current high resolution time given window.
+        document->load_timing_info().load_event_end_time = HighResolutionTime::unsafe_shared_current_time();
 
         // 9. Assert: Document's page showing is false.
         VERIFY(!document->page_showing());
@@ -444,7 +465,7 @@ void HTMLParser::handle_initial(HTMLToken& token)
 
     if (token.is_comment()) {
         auto comment = realm().heap().allocate<DOM::Comment>(realm(), document(), token.comment());
-        document().append_child(*comment);
+        MUST(document().append_child(*comment));
         return;
     }
 
@@ -453,7 +474,7 @@ void HTMLParser::handle_initial(HTMLToken& token)
         doctype->set_name(token.doctype_data().name);
         doctype->set_public_id(token.doctype_data().public_identifier);
         doctype->set_system_id(token.doctype_data().system_identifier);
-        document().append_child(*doctype);
+        MUST(document().append_child(*doctype));
         document().set_quirks_mode(which_quirks_mode(token));
         m_insertion_mode = InsertionMode::BeforeHTML;
         return;
@@ -474,7 +495,7 @@ void HTMLParser::handle_before_html(HTMLToken& token)
 
     if (token.is_comment()) {
         auto comment = realm().heap().allocate<DOM::Comment>(realm(), document(), token.comment());
-        document().append_child(*comment);
+        MUST(document().append_child(*comment));
         return;
     }
 
@@ -484,7 +505,7 @@ void HTMLParser::handle_before_html(HTMLToken& token)
 
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::html) {
         auto element = create_element_for(token, Namespace::HTML, document());
-        document().append_child(*element);
+        MUST(document().append_child(*element));
         m_stack_of_open_elements.push(move(element));
         m_insertion_mode = InsertionMode::BeforeHead;
         return;
@@ -501,7 +522,7 @@ void HTMLParser::handle_before_html(HTMLToken& token)
 
 AnythingElse:
     auto element = create_element(document(), HTML::TagNames::html, Namespace::HTML);
-    document().append_child(*element);
+    MUST(document().append_child(*element));
     m_stack_of_open_elements.push(element);
     // FIXME: If the Document is being loaded as part of navigation of a browsing context, then: run the application cache selection algorithm with no manifest, passing it the Document object.
     m_insertion_mode = InsertionMode::BeforeHead;
@@ -606,7 +627,7 @@ JS::NonnullGCPtr<DOM::Element> HTMLParser::create_element_for(HTMLToken const& t
     // 10. Append each attribute in the given token to element.
     // FIXME: This isn't the exact `append` the spec is talking about.
     token.for_each_attribute([&](auto& attribute) {
-        element->set_attribute(attribute.local_name, attribute.value);
+        MUST(element->set_attribute(attribute.local_name, attribute.value));
         return IterationDecision::Continue;
     });
 
@@ -909,7 +930,7 @@ DOM::Text* HTMLParser::find_character_insertion_node()
     if (adjusted_insertion_location.parent->last_child() && adjusted_insertion_location.parent->last_child()->is_text())
         return verify_cast<DOM::Text>(adjusted_insertion_location.parent->last_child());
     auto new_text_node = realm().heap().allocate<DOM::Text>(realm(), document(), "");
-    adjusted_insertion_location.parent->append_child(*new_text_node);
+    MUST(adjusted_insertion_location.parent->append_child(*new_text_node));
     return new_text_node;
 }
 
@@ -1034,7 +1055,7 @@ void HTMLParser::handle_after_body(HTMLToken& token)
 
     if (token.is_comment()) {
         auto& insertion_location = m_stack_of_open_elements.first();
-        insertion_location.append_child(*realm().heap().allocate<DOM::Comment>(realm(), document(), token.comment()));
+        MUST(insertion_location.append_child(*realm().heap().allocate<DOM::Comment>(realm(), document(), token.comment())));
         return;
     }
 
@@ -1071,7 +1092,7 @@ void HTMLParser::handle_after_after_body(HTMLToken& token)
 {
     if (token.is_comment()) {
         auto comment = realm().heap().allocate<DOM::Comment>(realm(), document(), token.comment());
-        document().append_child(*comment);
+        MUST(document().append_child(*comment));
         return;
     }
 
@@ -1290,7 +1311,7 @@ HTMLParser::AdoptionAgencyAlgorithmOutcome HTMLParser::run_the_adoption_agency_a
             }
 
             // 8. Append last node to node.
-            node->append_child(*last_node);
+            MUST(node->append_child(*last_node));
 
             // 9. Set last node to node.
             last_node = node;
@@ -1308,10 +1329,10 @@ HTMLParser::AdoptionAgencyAlgorithmOutcome HTMLParser::run_the_adoption_agency_a
 
         // 16. Take all of the child nodes of furthest block and append them to the element created in the last step.
         for (auto& child : furthest_block->children_as_vector())
-            element->append_child(furthest_block->remove_child(*child).release_value());
+            MUST(element->append_child(furthest_block->remove_child(*child).release_value()));
 
         // 17. Append that new element to furthest block.
-        furthest_block->append_child(*element);
+        MUST(furthest_block->append_child(*element));
 
         // 18. Remove formatting element from the list of active formatting elements,
         //     and insert the new element into the list of active formatting elements at the position of the aforementioned bookmark.
@@ -1460,7 +1481,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             return;
         token.for_each_attribute([&](auto& attribute) {
             if (!current_node().has_attribute(attribute.local_name))
-                current_node().set_attribute(attribute.local_name, attribute.value);
+                MUST(current_node().set_attribute(attribute.local_name, attribute.value));
             return IterationDecision::Continue;
         });
         return;
@@ -1487,7 +1508,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         auto& body_element = m_stack_of_open_elements.elements().at(1);
         token.for_each_attribute([&](auto& attribute) {
             if (!body_element->has_attribute(attribute.local_name))
-                body_element->set_attribute(attribute.local_name, attribute.value);
+                MUST(body_element->set_attribute(attribute.local_name, attribute.value));
             return IterationDecision::Continue;
         });
         return;
@@ -3105,7 +3126,7 @@ void HTMLParser::handle_after_after_frameset(HTMLToken& token)
 {
     if (token.is_comment()) {
         auto* comment = document().heap().allocate<DOM::Comment>(document().realm(), document(), token.comment());
-        document().append_child(*comment);
+        MUST(document().append_child(*comment));
         return;
     }
 
@@ -3367,74 +3388,117 @@ DOM::Document& HTMLParser::document()
     return *m_document;
 }
 
+// https://html.spec.whatwg.org/multipage/parsing.html#parsing-html-fragments
 Vector<JS::Handle<DOM::Node>> HTMLParser::parse_html_fragment(DOM::Element& context_element, StringView markup)
 {
-    auto temp_document = DOM::Document::create(context_element.window());
+    // 1. Create a new Document node, and mark it as being an HTML document.
+    auto temp_document = DOM::Document::create(context_element.realm());
+    temp_document->set_document_type(DOM::Document::Type::HTML);
+
+    // 2. If the node document of the context element is in quirks mode, then let the Document be in quirks mode.
+    //    Otherwise, the node document of the context element is in limited-quirks mode, then let the Document be in limited-quirks mode.
+    //    Otherwise, leave the Document in no-quirks mode.
+    temp_document->set_quirks_mode(context_element.document().mode());
+
+    // 3. Create a new HTML parser, and associate it with the just created Document node.
     auto parser = HTMLParser::create(*temp_document, markup, "utf-8");
     parser->m_context_element = JS::make_handle(context_element);
     parser->m_parsing_fragment = true;
-    parser->document().set_quirks_mode(context_element.document().mode());
 
+    // 4. Set the state of the HTML parser's tokenization stage as follows, switching on the context element:
+    // - title
+    // - textarea
     if (context_element.local_name().is_one_of(HTML::TagNames::title, HTML::TagNames::textarea)) {
+        // Switch the tokenizer to the RCDATA state.
         parser->m_tokenizer.switch_to({}, HTMLTokenizer::State::RCDATA);
-    } else if (context_element.local_name().is_one_of(HTML::TagNames::style, HTML::TagNames::xmp, HTML::TagNames::iframe, HTML::TagNames::noembed, HTML::TagNames::noframes)) {
+    }
+    // - style
+    // - xmp
+    // - iframe
+    // - noembed
+    // - noframes
+    else if (context_element.local_name().is_one_of(HTML::TagNames::style, HTML::TagNames::xmp, HTML::TagNames::iframe, HTML::TagNames::noembed, HTML::TagNames::noframes)) {
+        // Switch the tokenizer to the RAWTEXT state.
         parser->m_tokenizer.switch_to({}, HTMLTokenizer::State::RAWTEXT);
-    } else if (context_element.local_name().is_one_of(HTML::TagNames::script)) {
+    }
+    // - script
+    else if (context_element.local_name().is_one_of(HTML::TagNames::script)) {
+        // Switch the tokenizer to the script data state.
         parser->m_tokenizer.switch_to({}, HTMLTokenizer::State::ScriptData);
-    } else if (context_element.local_name().is_one_of(HTML::TagNames::noscript)) {
+    }
+    // - noscript
+    else if (context_element.local_name().is_one_of(HTML::TagNames::noscript)) {
+        // If the scripting flag is enabled, switch the tokenizer to the RAWTEXT state. Otherwise, leave the tokenizer in the data state.
         if (context_element.document().is_scripting_enabled())
             parser->m_tokenizer.switch_to({}, HTMLTokenizer::State::RAWTEXT);
-    } else if (context_element.local_name().is_one_of(HTML::TagNames::plaintext)) {
+    }
+    // - plaintext
+    else if (context_element.local_name().is_one_of(HTML::TagNames::plaintext)) {
+        // Switch the tokenizer to the PLAINTEXT state.
         parser->m_tokenizer.switch_to({}, HTMLTokenizer::State::PLAINTEXT);
     }
+    // Any other element
+    else {
+        // Leave the tokenizer in the data state.
+    }
 
+    // 5. Let root be a new html element with no attributes.
     auto root = create_element(context_element.document(), HTML::TagNames::html, Namespace::HTML);
-    parser->document().append_child(root);
+
+    // 6. Append the element root to the Document node created above.
+    MUST(temp_document->append_child(root));
+
+    // 7. Set up the parser's stack of open elements so that it contains just the single element root.
     parser->m_stack_of_open_elements.push(root);
 
+    // 8. If the context element is a template element,
     if (context_element.local_name() == HTML::TagNames::template_) {
+        // push "in template" onto the stack of template insertion modes so that it is the new current template insertion mode.
         parser->m_stack_of_template_insertion_modes.append(InsertionMode::InTemplate);
     }
 
-    // FIXME: Create a start tag token whose name is the local name of context and whose attributes are the attributes of context.
+    // FIXME: 9. Create a start tag token whose name is the local name of context and whose attributes are the attributes of context.
+    //           Let this start tag token be the start tag token of the context node, e.g. for the purposes of determining if it is an HTML integration point.
 
+    // 10. Reset the parser's insertion mode appropriately.
     parser->reset_the_insertion_mode_appropriately();
 
-    for (auto* form_candidate = &context_element; form_candidate; form_candidate = form_candidate->parent_element()) {
-        if (is<HTMLFormElement>(*form_candidate)) {
-            parser->m_form_element = JS::make_handle(verify_cast<HTMLFormElement>(*form_candidate));
-            break;
-        }
-    }
+    // 11. Set the parser's form element pointer to the nearest node to the context element that is a form element
+    //     (going straight up the ancestor chain, and including the element itself, if it is a form element), if any.
+    //     (If there is no such form element, the form element pointer keeps its initial value, null.)
+    parser->m_form_element = context_element.first_ancestor_of_type<HTMLFormElement>();
 
+    // 12. Place the input into the input stream for the HTML parser just created. The encoding confidence is irrelevant.
+    // 13. Start the parser and let it run until it has consumed all the characters just inserted into the input stream.
     parser->run(context_element.document().url());
 
+    // 14. Return the child nodes of root, in tree order.
     Vector<JS::Handle<DOM::Node>> children;
     while (JS::GCPtr<DOM::Node> child = root->first_child()) {
-        root->remove_child(*child);
+        MUST(root->remove_child(*child));
         context_element.document().adopt_node(*child);
         children.append(JS::make_handle(*child));
     }
     return children;
 }
 
-NonnullRefPtr<HTMLParser> HTMLParser::create_for_scripting(DOM::Document& document)
+JS::NonnullGCPtr<HTMLParser> HTMLParser::create_for_scripting(DOM::Document& document)
 {
-    return adopt_ref(*new HTMLParser(document));
+    return *document.heap().allocate_without_realm<HTMLParser>(document);
 }
 
-NonnullRefPtr<HTMLParser> HTMLParser::create_with_uncertain_encoding(DOM::Document& document, ByteBuffer const& input)
+JS::NonnullGCPtr<HTMLParser> HTMLParser::create_with_uncertain_encoding(DOM::Document& document, ByteBuffer const& input)
 {
     if (document.has_encoding())
-        return adopt_ref(*new HTMLParser(document, input, document.encoding().value()));
+        return *document.heap().allocate_without_realm<HTMLParser>(document, input, document.encoding().value());
     auto encoding = run_encoding_sniffing_algorithm(document, input);
-    dbgln("The encoding sniffing algorithm returned encoding '{}'", encoding);
-    return adopt_ref(*new HTMLParser(document, input, encoding));
+    dbgln_if(HTML_PARSER_DEBUG, "The encoding sniffing algorithm returned encoding '{}'", encoding);
+    return *document.heap().allocate_without_realm<HTMLParser>(document, input, encoding);
 }
 
-NonnullRefPtr<HTMLParser> HTMLParser::create(DOM::Document& document, StringView input, String const& encoding)
+JS::NonnullGCPtr<HTMLParser> HTMLParser::create(DOM::Document& document, StringView input, String const& encoding)
 {
-    return adopt_ref(*new HTMLParser(document, input, encoding));
+    return *document.heap().allocate_without_realm<HTMLParser>(document, input, encoding);
 }
 
 // https://html.spec.whatwg.org/multipage/parsing.html#html-fragment-serialisation-algorithm
@@ -3662,7 +3726,7 @@ RefPtr<CSS::StyleValue> parse_dimension_value(StringView string)
     auto position = input.begin();
 
     // 3. Skip ASCII whitespace within input given position.
-    while (position != input.end() && is_ascii_space(*position))
+    while (position != input.end() && Infra::is_ascii_whitespace(*position))
         ++position;
 
     // 4. If position is past the end of input or the code point at position within input is not an ASCII digit,
@@ -3749,6 +3813,27 @@ RefPtr<CSS::StyleValue> parse_nonzero_dimension_value(StringView string)
 JS::Realm& HTMLParser::realm()
 {
     return m_document->realm();
+}
+
+// https://html.spec.whatwg.org/multipage/parsing.html#abort-a-parser
+void HTMLParser::abort()
+{
+    // 1. Throw away any pending content in the input stream, and discard any future content that would have been added to it.
+    m_tokenizer.abort();
+
+    // FIXME: 2. Stop the speculative HTML parser for this HTML parser.
+
+    // 3. Update the current document readiness to "interactive".
+    m_document->update_readiness(DocumentReadyState::Interactive);
+
+    // 4. Pop all the nodes off the stack of open elements.
+    while (!m_stack_of_open_elements.is_empty())
+        m_stack_of_open_elements.pop();
+
+    // 5. Update the current document readiness to "complete".
+    m_document->update_readiness(DocumentReadyState::Complete);
+
+    m_aborted = true;
 }
 
 }

@@ -19,23 +19,20 @@ namespace Audio {
 static constexpr size_t const maximum_wav_size = 1 * GiB; // FIXME: is there a more appropriate size limit?
 
 WavLoaderPlugin::WavLoaderPlugin(StringView path)
-    : m_file(Core::File::construct(path))
+    : LoaderPlugin(path)
 {
 }
 
 MaybeLoaderError WavLoaderPlugin::initialize()
 {
-    if (m_backing_memory.has_value())
-        m_stream = LOADER_TRY(Core::Stream::MemoryStream::construct(m_backing_memory.value()));
-    else
-        m_stream = LOADER_TRY(Core::Stream::File::open(m_file->filename(), Core::Stream::OpenMode::Read));
+    LOADER_TRY(LoaderPlugin::initialize());
 
     TRY(parse_header());
     return {};
 }
 
-WavLoaderPlugin::WavLoaderPlugin(Bytes const& buffer)
-    : m_backing_memory(buffer)
+WavLoaderPlugin::WavLoaderPlugin(Bytes buffer)
+    : LoaderPlugin(buffer)
 {
 }
 
@@ -72,10 +69,13 @@ static ErrorOr<double> read_sample_int24(Core::Stream::Stream& stream)
     i32 sample3 = byte;
 
     i32 value = 0;
-    value = sample1 << 8;
-    value |= sample2 << 16;
-    value |= sample3 << 24;
-    return static_cast<double>(value) / static_cast<double>((1 << 24) - 1);
+    value = sample1;
+    value |= sample2 << 8;
+    value |= sample3 << 16;
+    // Sign extend the value, as it can currently not have the correct sign.
+    value = (value << 8) >> 8;
+    // Range of value is now -2^23 to 2^23-1 and we can rescale normally.
+    return static_cast<double>(value) / static_cast<double>((1 << 23) - 1);
 }
 
 template<typename T>
@@ -83,8 +83,16 @@ static ErrorOr<double> read_sample(Core::Stream::Stream& stream)
 {
     T sample { 0 };
     TRY(stream.read(Bytes { &sample, sizeof(T) }));
+    // Remap integer samples to normalized floating-point range of -1 to 1.
     if constexpr (IsIntegral<T>) {
-        return static_cast<double>(AK::convert_between_host_and_little_endian(sample)) / static_cast<double>(NumericLimits<T>::max());
+        if constexpr (NumericLimits<T>::is_signed()) {
+            // Signed integer samples are centered around zero, so this division is enough.
+            return static_cast<double>(AK::convert_between_host_and_little_endian(sample)) / static_cast<double>(NumericLimits<T>::max());
+        } else {
+            // Unsigned integer samples, on the other hand, need to be shifted to center them around zero.
+            // The first division therefore remaps to the range 0 to 2.
+            return static_cast<double>(AK::convert_between_host_and_little_endian(sample)) / (static_cast<double>(NumericLimits<T>::max()) / 2.0) - 1.0;
+        }
     } else {
         return static_cast<double>(AK::convert_between_host_and_little_endian(sample));
     }

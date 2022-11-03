@@ -21,11 +21,11 @@ __attribute__((visibility("hidden"))) GL::GLContext* g_gl_context;
 namespace GL {
 
 GLContext::GLContext(RefPtr<GPU::Driver> driver, NonnullOwnPtr<GPU::Device> device, Gfx::Bitmap& frontbuffer)
-    : m_viewport { frontbuffer.rect() }
-    , m_frontbuffer { frontbuffer }
-    , m_driver { driver }
+    : m_driver { driver }
     , m_rasterizer { move(device) }
     , m_device_info { m_rasterizer->info() }
+    , m_viewport { frontbuffer.rect() }
+    , m_frontbuffer { frontbuffer }
 {
     m_texture_units.resize(m_device_info.num_texture_units);
     m_active_texture_unit = &m_texture_units[0];
@@ -650,29 +650,10 @@ void GLContext::gl_depth_func(GLenum func)
 void GLContext::gl_color_mask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
 {
     auto options = m_rasterizer->options();
-    auto mask = options.color_mask;
-
-    if (!red)
-        mask &= ~0x000000ff;
-    else
-        mask |= 0x000000ff;
-
-    if (!green)
-        mask &= ~0x0000ff00;
-    else
-        mask |= 0x0000ff00;
-
-    if (!blue)
-        mask &= ~0x00ff0000;
-    else
-        mask |= 0x00ff0000;
-
-    if (!alpha)
-        mask &= ~0xff000000;
-    else
-        mask |= 0xff000000;
-
-    options.color_mask = mask;
+    options.color_mask = (red == GL_TRUE ? 0xff : 0)
+        | (green == GL_TRUE ? 0xff00 : 0)
+        | (blue == GL_TRUE ? 0xff0000 : 0)
+        | (alpha == GL_TRUE ? 0xff000000 : 0);
     m_rasterizer->set_options(options);
 }
 
@@ -792,19 +773,49 @@ void GLContext::gl_fogi(GLenum pname, GLint param)
 
 void GLContext::gl_pixel_storei(GLenum pname, GLint param)
 {
-    // FIXME: Implement missing parameters
+    auto const is_packing_parameter = (pname >= GL_PACK_SWAP_BYTES && pname <= GL_PACK_ALIGNMENT)
+        || pname == GL_PACK_SKIP_IMAGES
+        || pname == GL_PACK_IMAGE_HEIGHT;
+    auto& pixel_parameters = is_packing_parameter ? m_packing_parameters : m_unpacking_parameters;
+
     switch (pname) {
     case GL_PACK_ALIGNMENT:
-        RETURN_WITH_ERROR_IF(param != 1 && param != 2 && param != 4 && param != 8, GL_INVALID_VALUE);
-        m_pack_alignment = param;
-        break;
-    case GL_UNPACK_ROW_LENGTH:
-        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
-        m_unpack_row_length = static_cast<size_t>(param);
-        break;
     case GL_UNPACK_ALIGNMENT:
         RETURN_WITH_ERROR_IF(param != 1 && param != 2 && param != 4 && param != 8, GL_INVALID_VALUE);
-        m_unpack_alignment = param;
+        pixel_parameters.pack_alignment = param;
+        break;
+    case GL_PACK_IMAGE_HEIGHT:
+    case GL_UNPACK_IMAGE_HEIGHT:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        pixel_parameters.image_height = param;
+        break;
+    case GL_PACK_LSB_FIRST:
+    case GL_UNPACK_LSB_FIRST:
+        pixel_parameters.least_significant_bit_first = (param != 0);
+        break;
+    case GL_PACK_ROW_LENGTH:
+    case GL_UNPACK_ROW_LENGTH:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        pixel_parameters.row_length = param;
+        break;
+    case GL_PACK_SKIP_IMAGES:
+    case GL_UNPACK_SKIP_IMAGES:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        pixel_parameters.skip_images = param;
+        break;
+    case GL_PACK_SKIP_PIXELS:
+    case GL_UNPACK_SKIP_PIXELS:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        pixel_parameters.skip_pixels = param;
+        break;
+    case GL_PACK_SKIP_ROWS:
+    case GL_UNPACK_SKIP_ROWS:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        pixel_parameters.skip_rows = param;
+        break;
+    case GL_PACK_SWAP_BYTES:
+    case GL_UNPACK_SWAP_BYTES:
+        pixel_parameters.swap_bytes = (param != 0);
         break;
     default:
         RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
@@ -940,11 +951,11 @@ void GLContext::build_extension_string()
     m_extensions = String::join(' ', extensions);
 }
 
-NonnullOwnPtr<GLContext> create_context(Gfx::Bitmap& bitmap)
+ErrorOr<NonnullOwnPtr<GLContext>> create_context(Gfx::Bitmap& bitmap)
 {
     // FIXME: Make driver selectable. This is currently hardcoded to LibSoftGPU
-    auto driver = MUST(GPU::Driver::try_create("softgpu"sv));
-    auto device = MUST(driver->try_create_device(bitmap.size()));
+    auto driver = TRY(GPU::Driver::try_create("softgpu"sv));
+    auto device = TRY(driver->try_create_device(bitmap.size()));
     auto context = make<GLContext>(driver, move(device), bitmap);
     dbgln_if(GL_DEBUG, "GL::create_context({}) -> {:p}", bitmap.size(), context.ptr());
 
@@ -961,11 +972,6 @@ void make_context_current(GLContext* context)
 
     dbgln_if(GL_DEBUG, "GL::make_context_current({:p})", context);
     g_gl_context = context;
-}
-
-void present_context(GLContext* context)
-{
-    context->present();
 }
 
 }

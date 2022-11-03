@@ -90,10 +90,22 @@ ColorStyleValue const& StyleValue::as_color() const
     return static_cast<ColorStyleValue const&>(*this);
 }
 
+ConicGradientStyleValue const& StyleValue::as_conic_gradient() const
+{
+    VERIFY(is_conic_gradient());
+    return static_cast<ConicGradientStyleValue const&>(*this);
+}
+
 ContentStyleValue const& StyleValue::as_content() const
 {
     VERIFY(is_content());
     return static_cast<ContentStyleValue const&>(*this);
+}
+
+FilterValueListStyleValue const& StyleValue::as_filter_value_list() const
+{
+    VERIFY(is_filter_value_list());
+    return static_cast<FilterValueListStyleValue const&>(*this);
 }
 
 FlexStyleValue const& StyleValue::as_flex() const
@@ -162,9 +174,9 @@ LengthStyleValue const& StyleValue::as_length() const
     return static_cast<LengthStyleValue const&>(*this);
 }
 
-GridTrackSizeStyleValue const& StyleValue::as_grid_track_size() const
+GridTrackSizeStyleValue const& StyleValue::as_grid_track_size_list() const
 {
-    VERIFY(is_grid_track_size());
+    VERIFY(is_grid_track_size_list());
     return static_cast<GridTrackSizeStyleValue const&>(*this);
 }
 
@@ -1163,6 +1175,171 @@ bool ContentStyleValue::equals(StyleValue const& other) const
     return true;
 }
 
+float Filter::Blur::resolved_radius(Layout::Node const& node) const
+{
+    // Default value when omitted is 0px.
+    auto sigma = 0;
+    if (radius.has_value())
+        sigma = radius->resolved(node).to_px(node);
+    // Note: The radius/sigma of the blur needs to be doubled for LibGfx's blur functions.
+    return sigma * 2;
+}
+
+Filter::DropShadow::Resolved Filter::DropShadow::resolved(Layout::Node const& node) const
+{
+    // The default value for omitted values is missing length values set to 0
+    // and the missing used color is taken from the color property.
+    return Resolved {
+        offset_x.resolved(node).to_px(node),
+        offset_y.resolved(node).to_px(node),
+        radius.has_value() ? radius->resolved(node).to_px(node) : 0.0f,
+        color.has_value() ? *color : node.computed_values().color()
+    };
+}
+
+float Filter::HueRotate::angle_degrees() const
+{
+    // Default value when omitted is 0deg.
+    if (!angle.has_value())
+        return 0.0f;
+    return angle->visit([&](Angle const& angle) { return angle.to_degrees(); }, [&](auto) { return 0.0f; });
+}
+
+float Filter::Color::resolved_amount() const
+{
+    if (amount.has_value()) {
+        if (amount->is_percentage())
+            return amount->percentage().as_fraction();
+        return amount->number().value();
+    }
+    // All color filters (brightness, sepia, etc) have a default amount of 1.
+    return 1.0f;
+}
+
+String FilterValueListStyleValue::to_string() const
+{
+    StringBuilder builder {};
+    bool first = true;
+    for (auto& filter_function : filter_value_list()) {
+        if (!first)
+            builder.append(' ');
+        filter_function.visit(
+            [&](Filter::Blur const& blur) {
+                builder.append("blur("sv);
+                if (blur.radius.has_value())
+                    builder.append(blur.radius->to_string());
+            },
+            [&](Filter::DropShadow const& drop_shadow) {
+                builder.appendff("drop-shadow({} {}"sv,
+                    drop_shadow.offset_x, drop_shadow.offset_y);
+                if (drop_shadow.radius.has_value())
+                    builder.appendff(" {}", drop_shadow.radius->to_string());
+                if (drop_shadow.color.has_value()) {
+                    builder.append(' ');
+                    serialize_a_srgb_value(builder, *drop_shadow.color);
+                }
+            },
+            [&](Filter::HueRotate const& hue_rotate) {
+                builder.append("hue-rotate("sv);
+                if (hue_rotate.angle.has_value()) {
+                    hue_rotate.angle->visit(
+                        [&](Angle const& angle) {
+                            builder.append(angle.to_string());
+                        },
+                        [&](auto&) {
+                            builder.append('0');
+                        });
+                }
+            },
+            [&](Filter::Color const& color) {
+                builder.appendff("{}(",
+                    [&] {
+                        switch (color.operation) {
+                        case Filter::Color::Operation::Brightness:
+                            return "brightness"sv;
+                        case Filter::Color::Operation::Contrast:
+                            return "contrast"sv;
+                        case Filter::Color::Operation::Grayscale:
+                            return "grayscale"sv;
+                        case Filter::Color::Operation::Invert:
+                            return "invert"sv;
+                        case Filter::Color::Operation::Opacity:
+                            return "opacity"sv;
+                        case Filter::Color::Operation::Saturate:
+                            return "saturate"sv;
+                        case Filter::Color::Operation::Sepia:
+                            return "sepia"sv;
+                        default:
+                            VERIFY_NOT_REACHED();
+                        }
+                    }());
+                if (color.amount.has_value())
+                    builder.append(color.amount->to_string());
+            });
+        builder.append(')');
+        first = false;
+    }
+    return builder.to_string();
+}
+
+static bool operator==(Filter::Blur const& a, Filter::Blur const& b)
+{
+    return a.radius == b.radius;
+}
+
+static bool operator==(Filter::DropShadow const& a, Filter::DropShadow const& b)
+{
+    return a.offset_x == b.offset_x && a.offset_y == b.offset_y && a.radius == b.radius && a.color == b.color;
+}
+
+static bool operator==(Filter::HueRotate::Zero const&, Filter::HueRotate::Zero const&)
+{
+    return true;
+}
+
+static bool operator==(Filter::Color const& a, Filter::Color const& b)
+{
+    return a.operation == b.operation && a.amount == b.amount;
+}
+
+static bool operator==(Filter::HueRotate const& a, Filter::HueRotate const& b)
+{
+    return a.angle == b.angle;
+}
+
+static bool variant_equals(auto const& a, auto const& b)
+{
+    return a.visit([&](auto const& held_value) {
+        using HeldType = AK::Detail::Decay<decltype(held_value)>;
+        bool other_holds_same_type = b.template has<HeldType>();
+        return other_holds_same_type && held_value == b.template get<HeldType>();
+    });
+}
+
+static bool operator==(Filter::HueRotate::AngleOrZero const& a, Filter::HueRotate::AngleOrZero const& b)
+{
+    return variant_equals(a, b);
+}
+
+static bool operator==(FilterFunction const& a, FilterFunction const& b)
+{
+    return variant_equals(a, b);
+}
+
+bool FilterValueListStyleValue::equals(StyleValue const& other) const
+{
+    if (type() != other.type())
+        return false;
+    auto const& typed_other = other.as_filter_value_list();
+    if (m_filter_value_list.size() != typed_other.m_filter_value_list.size())
+        return false;
+    for (size_t i = 0; i < m_filter_value_list.size(); i++) {
+        if (m_filter_value_list[i] != typed_other.m_filter_value_list[i])
+            return false;
+    }
+    return true;
+}
+
 String FlexStyleValue::to_string() const
 {
     return String::formatted("{} {} {}", m_grow->to_string(), m_shrink->to_string(), m_basis->to_string());
@@ -1218,7 +1395,7 @@ bool FrequencyStyleValue::equals(StyleValue const& other) const
 
 String GridTrackPlacementShorthandStyleValue::to_string() const
 {
-    if (m_end->grid_track_placement().position() == 0)
+    if (m_end->grid_track_placement().is_auto())
         return String::formatted("{}", m_start->grid_track_placement().to_string());
     return String::formatted("{} / {}", m_start->grid_track_placement().to_string(), m_end->grid_track_placement().to_string());
 }
@@ -1247,21 +1424,15 @@ bool GridTrackPlacementStyleValue::equals(StyleValue const& other) const
 
 String GridTrackSizeStyleValue::to_string() const
 {
-    StringBuilder builder;
-    for (size_t i = 0; i < m_grid_track.size(); i++) {
-        builder.append(m_grid_track[i].to_string());
-        if (i != m_grid_track.size() - 1)
-            builder.append(" "sv);
-    }
-    return builder.to_string();
+    return m_grid_track_size_list.to_string();
 }
 
 bool GridTrackSizeStyleValue::equals(StyleValue const& other) const
 {
     if (type() != other.type())
         return false;
-    auto const& typed_other = other.as_grid_track_size();
-    return m_grid_track == typed_other.grid_track_size();
+    auto const& typed_other = other.as_grid_track_size_list();
+    return m_grid_track_size_list == typed_other.grid_track_size_list();
 }
 
 String IdentifierStyleValue::to_string() const
@@ -1532,6 +1703,26 @@ void ImageStyleValue::paint(PaintContext& context, Gfx::IntRect const& dest_rect
         context.painter().draw_scaled_bitmap(dest_rect, *m_bitmap, m_bitmap->rect(), 1.0f, to_gfx_scaling_mode(image_rendering));
 }
 
+static void serialize_color_stop_list(StringBuilder& builder, auto const& color_stop_list)
+{
+    bool first = true;
+    for (auto const& element : color_stop_list) {
+        if (!first)
+            builder.append(", "sv);
+
+        if (element.transition_hint.has_value()) {
+            builder.appendff("{}, "sv, element.transition_hint->value.to_string());
+        }
+
+        serialize_a_srgb_value(builder, element.color_stop.color);
+        for (auto position : Array { &element.color_stop.position, &element.color_stop.second_position }) {
+            if (position->has_value())
+                builder.appendff(" {}"sv, (*position)->to_string());
+        }
+        first = false;
+    }
+}
+
 String LinearGradientStyleValue::to_string() const
 {
     StringBuilder builder;
@@ -1571,27 +1762,12 @@ String LinearGradientStyleValue::to_string() const
             builder.appendff("{}, "sv, angle.to_string());
         });
 
-    bool first = true;
-    for (auto const& element : m_color_stop_list) {
-        if (!first)
-            builder.append(", "sv);
-
-        if (element.transition_hint.has_value()) {
-            builder.appendff("{}, "sv, element.transition_hint->value.to_string());
-        }
-
-        serialize_a_srgb_value(builder, element.color_stop.color);
-        for (auto position : Array { &element.color_stop.position, &element.color_stop.second_position }) {
-            if (position->has_value())
-                builder.appendff(" {}"sv, (*position)->to_string());
-        }
-        first = false;
-    }
+    serialize_color_stop_list(builder, m_color_stop_list);
     builder.append(")"sv);
     return builder.to_string();
 }
 
-static bool operator==(LinearGradientStyleValue::GradientDirection a, LinearGradientStyleValue::GradientDirection b)
+static bool operator==(LinearGradientStyleValue::GradientDirection const& a, LinearGradientStyleValue::GradientDirection const& b)
 {
     if (a.has<SideOrCorner>() && b.has<SideOrCorner>())
         return a.get<SideOrCorner>() == b.get<SideOrCorner>();
@@ -1600,22 +1776,7 @@ static bool operator==(LinearGradientStyleValue::GradientDirection a, LinearGrad
     return false;
 }
 
-static bool operator==(GradientColorHint a, GradientColorHint b)
-{
-    return a.value == b.value;
-}
-
-static bool operator==(GradientColorStop a, GradientColorStop b)
-{
-    return a.color == b.color && a.position == b.position && a.second_position == b.second_position;
-}
-
-static bool operator==(ColorStopListElement a, ColorStopListElement b)
-{
-    return a.transition_hint == b.transition_hint && a.color_stop == b.color_stop;
-}
-
-static bool operator==(EdgeRect a, EdgeRect b)
+static bool operator==(EdgeRect const& a, EdgeRect const& b)
 {
     return a.top_edge == b.top_edge && a.right_edge == b.right_edge && a.bottom_edge == b.bottom_edge && a.left_edge == b.left_edge;
 }
@@ -1690,6 +1851,152 @@ void LinearGradientStyleValue::paint(PaintContext& context, Gfx::IntRect const& 
 {
     VERIFY(m_resolved.has_value());
     Painting::paint_linear_gradient(context, dest_rect, m_resolved->data);
+}
+
+Gfx::FloatPoint PositionValue::resolved(Layout::Node const& node, Gfx::FloatRect const& rect) const
+{
+    // Note: A preset + a none default x/y_relative_to is impossible in the syntax (and makes little sense)
+    float x = horizontal_position.visit(
+        [&](HorizontalPreset preset) {
+            return rect.width() * [&] {
+                switch (preset) {
+                case HorizontalPreset::Left:
+                    return 0.0f;
+                case HorizontalPreset::Center:
+                    return 0.5f;
+                case HorizontalPreset::Right:
+                    return 1.0f;
+                default:
+                    VERIFY_NOT_REACHED();
+                }
+            }();
+        },
+        [&](LengthPercentage length_percentage) {
+            return length_percentage.resolved(node, Length::make_px(rect.width())).to_px(node);
+        });
+    float y = vertical_position.visit(
+        [&](VerticalPreset preset) {
+            return rect.height() * [&] {
+                switch (preset) {
+                case VerticalPreset::Top:
+                    return 0.0f;
+                case VerticalPreset::Center:
+                    return 0.5f;
+                case VerticalPreset::Bottom:
+                    return 1.0f;
+                default:
+                    VERIFY_NOT_REACHED();
+                }
+            }();
+        },
+        [&](LengthPercentage length_percentage) {
+            return length_percentage.resolved(node, Length::make_px(rect.height())).to_px(node);
+        });
+    if (x_relative_to == HorizontalEdge::Right)
+        x = rect.width() - x;
+    if (y_relative_to == VerticalEdge::Bottom)
+        y = rect.height() - y;
+    return Gfx::FloatPoint { rect.x() + x, rect.y() + y };
+}
+
+void PositionValue::serialize(StringBuilder& builder) const
+{
+    // Note: This means our serialization with simplify any with explicit edges that are just `top left`.
+    bool has_relative_edges = x_relative_to == HorizontalEdge::Right || y_relative_to == VerticalEdge::Bottom;
+    if (has_relative_edges)
+        builder.append(x_relative_to == HorizontalEdge::Left ? "left "sv : "right "sv);
+    horizontal_position.visit(
+        [&](HorizontalPreset preset) {
+            builder.append([&] {
+                switch (preset) {
+                case HorizontalPreset::Left:
+                    return "left"sv;
+                case HorizontalPreset::Center:
+                    return "center"sv;
+                case HorizontalPreset::Right:
+                    return "right"sv;
+                default:
+                    VERIFY_NOT_REACHED();
+                }
+            }());
+        },
+        [&](LengthPercentage length_percentage) {
+            builder.append(length_percentage.to_string());
+        });
+    builder.append(' ');
+    if (has_relative_edges)
+        builder.append(y_relative_to == VerticalEdge::Top ? "top "sv : "bottom "sv);
+    vertical_position.visit(
+        [&](VerticalPreset preset) {
+            builder.append([&] {
+                switch (preset) {
+                case VerticalPreset::Top:
+                    return "top"sv;
+                case VerticalPreset::Center:
+                    return "center"sv;
+                case VerticalPreset::Bottom:
+                    return "bottom"sv;
+                default:
+                    VERIFY_NOT_REACHED();
+                }
+            }());
+        },
+        [&](LengthPercentage length_percentage) {
+            builder.append(length_percentage.to_string());
+        });
+}
+
+bool PositionValue::operator==(PositionValue const& other) const
+{
+    return (
+        x_relative_to == other.x_relative_to
+        && y_relative_to == other.y_relative_to
+        && variant_equals(horizontal_position, other.horizontal_position)
+        && variant_equals(vertical_position, other.vertical_position));
+}
+
+String ConicGradientStyleValue::to_string() const
+{
+    StringBuilder builder;
+    builder.append("conic-gradient("sv);
+    bool has_from_angle = false;
+    bool has_at_position = false;
+    if ((has_from_angle = m_from_angle.to_degrees() != 0))
+        builder.appendff("from {}", m_from_angle.to_string());
+    if ((has_at_position = m_position != PositionValue::center())) {
+        if (has_from_angle)
+            builder.append(' ');
+        builder.appendff("at "sv);
+        m_position.serialize(builder);
+    }
+    if (has_from_angle || has_at_position)
+        builder.append(", "sv);
+    serialize_color_stop_list(builder, m_color_stop_list);
+    builder.append(')');
+    return builder.to_string();
+}
+
+void ConicGradientStyleValue::resolve_for_size(Layout::Node const& node, Gfx::FloatSize const& size) const
+{
+    if (!m_resolved.has_value())
+        m_resolved = ResolvedData { Painting::resolve_conic_gradient_data(node, *this), {} };
+    m_resolved->position = m_position.resolved(node, Gfx::FloatRect { { 0, 0 }, size });
+}
+
+void ConicGradientStyleValue::paint(PaintContext& context, Gfx::IntRect const& dest_rect, CSS::ImageRendering) const
+{
+    VERIFY(m_resolved.has_value());
+    Painting::paint_conic_gradient(context, dest_rect, m_resolved->data, m_resolved->position.to_rounded<int>());
+}
+
+bool ConicGradientStyleValue::equals(StyleValue const&) const
+{
+    return false;
+}
+
+float ConicGradientStyleValue::angle_degrees() const
+{
+    return m_from_angle.to_degrees();
 }
 
 bool InheritStyleValue::equals(StyleValue const& other) const
@@ -1980,9 +2287,14 @@ NonnullRefPtr<GridTrackPlacementStyleValue> GridTrackPlacementStyleValue::create
     return adopt_ref(*new GridTrackPlacementStyleValue(grid_track_placement));
 }
 
-NonnullRefPtr<GridTrackSizeStyleValue> GridTrackSizeStyleValue::create(Vector<CSS::GridTrackSize> grid_track_size)
+NonnullRefPtr<GridTrackSizeStyleValue> GridTrackSizeStyleValue::create(CSS::GridTrackSizeList grid_track_size_list)
 {
-    return adopt_ref(*new GridTrackSizeStyleValue(grid_track_size));
+    return adopt_ref(*new GridTrackSizeStyleValue(grid_track_size_list));
+}
+
+NonnullRefPtr<GridTrackSizeStyleValue> GridTrackSizeStyleValue::make_auto()
+{
+    return adopt_ref(*new GridTrackSizeStyleValue(CSS::GridTrackSizeList()));
 }
 
 NonnullRefPtr<RectStyleValue> RectStyleValue::create(EdgeRect rect)
@@ -2052,6 +2364,58 @@ NonnullRefPtr<StyleValue> BorderRadiusStyleValue::absolutized(Gfx::IntRect const
     if (!m_vertical_radius.is_percentage())
         absolutized_vertical_radius = absolutized_length(m_vertical_radius.length(), viewport_rect, font_metrics, font_size, root_font_size).value_or(m_vertical_radius.length());
     return BorderRadiusStyleValue::create(absolutized_horizontal_radius, absolutized_vertical_radius);
+}
+
+bool CalculatedStyleValue::contains_percentage() const
+{
+    return m_expression->contains_percentage();
+}
+
+bool CalculatedStyleValue::CalcSum::contains_percentage() const
+{
+    if (first_calc_product->contains_percentage())
+        return true;
+    for (auto& part : zero_or_more_additional_calc_products) {
+        if (part.contains_percentage())
+            return true;
+    }
+    return false;
+}
+
+bool CalculatedStyleValue::CalcSumPartWithOperator::contains_percentage() const
+{
+    return value->contains_percentage();
+}
+
+bool CalculatedStyleValue::CalcProduct::contains_percentage() const
+{
+    if (first_calc_value.contains_percentage())
+        return true;
+    for (auto& part : zero_or_more_additional_calc_values) {
+        if (part.contains_percentage())
+            return true;
+    }
+    return false;
+}
+
+bool CalculatedStyleValue::CalcProductPartWithOperator::contains_percentage() const
+{
+    return value.visit(
+        [](CalcValue const& value) { return value.contains_percentage(); },
+        [](CalcNumberValue const&) { return false; });
+}
+
+bool CalculatedStyleValue::CalcValue::contains_percentage() const
+{
+    return value.visit(
+        [](Percentage const&) { return true; },
+        [](NonnullOwnPtr<CalcSum> const& sum) { return sum->contains_percentage(); },
+        [](auto const&) { return false; });
+}
+
+bool calculated_style_value_contains_percentage(CalculatedStyleValue const& value)
+{
+    return value.contains_percentage();
 }
 
 }

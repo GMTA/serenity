@@ -1,12 +1,13 @@
 /*
  * Copyright (c) 2020-2022, the SerenityOS developers.
- * Copyright (c) 2021, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2021-2022, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/CharacterTypes.h>
 #include <AK/Debug.h>
+#include <AK/FloatingPointStringConversions.h>
 #include <AK/SourceLocation.h>
 #include <AK/Vector.h>
 #include <LibTextCodec/Decoder.h>
@@ -44,7 +45,8 @@ static inline bool is_low_line(u32 code_point)
     return code_point == 0x5F;
 }
 
-static inline bool is_name_start_code_point(u32 code_point)
+// https://www.w3.org/TR/css-syntax-3/#ident-start-code-point
+static inline bool is_ident_start_code_point(u32 code_point)
 {
     // FIXME: We use !is_ascii() for "non-ASCII code point" in the spec, but it's not quite right -
     //        it treats EOF as a valid! The spec also lacks a definition of code point. For now, the
@@ -57,9 +59,10 @@ static inline bool is_hyphen_minus(u32 code_point)
     return code_point == 0x2D;
 }
 
-static inline bool is_name_code_point(u32 code_point)
+// https://www.w3.org/TR/css-syntax-3/#ident-code-point
+static inline bool is_ident_code_point(u32 code_point)
 {
-    return is_name_start_code_point(code_point) || is_ascii_digit(code_point) || is_hyphen_minus(code_point);
+    return is_ident_start_code_point(code_point) || is_ascii_digit(code_point) || is_hyphen_minus(code_point);
 }
 
 static inline bool is_non_printable(u32 code_point)
@@ -194,48 +197,50 @@ static inline bool is_E(u32 code_point)
 
 Tokenizer::Tokenizer(StringView input, String const& encoding)
 {
-    auto* decoder = TextCodec::decoder_for(encoding);
-    VERIFY(decoder);
+    // https://www.w3.org/TR/css-syntax-3/#css-filter-code-points
+    auto filter_code_points = [](StringView input, auto const& encoding) -> String {
+        auto* decoder = TextCodec::decoder_for(encoding);
+        VERIFY(decoder);
 
-    StringBuilder builder(input.length());
+        StringBuilder builder { input.length() };
+        bool last_was_carriage_return = false;
 
-    // Preprocess the stream, by doing the following:
-    // - Replace \r, \f and \r\n with \n
-    // - replace \0 and anything between U+D800 to U+DFFF with the replacement
-    //   character.
-    // https://www.w3.org/TR/css-syntax-3/#input-preprocessing
-    bool last_was_carriage_return = false;
-    decoder->process(input, [&builder, &last_was_carriage_return](u32 code_point) {
-        if (code_point == '\r') {
-            if (last_was_carriage_return) {
-                builder.append('\n');
-            } else {
-                last_was_carriage_return = true;
-            }
-        } else {
-            if (last_was_carriage_return) {
-                builder.append('\n');
-            }
-
-            if (code_point == '\n') {
-                if (!last_was_carriage_return) {
+        // To filter code points from a stream of (unfiltered) code points input:
+        decoder->process(input, [&builder, &last_was_carriage_return](u32 code_point) {
+            // Replace any U+000D CARRIAGE RETURN (CR) code points,
+            // U+000C FORM FEED (FF) code points,
+            // or pairs of U+000D CARRIAGE RETURN (CR) followed by U+000A LINE FEED (LF)
+            // in input by a single U+000A LINE FEED (LF) code point.
+            if (code_point == '\r') {
+                if (last_was_carriage_return) {
                     builder.append('\n');
+                } else {
+                    last_was_carriage_return = true;
                 }
-            } else if (code_point == '\f') {
-                builder.append('\n');
-            } else if (code_point == 0x00) {
-                builder.append_code_point(REPLACEMENT_CHARACTER);
-            } else if (code_point >= 0xD800 && code_point <= 0xDFFF) {
-                builder.append_code_point(REPLACEMENT_CHARACTER);
             } else {
-                builder.append_code_point(code_point);
+                if (last_was_carriage_return)
+                    builder.append('\n');
+
+                if (code_point == '\n') {
+                    if (!last_was_carriage_return)
+                        builder.append('\n');
+
+                } else if (code_point == '\f') {
+                    builder.append('\n');
+                    // Replace any U+0000 NULL or surrogate code points in input with U+FFFD REPLACEMENT CHARACTER (�).
+                } else if (code_point == 0x00 || (code_point >= 0xD800 && code_point <= 0xDFFF)) {
+                    builder.append_code_point(REPLACEMENT_CHARACTER);
+                } else {
+                    builder.append_code_point(code_point);
+                }
+
+                last_was_carriage_return = false;
             }
+        });
+        return builder.to_string();
+    };
 
-            last_was_carriage_return = false;
-        }
-    });
-
-    m_decoded_input = builder.to_string();
+    m_decoded_input = filter_code_points(input, encoding);
     m_utf8_view = Utf8View(m_decoded_input);
     m_utf8_iterator = m_utf8_view.begin();
 }
@@ -424,8 +429,8 @@ Token Tokenizer::consume_an_ident_like_token()
     // This section describes how to consume an ident-like token from a stream of code points.
     // It returns an <ident-token>, <function-token>, <url-token>, or <bad-url-token>.
 
-    // Consume a name, and let string be the result.
-    auto string = consume_a_name();
+    // Consume an ident sequence, and let string be the result.
+    auto string = consume_an_ident_sequence();
 
     // If string’s value is an ASCII case-insensitive match for "url", and the next input code
     // point is U+0028 LEFT PARENTHESIS ((), consume it.
@@ -565,90 +570,21 @@ Number Tokenizer::consume_a_number()
 // https://www.w3.org/TR/css-syntax-3/#convert-string-to-number
 float Tokenizer::convert_a_string_to_a_number(StringView string)
 {
-    auto code_point_at = [&](size_t index) -> u32 {
-        if (index < string.length())
-            return string[index];
-        return TOKENIZER_EOF;
-    };
-
-    // This algorithm does not do any verification to ensure that the string contains only a number.
-    // Ensure that the string contains only a valid CSS number before calling this algorithm.
-
-    // Divide the string into seven components, in order from left to right:
-    size_t position = 0;
-
-    // 1. A sign: a single U+002B PLUS SIGN (+) or U+002D HYPHEN-MINUS (-), or the empty string.
-    //    Let s [sign] be the number -1 if the sign is U+002D HYPHEN-MINUS (-); otherwise, let s be the number 1.
-    int sign = 1;
-    if (is_plus_sign(code_point_at(position)) || is_hyphen_minus(code_point_at(position))) {
-        sign = is_hyphen_minus(code_point_at(position)) ? -1 : 1;
-        position++;
-    }
-
-    // 2. An integer part: zero or more digits.
-    //    If there is at least one digit, let i [integer_part] be the number formed by interpreting the digits
-    //    as a base-10 integer; otherwise, let i be the number 0.
-    i64 integer_part = 0;
-    while (is_ascii_digit(code_point_at(position))) {
-        integer_part = (integer_part * 10) + (code_point_at(position) - '0');
-        position++;
-    }
-
-    // 3. A decimal point: a single U+002E FULL STOP (.), or the empty string.
-    if (is_full_stop(code_point_at(position)))
-        position++;
-
-    // 4. A fractional part: zero or more digits.
-    //    If there is at least one digit, let f [fractional_part] be the number formed by interpreting the digits
-    //    as a base-10 integer and d [fractional_digits] be the number of digits; otherwise, let f and d be the number 0.
-    i64 fractional_part = 0;
-    int fractional_digits = 0;
-    while (is_ascii_digit(code_point_at(position))) {
-        fractional_part = (fractional_part * 10) + (code_point_at(position) - '0');
-        position++;
-        fractional_digits++;
-    }
-
-    // 5. An exponent indicator: a single U+0045 LATIN CAPITAL LETTER E (E) or U+0065 LATIN SMALL LETTER E (e),
-    //    or the empty string.
-    if (is_e(code_point_at(position)) || is_E(code_point_at(position)))
-        position++;
-
-    // 6. An exponent sign: a single U+002B PLUS SIGN (+) or U+002D HYPHEN-MINUS (-), or the empty string.
-    //    Let t [exponent_sign] be the number -1 if the sign is U+002D HYPHEN-MINUS (-); otherwise, let t be the number 1.
-    int exponent_sign = 1;
-    if (is_plus_sign(code_point_at(position)) || is_hyphen_minus(code_point_at(position))) {
-        exponent_sign = is_hyphen_minus(code_point_at(position)) ? -1 : 1;
-        position++;
-    }
-
-    // 7. An exponent: zero or more digits.
-    //    If there is at least one digit, let e [exponent] be the number formed by interpreting the digits as a
-    //    base-10 integer; otherwise, let e be the number 0.
-    i64 exponent = 0;
-    while (is_ascii_digit(code_point_at(position))) {
-        exponent = (exponent * 10) + (code_point_at(position) - '0');
-        position++;
-    }
-
-    // NOTE: We checked before calling this function that the string is a valid number,
-    //       so if there is anything at the end, something has gone wrong!
-    VERIFY(position == string.length());
-
-    // Return the number s·(i + f·10^-d)·10^te.
-    return sign * (integer_part + fractional_part * powf(10, -fractional_digits)) * powf(10, exponent_sign * exponent);
+    // FIXME: We already found the whole part, fraction part and exponent during
+    //        validation, we could probably skip
+    return string.to_float(AK::TrimWhitespace::No).release_value();
 }
 
 // https://www.w3.org/TR/css-syntax-3/#consume-name
-String Tokenizer::consume_a_name()
+String Tokenizer::consume_an_ident_sequence()
 {
-    // This section describes how to consume a name from a stream of code points.
+    // This section describes how to consume an ident sequence from a stream of code points.
     // It returns a string containing the largest name that can be formed from adjacent
     // code points in the stream, starting from the first.
     //
     // Note: This algorithm does not do the verification of the first few code points that
     // are necessary to ensure the returned code points would constitute an <ident-token>.
-    // If that is the intended use, ensure that the stream starts with an identifier before
+    // If that is the intended use, ensure that the stream starts with an ident sequence before
     // calling this algorithm.
 
     // Let result initially be an empty string.
@@ -662,7 +598,7 @@ String Tokenizer::consume_a_name()
             break;
 
         // name code point
-        if (is_name_code_point(input)) {
+        if (is_ident_code_point(input)) {
             // Append the code point to result.
             result.append_code_point(input);
             continue;
@@ -837,15 +773,15 @@ Token Tokenizer::consume_a_numeric_token()
     // Consume a number and let number be the result.
     auto number = consume_a_number();
 
-    // If the next 3 input code points would start an identifier, then:
-    if (would_start_an_identifier(peek_triplet())) {
+    // If the next 3 input code points would start an ident sequence, then:
+    if (would_start_an_ident_sequence(peek_triplet())) {
         // 1. Create a <dimension-token> with the same value and type flag as number,
         //    and a unit set initially to the empty string.
         auto token = create_new_token(Token::Type::Dimension);
         token.m_number_value = number;
 
-        // 2. Consume a name. Set the <dimension-token>’s unit to the returned value.
-        auto unit = consume_a_name();
+        // 2. Consume an ident sequence. Set the <dimension-token>’s unit to the returned value.
+        auto unit = consume_an_ident_sequence();
         VERIFY(!unit.is_empty());
         // NOTE: We intentionally store this in the `value`, to save space.
         token.m_value = move(unit);
@@ -938,9 +874,9 @@ bool Tokenizer::is_valid_escape_sequence(U32Twin values)
 }
 
 // https://www.w3.org/TR/css-syntax-3/#would-start-an-identifier
-bool Tokenizer::would_start_an_identifier(U32Triplet values)
+bool Tokenizer::would_start_an_ident_sequence(U32Triplet values)
 {
-    // This section describes how to check if three code points would start an identifier.
+    // This section describes how to check if three code points would start an ident sequence.
     // The algorithm described here can be called explicitly with three code points, or
     // can be called with the input stream itself. In the latter case, the three code
     // points in question are the current input code point and the next two input code
@@ -954,14 +890,14 @@ bool Tokenizer::would_start_an_identifier(U32Triplet values)
     if (is_hyphen_minus(values.first)) {
         // If the second code point is a name-start code point or a U+002D HYPHEN-MINUS,
         // or the second and third code points are a valid escape, return true.
-        if (is_name_start_code_point(values.second) || is_hyphen_minus(values.second) || is_valid_escape_sequence(values.to_twin_23()))
+        if (is_ident_start_code_point(values.second) || is_hyphen_minus(values.second) || is_valid_escape_sequence(values.to_twin_23()))
             return true;
         // Otherwise, return false.
         return false;
     }
 
     // name-start code point
-    if (is_name_start_code_point(values.first)) {
+    if (is_ident_start_code_point(values.first)) {
         // Return true.
         return true;
     }
@@ -1117,22 +1053,22 @@ Token Tokenizer::consume_a_token()
     if (is_number_sign(input)) {
         dbgln_if(CSS_TOKENIZER_DEBUG, "is number sign");
 
-        // If the next input code point is a name code point or the next two input code points
+        // If the next input code point is an ident code point or the next two input code points
         // are a valid escape, then:
         auto next_input = peek_code_point();
         auto maybe_escape = peek_twin();
 
-        if (is_name_code_point(next_input) || is_valid_escape_sequence(maybe_escape)) {
+        if (is_ident_code_point(next_input) || is_valid_escape_sequence(maybe_escape)) {
             // 1. Create a <hash-token>.
             auto token = create_new_token(Token::Type::Hash);
 
-            // 2. If the next 3 input code points would start an identifier, set the <hash-token>’s
+            // 2. If the next 3 input code points would start an ident sequence, set the <hash-token>’s
             //    type flag to "id".
-            if (would_start_an_identifier(peek_triplet()))
+            if (would_start_an_ident_sequence(peek_triplet()))
                 token.m_hash_type = Token::HashType::Id;
 
-            // 3. Consume a name, and set the <hash-token>’s value to the returned string.
-            auto name = consume_a_name();
+            // 3. Consume an ident sequence, and set the <hash-token>’s value to the returned string.
+            auto name = consume_an_ident_sequence();
             token.m_value = move(name);
 
             // 4. Return the <hash-token>.
@@ -1207,7 +1143,7 @@ Token Tokenizer::consume_a_token()
 
         // Otherwise, if the input stream starts with an identifier, reconsume the current
         // input code point, consume an ident-like token, and return it.
-        if (would_start_an_identifier(start_of_input_stream_triplet())) {
+        if (would_start_an_ident_sequence(start_of_input_stream_triplet())) {
             reconsume_current_input_code_point();
             return consume_an_ident_like_token();
         }
@@ -1265,10 +1201,10 @@ Token Tokenizer::consume_a_token()
     // U+0040 COMMERCIAL AT (@)
     if (is_at(input)) {
         dbgln_if(CSS_TOKENIZER_DEBUG, "is at");
-        // If the next 3 input code points would start an identifier, consume a name, create
+        // If the next 3 input code points would start an ident sequence, consume an ident sequence, create
         // an <at-keyword-token> with its value set to the returned value, and return it.
-        if (would_start_an_identifier(peek_triplet())) {
-            auto name = consume_a_name();
+        if (would_start_an_ident_sequence(peek_triplet())) {
+            auto name = consume_an_ident_sequence();
             return create_value_token(Token::Type::AtKeyword, name);
         }
 
@@ -1329,7 +1265,7 @@ Token Tokenizer::consume_a_token()
     }
 
     // name-start code point
-    if (is_name_start_code_point(input)) {
+    if (is_ident_start_code_point(input)) {
         dbgln_if(CSS_TOKENIZER_DEBUG, "is name start");
         // Reconsume the current input code point, consume an ident-like token, and return it.
         reconsume_current_input_code_point();

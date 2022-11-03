@@ -8,6 +8,7 @@
 #pragma once
 
 #include <AK/Concepts.h>
+#include <AK/EnumBits.h>
 #include <AK/Forward.h>
 
 namespace AK {
@@ -38,6 +39,21 @@ enum class TrimWhitespace {
     No,
 };
 
+enum class SplitBehavior : unsigned {
+    // Neither keep empty substrings nor keep the trailing separator.
+    // This is the default behavior if unspecified.
+    Nothing = 0,
+
+    // If two separators follow each other without any characters
+    // in between, keep a "" in the resulting vector. (or only the
+    // separator if KeepTrailingSeparator is used)
+    KeepEmpty = 1,
+
+    // Do not strip off the separator at the end of the string.
+    KeepTrailingSeparator = 2,
+};
+AK_ENUM_BITWISE_OPERATORS(SplitBehavior);
+
 struct MaskSpan {
     size_t start;
     size_t length;
@@ -63,6 +79,10 @@ template<typename T = unsigned>
 Optional<T> convert_to_uint_from_hex(StringView, TrimWhitespace = TrimWhitespace::Yes);
 template<typename T = unsigned>
 Optional<T> convert_to_uint_from_octal(StringView, TrimWhitespace = TrimWhitespace::Yes);
+#ifndef KERNEL
+template<typename T>
+Optional<T> convert_to_floating_point(StringView, TrimWhitespace = TrimWhitespace::Yes);
+#endif
 bool equals_ignoring_case(StringView, StringView);
 bool ends_with(StringView a, StringView b, CaseSensitivity);
 bool starts_with(StringView, StringView, CaseSensitivity);
@@ -74,6 +94,7 @@ StringView trim_whitespace(StringView string, TrimMode mode);
 Optional<size_t> find(StringView haystack, char needle, size_t start = 0);
 Optional<size_t> find(StringView haystack, StringView needle, size_t start = 0);
 Optional<size_t> find_last(StringView haystack, char needle);
+Optional<size_t> find_last_not(StringView haystack, char needle);
 Vector<size_t> find_all(StringView haystack, StringView needle);
 enum class SearchDirection {
     Forward,
@@ -94,5 +115,6 @@ size_t count(StringView, StringView needle);
 
 using AK::CaseSensitivity;
 using AK::ReplaceMode;
+using AK::SplitBehavior;
 using AK::TrimMode;
 using AK::TrimWhitespace;

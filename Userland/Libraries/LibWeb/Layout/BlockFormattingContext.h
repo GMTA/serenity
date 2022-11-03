@@ -21,23 +21,22 @@ public:
     explicit BlockFormattingContext(LayoutState&, BlockContainer const&, FormattingContext* parent);
     ~BlockFormattingContext();
 
-    virtual void run(Box const&, LayoutMode) override;
-    virtual void run_intrinsic_sizing(Box const&) override;
+    virtual void run(Box const&, LayoutMode, AvailableSpace const&) override;
+    virtual float automatic_content_height() const override;
 
     bool is_initial() const;
 
     auto const& left_side_floats() const { return m_left_floats; }
     auto const& right_side_floats() const { return m_right_floats; }
 
-    static float compute_theoretical_height(LayoutState const&, Box const&);
-    void compute_width(Box const&, LayoutMode = LayoutMode::Normal);
+    void compute_width(Box const&, AvailableSpace const&, LayoutMode = LayoutMode::Normal);
 
     // https://www.w3.org/TR/css-display/#block-formatting-context-root
     BlockContainer const& root() const { return static_cast<BlockContainer const&>(context_box()); }
 
     virtual void parent_context_did_dimension_child_root_box() override;
 
-    static void compute_height(Box const&, LayoutState&);
+    void compute_height(Box const&, AvailableSpace const&);
 
     void add_absolutely_positioned_box(Box const& box) { m_absolutely_positioned_boxes.append(box); }
 
@@ -45,25 +44,32 @@ public:
 
     virtual float greatest_child_width(Box const&) override;
 
-    void layout_floating_box(Box const& child, BlockContainer const& containing_block, LayoutMode, LineBuilder* = nullptr);
+    void layout_floating_box(Box const& child, BlockContainer const& containing_block, LayoutMode, AvailableSpace const&, LineBuilder* = nullptr);
 
-    void layout_block_level_box(Box const&, BlockContainer const&, LayoutMode, float& bottom_of_lowest_margin_box);
+    void layout_block_level_box(Box const&, BlockContainer const&, LayoutMode, float& bottom_of_lowest_margin_box, AvailableSpace const&);
+
+    static bool should_treat_width_as_auto(Box const&, AvailableSpace const&);
+    static bool should_treat_height_as_auto(Box const&, AvailableSpace const&);
+
+    virtual bool can_determine_size_of_child() const override { return true; }
+    virtual void determine_width_of_child(Box const&, AvailableSpace const&) override;
+    virtual void determine_height_of_child(Box const&, AvailableSpace const&) override;
 
 private:
     virtual bool is_block_formatting_context() const final { return true; }
 
-    void compute_width_for_floating_box(Box const&, LayoutMode);
+    void compute_width_for_floating_box(Box const&, AvailableSpace const&);
 
-    void compute_width_for_block_level_replaced_element_in_normal_flow(ReplacedBox const&);
+    void compute_width_for_block_level_replaced_element_in_normal_flow(ReplacedBox const&, AvailableSpace const&);
 
-    void layout_initial_containing_block(LayoutMode);
+    void layout_initial_containing_block(LayoutMode, AvailableSpace const&);
 
-    void layout_block_level_children(BlockContainer const&, LayoutMode);
-    void layout_inline_children(BlockContainer const&, LayoutMode);
+    void layout_block_level_children(BlockContainer const&, LayoutMode, AvailableSpace const&);
+    void layout_inline_children(BlockContainer const&, LayoutMode, AvailableSpace const&);
 
-    void compute_vertical_box_model_metrics(Box const& box, BlockContainer const& containing_block);
-    void place_block_level_element_in_normal_flow_horizontally(Box const& child_box, BlockContainer const&);
-    void place_block_level_element_in_normal_flow_vertically(Box const& child_box, BlockContainer const&);
+    static void resolve_vertical_box_model_metrics(Box const& box, LayoutState&);
+    void place_block_level_element_in_normal_flow_horizontally(Box const& child_box, AvailableSpace const&);
+    void place_block_level_element_in_normal_flow_vertically(Box const&);
 
     void layout_list_item_marker(ListItemBox const&);
 

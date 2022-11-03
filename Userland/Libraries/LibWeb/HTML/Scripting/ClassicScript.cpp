@@ -8,10 +8,10 @@
 #include <LibCore/ElapsedTimer.h>
 #include <LibJS/Interpreter.h>
 #include <LibWeb/Bindings/ExceptionOrUtils.h>
-#include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
+#include <LibWeb/WebIDL/DOMException.h>
 
 namespace Web::HTML {
 
@@ -124,7 +124,7 @@ JS::Completion ClassicScript::run(RethrowErrors rethrow_errors)
             dbgln("network error");
 
             // 2. Throw a "NetworkError" DOMException.
-            return throw_completion(DOM::NetworkError::create(settings.global_object(), "Script error."));
+            return throw_completion(WebIDL::NetworkError::create(settings.realm(), "Script error."));
         }
 
         // 3. Otherwise, rethrow errors is false. Perform the following steps:
@@ -133,7 +133,7 @@ JS::Completion ClassicScript::run(RethrowErrors rethrow_errors)
         dbgln("no rethrow, stat: {}", evaluation_status.value().value().to_string_without_side_effects());
 
         // 1. Report the exception given by evaluationStatus.[[Value]] for script.
-        report_exception(evaluation_status);
+        report_exception(evaluation_status, settings_object().realm());
 
         // 2. Clean up after running script with settings.
         settings.clean_up_after_running_script();
@@ -164,11 +164,6 @@ void ClassicScript::visit_edges(Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);
     visitor.visit(m_script_record);
-}
-
-void ClassicScript::visit_host_defined_self(Cell::Visitor& visitor)
-{
-    visitor.visit(this);
 }
 
 }

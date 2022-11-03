@@ -7,7 +7,7 @@
 #include <LibJS/Runtime/AsyncFunctionDriverWrapper.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/NativeFunction.h>
-#include <LibJS/Runtime/PromiseReaction.h>
+#include <LibJS/Runtime/PromiseCapability.h>
 #include <LibJS/Runtime/VM.h>
 
 namespace JS {
@@ -59,7 +59,8 @@ ThrowCompletionOr<Value> AsyncFunctionDriverWrapper::react_to_async_task_complet
     if (TRY(result.get(vm, vm.names.done)).to_boolean())
         return promise;
 
-    return promise->perform_then(m_on_fulfillment, m_on_rejection, PromiseCapability { promise, m_on_fulfillment, m_on_rejection });
+    auto promise_capability = PromiseCapability::create(vm, promise, m_on_fulfillment, m_on_rejection);
+    return promise->perform_then(m_on_fulfillment, m_on_rejection, promise_capability);
 }
 
 void AsyncFunctionDriverWrapper::visit_edges(Cell::Visitor& visitor)

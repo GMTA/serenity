@@ -127,6 +127,9 @@ Tab::Tab(BrowserWindow& window)
 
     m_web_content_view->set_proxy_mappings(g_proxies, g_proxy_mappings);
 
+    if (!g_web_driver_connection.is_null())
+        m_web_content_view->set_is_webdriver_active(true);
+
     auto& go_back_button = toolbar.add_action(window.go_back_action());
     go_back_button.on_context_menu_request = [&](auto&) {
         if (!m_history.can_go_back())
@@ -401,6 +404,8 @@ Tab::Tab(BrowserWindow& window)
     m_page_context_menu->add_action(window.view_source_action());
     m_page_context_menu->add_action(window.inspect_dom_tree_action());
     m_page_context_menu->add_action(window.inspect_dom_node_action());
+    m_page_context_menu->add_separator();
+    m_page_context_menu->add_action(window.take_screenshot_action());
     view().on_context_menu_request = [&](auto& screen_position) {
         m_page_context_menu->popup(screen_position);
     };
@@ -542,6 +547,16 @@ void Tab::action_left(GUI::Action&)
     m_statusbar->set_override_text({});
 }
 
+void Tab::window_position_changed(Gfx::IntPoint const& position)
+{
+    m_web_content_view->set_window_position(position);
+}
+
+void Tab::window_size_changed(Gfx::IntSize const& size)
+{
+    m_web_content_view->set_window_size(size);
+}
+
 BrowserWindow const& Tab::window() const
 {
     return static_cast<BrowserWindow const&>(*Widget::window());
@@ -611,6 +626,10 @@ void Tab::show_storage_inspector()
         storage_window->set_title("Storage inspector");
         storage_window->set_icon(g_icon_bag.cookie);
         m_storage_widget = storage_window->set_main_widget<StorageWidget>();
+        m_storage_widget->on_update_cookie = [this](Web::Cookie::Cookie cookie) {
+            if (on_update_cookie)
+                on_update_cookie(url(), move(cookie));
+        };
     }
 
     if (on_get_cookies_entries) {
@@ -634,6 +653,16 @@ void Tab::show_storage_inspector()
     auto* window = m_storage_widget->window();
     window->show();
     window->move_to_front();
+}
+
+void Tab::show_event(GUI::ShowEvent&)
+{
+    m_web_content_view->set_visible(true);
+}
+
+void Tab::hide_event(GUI::HideEvent&)
+{
+    m_web_content_view->set_visible(false);
 }
 
 }

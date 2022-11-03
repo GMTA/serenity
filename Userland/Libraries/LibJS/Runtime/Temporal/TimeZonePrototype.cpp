@@ -6,6 +6,7 @@
 
 #include <AK/TypeCasts.h>
 #include <LibJS/Runtime/Array.h>
+#include <LibJS/Runtime/Date.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/Temporal/AbstractOperations.h>
 #include <LibJS/Runtime/Temporal/Calendar.h>
@@ -69,8 +70,8 @@ JS_DEFINE_NATIVE_FUNCTION(TimeZonePrototype::get_offset_nanoseconds_for)
     if (time_zone->offset_nanoseconds().has_value())
         return Value(*time_zone->offset_nanoseconds());
 
-    // 5. Return 𝔽(GetIANATimeZoneOffsetNanoseconds(instant.[[Nanoseconds]], timeZone.[[Identifier]])).
-    return Value((double)get_iana_time_zone_offset_nanoseconds(instant->nanoseconds(), time_zone->identifier()));
+    // 5. Return 𝔽(GetNamedTimeZoneOffsetNanoseconds(timeZone.[[Identifier]], instant.[[Nanoseconds]])).
+    return Value((double)get_named_time_zone_offset_nanoseconds(time_zone->identifier(), instant->nanoseconds().big_integer()));
 }
 
 // 11.4.5 Temporal.TimeZone.prototype.getOffsetStringFor ( instant ), https://tc39.es/proposal-temporal/#sec-temporal.timezone.prototype.getoffsetstringfor
@@ -137,20 +138,20 @@ JS_DEFINE_NATIVE_FUNCTION(TimeZonePrototype::get_possible_instants_for)
     // 3. Set dateTime to ? ToTemporalDateTime(dateTime).
     auto* date_time = TRY(to_temporal_date_time(vm, vm.argument(0)));
 
-    auto possible_epoch_nanoseconds = MarkedVector<BigInt*> { vm.heap() };
+    Vector<Crypto::SignedBigInteger> possible_epoch_nanoseconds;
 
     // 4. If timeZone.[[OffsetNanoseconds]] is not undefined, then
     if (time_zone->offset_nanoseconds().has_value()) {
-        // a. Let epochNanoseconds be GetEpochFromISOParts(dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
-        auto* epoch_nanoseconds = get_epoch_from_iso_parts(vm, date_time->iso_year(), date_time->iso_month(), date_time->iso_day(), date_time->iso_hour(), date_time->iso_minute(), date_time->iso_second(), date_time->iso_millisecond(), date_time->iso_microsecond(), date_time->iso_nanosecond());
+        // a. Let epochNanoseconds be GetUTCEpochNanoseconds(dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
+        auto epoch_nanoseconds = get_utc_epoch_nanoseconds(date_time->iso_year(), date_time->iso_month(), date_time->iso_day(), date_time->iso_hour(), date_time->iso_minute(), date_time->iso_second(), date_time->iso_millisecond(), date_time->iso_microsecond(), date_time->iso_nanosecond());
 
         // b. Let possibleEpochNanoseconds be « epochNanoseconds - ℤ(timeZone.[[OffsetNanoseconds]]) ».
-        possible_epoch_nanoseconds.append(js_bigint(vm, epoch_nanoseconds->big_integer().minus(Crypto::SignedBigInteger { *time_zone->offset_nanoseconds() })));
+        possible_epoch_nanoseconds.append(epoch_nanoseconds.minus(Crypto::SignedBigInteger { *time_zone->offset_nanoseconds() }));
     }
     // 5. Else,
     else {
-        // a. Let possibleEpochNanoseconds be GetIANATimeZoneEpochValue(timeZone.[[Identifier]], dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
-        possible_epoch_nanoseconds = get_iana_time_zone_epoch_value(vm, time_zone->identifier(), date_time->iso_year(), date_time->iso_month(), date_time->iso_day(), date_time->iso_hour(), date_time->iso_minute(), date_time->iso_second(), date_time->iso_millisecond(), date_time->iso_microsecond(), date_time->iso_nanosecond());
+        // a. Let possibleEpochNanoseconds be GetNamedTimeZoneEpochNanoseconds(timeZone.[[Identifier]], dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
+        possible_epoch_nanoseconds = get_named_time_zone_epoch_nanoseconds(time_zone->identifier(), date_time->iso_year(), date_time->iso_month(), date_time->iso_day(), date_time->iso_hour(), date_time->iso_minute(), date_time->iso_second(), date_time->iso_millisecond(), date_time->iso_microsecond(), date_time->iso_nanosecond());
     }
 
     // 6. Let possibleInstants be a new empty List.
@@ -159,11 +160,12 @@ JS_DEFINE_NATIVE_FUNCTION(TimeZonePrototype::get_possible_instants_for)
     // 7. For each value epochNanoseconds in possibleEpochNanoseconds, do
     for (auto& epoch_nanoseconds : possible_epoch_nanoseconds) {
         // a. If ! IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
-        if (!is_valid_epoch_nanoseconds(*epoch_nanoseconds))
+        if (!is_valid_epoch_nanoseconds(epoch_nanoseconds))
             return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidEpochNanoseconds);
 
         // b. Let instant be ! CreateTemporalInstant(epochNanoseconds).
-        auto* instant = MUST(create_temporal_instant(vm, *epoch_nanoseconds));
+        auto* epoch_nanoseconds_bigint = js_bigint(vm, move(epoch_nanoseconds));
+        auto* instant = MUST(create_temporal_instant(vm, *epoch_nanoseconds_bigint));
 
         // c. Append instant to possibleInstants.
         possible_instants.append(instant);
@@ -187,8 +189,8 @@ JS_DEFINE_NATIVE_FUNCTION(TimeZonePrototype::get_next_transition)
     if (!time_zone->offset_nanoseconds().has_value())
         return js_null();
 
-    // 5. Let transition be GetIANATimeZoneNextTransition(startingPoint.[[Nanoseconds]], timeZone.[[Identifier]]).
-    auto* transition = get_iana_time_zone_next_transition(vm, starting_point->nanoseconds(), time_zone->identifier());
+    // 5. Let transition be GetNamedTimeZoneNextTransition(timeZone.[[Identifier]], startingPoint.[[Nanoseconds]]).
+    auto* transition = get_named_time_zone_next_transition(vm, time_zone->identifier(), starting_point->nanoseconds());
 
     // 6. If transition is null, return null.
     if (!transition)
@@ -212,8 +214,8 @@ JS_DEFINE_NATIVE_FUNCTION(TimeZonePrototype::get_previous_transition)
     if (!time_zone->offset_nanoseconds().has_value())
         return js_null();
 
-    // 5. Let transition be GetIANATimeZonePreviousTransition(startingPoint.[[Nanoseconds]], timeZone.[[Identifier]]).
-    auto* transition = get_iana_time_zone_previous_transition(vm, starting_point->nanoseconds(), time_zone->identifier());
+    // 5. Let transition be GetNamedTimeZonePreviousTransition(timeZone.[[Identifier]], startingPoint.[[Nanoseconds]]).
+    auto* transition = get_named_time_zone_previous_transition(vm, time_zone->identifier(), starting_point->nanoseconds());
 
     // 6. If transition is null, return null.
     if (!transition)

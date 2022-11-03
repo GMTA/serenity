@@ -79,7 +79,7 @@ Optional<ContextParameter> GLContext::get_context_parameter(GLenum name)
     case GL_MAX_TEXTURE_LOD_BIAS:
         return ContextParameter { .type = GL_DOUBLE, .value = { .double_value = static_cast<GLdouble>(m_device_info.max_texture_lod_bias) } };
     case GL_MAX_TEXTURE_SIZE:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 4096 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = static_cast<GLint>(m_device_info.max_texture_size) } };
     case GL_MAX_TEXTURE_STACK_DEPTH:
         return ContextParameter { .type = GL_INT, .value = { .integer_value = TEXTURE_MATRIX_STACK_LIMIT } };
     case GL_MAX_TEXTURE_UNITS:
@@ -89,19 +89,21 @@ Optional<ContextParameter> GLContext::get_context_parameter(GLenum name)
     case GL_NORMALIZE:
         return ContextParameter { .type = GL_BOOL, .is_capability = true, .value = { .boolean_value = m_normalize } };
     case GL_PACK_ALIGNMENT:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_pack_alignment } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.pack_alignment } };
     case GL_PACK_IMAGE_HEIGHT:
-        return ContextParameter { .type = GL_BOOL, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.image_height } };
     case GL_PACK_LSB_FIRST:
-        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = false } };
+        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = m_packing_parameters.least_significant_bit_first } };
     case GL_PACK_ROW_LENGTH:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.row_length } };
+    case GL_PACK_SKIP_IMAGES:
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.skip_images } };
     case GL_PACK_SKIP_PIXELS:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.skip_pixels } };
     case GL_PACK_SKIP_ROWS:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_packing_parameters.skip_rows } };
     case GL_PACK_SWAP_BYTES:
-        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = false } };
+        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = m_packing_parameters.swap_bytes } };
     case GL_POINT_SMOOTH:
         return ContextParameter { .type = GL_BOOL, .is_capability = true, .value = { .boolean_value = m_point_smooth } };
     case GL_POINT_SIZE:
@@ -110,6 +112,10 @@ Optional<ContextParameter> GLContext::get_context_parameter(GLenum name)
         return ContextParameter { .type = GL_BOOL, .is_capability = true, .value = { .boolean_value = m_depth_offset_enabled } };
     case GL_RED_BITS:
         return ContextParameter { .type = GL_INT, .value = { .integer_value = sizeof(u8) * 8 } };
+    case GL_SAMPLE_BUFFERS:
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+    case GL_SAMPLES:
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = 1 } };
     case GL_SCISSOR_BOX: {
         auto scissor_box = m_rasterizer->options().scissor_box;
         return ContextParameter {
@@ -150,19 +156,21 @@ Optional<ContextParameter> GLContext::get_context_parameter(GLenum name)
         return ContextParameter { .type = GL_BOOL, .is_capability = true, .value = { .boolean_value = generation_enabled } };
     }
     case GL_UNPACK_ALIGNMENT:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpack_alignment } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.pack_alignment } };
     case GL_UNPACK_IMAGE_HEIGHT:
-        return ContextParameter { .type = GL_BOOL, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.image_height } };
     case GL_UNPACK_LSB_FIRST:
-        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = false } };
+        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = m_unpacking_parameters.least_significant_bit_first } };
     case GL_UNPACK_ROW_LENGTH:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpack_row_length } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.row_length } };
+    case GL_UNPACK_SKIP_IMAGES:
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.skip_images } };
     case GL_UNPACK_SKIP_PIXELS:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.skip_pixels } };
     case GL_UNPACK_SKIP_ROWS:
-        return ContextParameter { .type = GL_INT, .value = { .integer_value = 0 } };
+        return ContextParameter { .type = GL_INT, .value = { .integer_value = m_unpacking_parameters.skip_rows } };
     case GL_UNPACK_SWAP_BYTES:
-        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = false } };
+        return ContextParameter { .type = GL_BOOL, .value = { .boolean_value = m_unpacking_parameters.swap_bytes } };
     case GL_VIEWPORT:
         return ContextParameter {
             .type = GL_INT,
@@ -607,30 +615,18 @@ GLboolean GLContext::gl_is_enabled(GLenum capability)
     auto parameter = optional_parameter.release_value();
     RETURN_VALUE_WITH_ERROR_IF(!parameter.is_capability, GL_INVALID_ENUM, 0);
 
-    return parameter.value.boolean_value;
+    return parameter.value.boolean_value ? GL_TRUE : GL_FALSE;
 }
 
 GPU::PackingSpecification GLContext::get_packing_specification(PackingType packing_type)
 {
-    // Make use of the fact that the GL_PACK_* and GL_UNPACK_* enum constants are in the exact same order
-    auto const offset = (packing_type == PackingType::Unpack) ? 0 : (GL_PACK_SWAP_BYTES - GL_UNPACK_SWAP_BYTES);
-    auto get_packing_value = [&](GLenum packing_parameter) -> GLint {
-        GLint value;
-        gl_get_integerv(packing_parameter + offset, &value);
-        return value;
-    };
-
-    // FIXME: add support for GL_UNPACK_SKIP_PIXELS, GL_UNPACK_SKIP_ROWS and GL_UNPACK_LSB_FIRST
-    GLint byte_alignment { get_packing_value(GL_UNPACK_ALIGNMENT) };
-    GLint swap_bytes { get_packing_value(GL_UNPACK_SWAP_BYTES) };
-    GLint depth_stride { get_packing_value(GL_UNPACK_IMAGE_HEIGHT) };
-    GLint row_stride { get_packing_value(GL_UNPACK_ROW_LENGTH) };
-
+    // FIXME: add support for .least_significant_bit_first, .skip_images, .skip_pixels and .skip_rows
+    auto const& pixel_parameters = (packing_type == PackingType::Pack) ? m_packing_parameters : m_unpacking_parameters;
     return {
-        .depth_stride = static_cast<u32>(depth_stride),
-        .row_stride = static_cast<u32>(row_stride),
-        .byte_alignment = static_cast<u8>(byte_alignment),
-        .component_bytes_order = swap_bytes == GL_TRUE ? GPU::ComponentBytesOrder::Reversed : GPU::ComponentBytesOrder::Normal,
+        .depth_stride = static_cast<u32>(pixel_parameters.image_height),
+        .row_stride = static_cast<u32>(pixel_parameters.row_length),
+        .byte_alignment = pixel_parameters.pack_alignment,
+        .component_bytes_order = pixel_parameters.swap_bytes ? GPU::ComponentBytesOrder::Reversed : GPU::ComponentBytesOrder::Normal,
     };
 }
 

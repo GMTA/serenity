@@ -349,7 +349,7 @@ void WindowFrame::PerScaleRenderedCache::paint(WindowFrame& frame, Gfx::Painter&
         auto top_bottom_height = frame_rect.height() - window_rect.height();
         if (m_bottom_y > 0) {
             // We have a top piece
-            auto src_rect = rect.intersected({ frame_rect.location(), { frame_rect.width(), m_bottom_y } });
+            auto src_rect = rect.intersected(Gfx::Rect { frame_rect.location(), { frame_rect.width(), m_bottom_y } });
             if (!src_rect.is_empty())
                 painter.blit(src_rect.location(), *m_top_bottom, src_rect.translated(-frame_rect.location()), frame.opacity());
         }
@@ -595,7 +595,7 @@ Gfx::IntRect WindowFrame::unconstrained_render_rect() const
     return inflated_for_shadow(rect());
 }
 
-Gfx::DisjointRectSet WindowFrame::opaque_render_rects() const
+Gfx::DisjointIntRectSet WindowFrame::opaque_render_rects() const
 {
     auto border_radius = WindowManager::the().palette().window_border_radius();
     if (has_alpha_channel() || border_radius > 0) {
@@ -605,17 +605,17 @@ Gfx::DisjointRectSet WindowFrame::opaque_render_rects() const
     }
     if (m_window.is_opaque())
         return constrained_render_rect_to_screen(rect());
-    Gfx::DisjointRectSet opaque_rects;
+    Gfx::DisjointIntRectSet opaque_rects;
     opaque_rects.add_many(constrained_render_rect_to_screen(rect()).shatter(m_window.rect()));
     return opaque_rects;
 }
 
-Gfx::DisjointRectSet WindowFrame::transparent_render_rects() const
+Gfx::DisjointIntRectSet WindowFrame::transparent_render_rects() const
 {
     auto border_radius = WindowManager::the().palette().window_border_radius();
     if (has_alpha_channel() || border_radius > 0) {
         if (m_window.is_opaque()) {
-            Gfx::DisjointRectSet transparent_rects;
+            Gfx::DisjointIntRectSet transparent_rects;
             transparent_rects.add_many(render_rect().shatter(m_window.rect()));
             return transparent_rects;
         }
@@ -623,7 +623,7 @@ Gfx::DisjointRectSet WindowFrame::transparent_render_rects() const
     }
 
     auto total_render_rect = render_rect();
-    Gfx::DisjointRectSet transparent_rects;
+    Gfx::DisjointIntRectSet transparent_rects;
     if (has_shadow())
         transparent_rects.add_many(total_render_rect.shatter(rect()));
     if (!m_window.is_opaque())
@@ -845,25 +845,30 @@ void WindowFrame::handle_border_mouse_event(MouseEvent const& event)
 
     auto& wm = WindowManager::the();
 
+    constexpr ResizeDirection direction_for_hot_area[3][3] = {
+        { ResizeDirection::UpLeft, ResizeDirection::Up, ResizeDirection::UpRight },
+        { ResizeDirection::Left, ResizeDirection::None, ResizeDirection::Right },
+        { ResizeDirection::DownLeft, ResizeDirection::Down, ResizeDirection::DownRight },
+    };
+    Gfx::IntRect outer_rect = { {}, rect().size() };
+    VERIFY(outer_rect.contains(event.position()));
+    int window_relative_x = event.x() - outer_rect.x();
+    int window_relative_y = event.y() - outer_rect.y();
+    int corner_size = titlebar_rect().height();
+    int hot_area_row = (window_relative_y < corner_size) ? 0 : (window_relative_y > outer_rect.height() - corner_size) ? 2
+                                                                                                                       : 1;
+    int hot_area_column = (window_relative_x < corner_size) ? 0 : (window_relative_x > outer_rect.width() - corner_size) ? 2
+                                                                                                                         : 1;
+    ResizeDirection resize_direction = direction_for_hot_area[hot_area_row][hot_area_column];
+
     if (event.type() == Event::MouseMove && event.buttons() == 0) {
-        constexpr ResizeDirection direction_for_hot_area[3][3] = {
-            { ResizeDirection::UpLeft, ResizeDirection::Up, ResizeDirection::UpRight },
-            { ResizeDirection::Left, ResizeDirection::None, ResizeDirection::Right },
-            { ResizeDirection::DownLeft, ResizeDirection::Down, ResizeDirection::DownRight },
-        };
-        Gfx::IntRect outer_rect = { {}, rect().size() };
-        VERIFY(outer_rect.contains(event.position()));
-        int window_relative_x = event.x() - outer_rect.x();
-        int window_relative_y = event.y() - outer_rect.y();
-        int hot_area_row = min(2, window_relative_y / (outer_rect.height() / 3));
-        int hot_area_column = min(2, window_relative_x / (outer_rect.width() / 3));
-        wm.set_resize_candidate(m_window, direction_for_hot_area[hot_area_row][hot_area_column]);
+        wm.set_resize_candidate(m_window, resize_direction);
         Compositor::the().invalidate_cursor();
         return;
     }
 
     if (event.type() == Event::MouseDown && event.button() == MouseButton::Primary)
-        wm.start_window_resize(m_window, event.translated(rect().location()));
+        wm.start_window_resize(m_window, event.translated(rect().location()), resize_direction);
 }
 
 void WindowFrame::handle_menubar_mouse_event(MouseEvent const& event)

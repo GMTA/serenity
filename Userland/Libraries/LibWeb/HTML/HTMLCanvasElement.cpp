@@ -21,7 +21,7 @@ static constexpr auto max_canvas_area = 16384 * 16384;
 HTMLCanvasElement::HTMLCanvasElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&document.window().cached_web_prototype("HTMLCanvasElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLCanvasElement"));
 }
 
 HTMLCanvasElement::~HTMLCanvasElement() = default;
@@ -66,21 +66,21 @@ void HTMLCanvasElement::reset_context_to_default_state()
 
 void HTMLCanvasElement::set_width(unsigned value)
 {
-    set_attribute(HTML::AttributeNames::width, String::number(value));
+    MUST(set_attribute(HTML::AttributeNames::width, String::number(value)));
     m_bitmap = nullptr;
     reset_context_to_default_state();
 }
 
 void HTMLCanvasElement::set_height(unsigned value)
 {
-    set_attribute(HTML::AttributeNames::height, String::number(value));
+    MUST(set_attribute(HTML::AttributeNames::height, String::number(value)));
     m_bitmap = nullptr;
     reset_context_to_default_state();
 }
 
-RefPtr<Layout::Node> HTMLCanvasElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> HTMLCanvasElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
 {
-    return adopt_ref(*new Layout::CanvasBox(document(), *this, move(style)));
+    return heap().allocate_without_realm<Layout::CanvasBox>(document(), *this, move(style));
 }
 
 HTMLCanvasElement::HasOrCreatedContext HTMLCanvasElement::create_2d_context()
@@ -88,7 +88,7 @@ HTMLCanvasElement::HasOrCreatedContext HTMLCanvasElement::create_2d_context()
     if (!m_context.has<Empty>())
         return m_context.has<JS::NonnullGCPtr<CanvasRenderingContext2D>>() ? HasOrCreatedContext::Yes : HasOrCreatedContext::No;
 
-    m_context = CanvasRenderingContext2D::create(window(), *this);
+    m_context = CanvasRenderingContext2D::create(realm(), *this);
     return HasOrCreatedContext::Yes;
 }
 
@@ -97,7 +97,7 @@ JS::ThrowCompletionOr<HTMLCanvasElement::HasOrCreatedContext> HTMLCanvasElement:
     if (!m_context.has<Empty>())
         return m_context.has<JS::NonnullGCPtr<WebGL::WebGLRenderingContext>>() ? HasOrCreatedContext::Yes : HasOrCreatedContext::No;
 
-    auto maybe_context = TRY(WebGL::WebGLRenderingContext::create(window(), *this, options));
+    auto maybe_context = TRY(WebGL::WebGLRenderingContext::create(realm(), *this, options));
     if (!maybe_context)
         return HasOrCreatedContext::No;
 

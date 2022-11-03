@@ -182,9 +182,18 @@ ISO9660FS::ISO9660FS(OpenFileDescription& description)
 
 ISO9660FS::~ISO9660FS() = default;
 
-ErrorOr<void> ISO9660FS::initialize()
+bool ISO9660FS::is_initialized_while_locked()
 {
-    TRY(BlockBasedFileSystem::initialize());
+    VERIFY(m_lock.is_locked());
+    return !m_root_inode.is_null();
+}
+
+ErrorOr<void> ISO9660FS::initialize_while_locked()
+{
+    VERIFY(m_lock.is_locked());
+    VERIFY(!is_initialized_while_locked());
+
+    TRY(BlockBasedFileSystem::initialize_while_locked());
     TRY(parse_volume_set());
     TRY(create_root_inode());
     return {};
@@ -221,6 +230,13 @@ u8 ISO9660FS::internal_file_type_to_directory_entry_type(DirectoryEntryView cons
     }
 
     return DT_REG;
+}
+
+ErrorOr<void> ISO9660FS::prepare_to_clear_last_mount()
+{
+    // FIXME: Do proper cleaning here.
+    BlockBasedFileSystem::remove_disk_cache_before_last_unmount();
+    return {};
 }
 
 ErrorOr<void> ISO9660FS::parse_volume_set()
@@ -398,9 +414,9 @@ u32 ISO9660FS::calculate_directory_entry_cache_key(ISO::DirectoryRecordHeader co
     return LittleEndian { record.extent_location.little };
 }
 
-ErrorOr<size_t> ISO9660Inode::read_bytes(off_t offset, size_t size, UserOrKernelBuffer& buffer, OpenFileDescription*) const
+ErrorOr<size_t> ISO9660Inode::read_bytes_locked(off_t offset, size_t size, UserOrKernelBuffer& buffer, OpenFileDescription*) const
 {
-    MutexLocker inode_locker(m_inode_lock);
+    VERIFY(m_inode_lock.is_locked());
 
     u32 data_length = LittleEndian { m_record.data_length.little };
     u32 extent_location = LittleEndian { m_record.extent_location.little };
@@ -493,7 +509,7 @@ ErrorOr<void> ISO9660Inode::flush_metadata()
     return {};
 }
 
-ErrorOr<size_t> ISO9660Inode::write_bytes(off_t, size_t, UserOrKernelBuffer const&, OpenFileDescription*)
+ErrorOr<size_t> ISO9660Inode::write_bytes_locked(off_t, size_t, UserOrKernelBuffer const&, OpenFileDescription*)
 {
     return EROFS;
 }

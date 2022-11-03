@@ -63,7 +63,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantPrototype::epoch_seconds_getter)
     // 3. Let ns be instant.[[Nanoseconds]].
     auto& ns = instant->nanoseconds();
 
-    // 4. Let s be RoundTowardsZero(ℝ(ns) / 10^9).
+    // 4. Let s be truncate(ℝ(ns) / 10^9).
     auto [s, _] = ns.big_integer().divided_by(Crypto::UnsignedBigInteger { 1'000'000'000 });
 
     // 5. Return 𝔽(s).
@@ -80,7 +80,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantPrototype::epoch_milliseconds_getter)
     // 3. Let ns be instant.[[Nanoseconds]].
     auto& ns = instant->nanoseconds();
 
-    // 4. Let ms be RoundTowardsZero(ℝ(ns) / 10^6).
+    // 4. Let ms be truncate(ℝ(ns) / 10^6).
     auto [ms, _] = ns.big_integer().divided_by(Crypto::UnsignedBigInteger { 1'000'000 });
 
     // 5. Return 𝔽(ms).
@@ -97,7 +97,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantPrototype::epoch_microseconds_getter)
     // 3. Let ns be instant.[[Nanoseconds]].
     auto& ns = instant->nanoseconds();
 
-    // 4. Let µs be RoundTowardsZero(ℝ(ns) / 10^3).
+    // 4. Let µs be truncate(ℝ(ns) / 10^3).
     auto [us, _] = ns.big_integer().divided_by(Crypto::UnsignedBigInteger { 1'000 });
 
     // 5. Return ℤ(µs).
@@ -388,34 +388,20 @@ JS_DEFINE_NATIVE_FUNCTION(InstantPrototype::to_zoned_date_time)
     return TRY(create_temporal_zoned_date_time(vm, instant->nanoseconds(), *time_zone, *calendar));
 }
 
-// 8.3.18 Temporal.Instant.prototype.toZonedDateTimeISO ( item ), https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.tozoneddatetimeiso
+// 8.3.18 Temporal.Instant.prototype.toZonedDateTimeISO ( timeZone ), https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.tozoneddatetimeiso
 JS_DEFINE_NATIVE_FUNCTION(InstantPrototype::to_zoned_date_time_iso)
 {
-    auto item = vm.argument(0);
-
     // 1. Let instant be the this value.
     // 2. Perform ? RequireInternalSlot(instant, [[InitializedTemporalInstant]]).
     auto* instant = TRY(typed_this_object(vm));
 
-    // 3. If Type(item) is Object, then
-    if (item.is_object()) {
-        // a. Let timeZoneProperty be ? Get(item, "timeZone").
-        auto time_zone_property = TRY(item.as_object().get(vm.names.timeZone));
+    // 3. Set timeZone to ? ToTemporalTimeZone(timeZone).
+    auto* time_zone = TRY(to_temporal_time_zone(vm, vm.argument(0)));
 
-        // b. If timeZoneProperty is not undefined, then
-        if (!time_zone_property.is_undefined()) {
-            // i. Set item to timeZoneProperty.
-            item = time_zone_property;
-        }
-    }
-
-    // 4. Let timeZone be ? ToTemporalTimeZone(item).
-    auto* time_zone = TRY(to_temporal_time_zone(vm, item));
-
-    // 5. Let calendar be ! GetISO8601Calendar().
+    // 4. Let calendar be ! GetISO8601Calendar().
     auto* calendar = get_iso8601_calendar(vm);
 
-    // 6. Return ? CreateTemporalZonedDateTime(instant.[[Nanoseconds]], timeZone, calendar).
+    // 5. Return ? CreateTemporalZonedDateTime(instant.[[Nanoseconds]], timeZone, calendar).
     return TRY(create_temporal_zoned_date_time(vm, instant->nanoseconds(), *time_zone, *calendar));
 }
 

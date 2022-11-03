@@ -6,6 +6,7 @@
 
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/Array.h>
+#include <LibJS/Runtime/Date.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/Intl/AbstractOperations.h>
 #include <LibJS/Runtime/Intl/DateTimeFormat.h>
@@ -18,7 +19,7 @@ namespace JS::Intl {
 
 // 11.1 The Intl.DateTimeFormat Constructor, https://tc39.es/ecma402/#sec-intl-datetimeformat-constructor
 DateTimeFormatConstructor::DateTimeFormatConstructor(Realm& realm)
-    : NativeFunction(vm().names.DateTimeFormat.as_string(), *realm.intrinsics().function_prototype())
+    : NativeFunction(realm.vm().names.DateTimeFormat.as_string(), *realm.intrinsics().function_prototype())
 {
 }
 
@@ -216,15 +217,15 @@ ThrowCompletionOr<DateTimeFormat*> initialize_date_time_format(VM& vm, DateTimeF
     // 30. If timeZone is undefined, then
     if (time_zone_value.is_undefined()) {
         // a. Set timeZone to ! DefaultTimeZone().
-        time_zone = Temporal::default_time_zone();
+        time_zone = default_time_zone();
     }
     // 31. Else,
     else {
         // a. Set timeZone to ? ToString(timeZone).
         time_zone = TRY(time_zone_value.to_string(vm));
 
-        // b. If the result of IsValidTimeZoneName(timeZone) is false, then
-        if (!Temporal::is_valid_time_zone_name(time_zone)) {
+        // b. If IsAvailableTimeZoneName(timeZone) is false, then
+        if (!Temporal::is_available_time_zone_name(time_zone)) {
             // i. Throw a RangeError exception.
             return vm.throw_completion<RangeError>(ErrorType::OptionIsNotValidValue, time_zone, vm.names.timeZone);
         }

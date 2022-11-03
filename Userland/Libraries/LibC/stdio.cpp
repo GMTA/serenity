@@ -631,18 +631,19 @@ char* fgets(char* buffer, int size, FILE* stream)
 int fgetc(FILE* stream)
 {
     VERIFY(stream);
-    char ch;
-    size_t nread = fread(&ch, sizeof(char), 1, stream);
-    if (nread == 1)
+    unsigned char ch;
+    size_t nread = fread(&ch, sizeof(unsigned char), 1, stream);
+    if (nread == 1) {
         return ch;
+    }
     return EOF;
 }
 
 int fgetc_unlocked(FILE* stream)
 {
     VERIFY(stream);
-    char ch;
-    size_t nread = fread_unlocked(&ch, sizeof(char), 1, stream);
+    unsigned char ch;
+    size_t nread = fread_unlocked(&ch, sizeof(unsigned char), 1, stream);
     if (nread == 1)
         return ch;
     return EOF;

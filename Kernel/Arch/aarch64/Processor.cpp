@@ -5,6 +5,7 @@
  */
 
 #include <AK/Format.h>
+#include <AK/Vector.h>
 
 #include <Kernel/Arch/Processor.h>
 #include <Kernel/Arch/aarch64/ASM_wrapper.h>
@@ -41,7 +42,67 @@ void Processor::initialize(u32 cpu)
 
 void Processor::flush_tlb_local(VirtualAddress, size_t)
 {
-    // FIXME: Implement this
+    // FIXME: Figure out how to flush a single page
+    asm volatile("dsb ishst");
+    asm volatile("tlbi vmalle1is");
+    asm volatile("dsb ish");
+    asm volatile("isb");
+}
+
+void Processor::flush_tlb(Memory::PageDirectory const*, VirtualAddress vaddr, size_t page_count)
+{
+    flush_tlb_local(vaddr, page_count);
+}
+
+u32 Processor::clear_critical()
+{
+    TODO_AARCH64();
+}
+
+u32 Processor::smp_wake_n_idle_processors(u32 wake_count)
+{
+    (void)wake_count;
+    TODO_AARCH64();
+}
+
+void Processor::initialize_context_switching(Thread& initial_thread)
+{
+    (void)initial_thread;
+    TODO_AARCH64();
+}
+
+void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
+{
+    (void)from_thread;
+    (void)to_thread;
+    TODO_AARCH64();
+}
+
+void Processor::assume_context(Thread& thread, FlatPtr flags)
+{
+    (void)thread;
+    (void)flags;
+    TODO_AARCH64();
+}
+
+FlatPtr Processor::init_context(Thread& thread, bool leave_crit)
+{
+    (void)thread;
+    (void)leave_crit;
+    TODO_AARCH64();
+}
+
+ErrorOr<Vector<FlatPtr, 32>> Processor::capture_stack_trace(Thread& thread, size_t max_frames)
+{
+    (void)thread;
+    (void)max_frames;
+    TODO_AARCH64();
+    return Vector<FlatPtr, 32> {};
+}
+
+void Processor::check_invoke_scheduler()
+{
+    TODO_AARCH64();
 }
 
 }

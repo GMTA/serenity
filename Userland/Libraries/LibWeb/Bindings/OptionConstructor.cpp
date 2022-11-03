@@ -23,10 +23,9 @@ OptionConstructor::OptionConstructor(JS::Realm& realm)
 void OptionConstructor::initialize(JS::Realm& realm)
 {
     auto& vm = this->vm();
-    auto& window = verify_cast<HTML::Window>(realm.global_object());
-    NativeFunction::initialize(realm);
 
-    define_direct_property(vm.names.prototype, &window.cached_web_prototype("HTMLOptionElement"), 0);
+    NativeFunction::initialize(realm);
+    define_direct_property(vm.names.prototype, &cached_web_prototype(realm, "HTMLOptionElement"), 0);
     define_direct_property(vm.names.length, JS::Value(0), JS::Attribute::Configurable);
 }
 
@@ -53,21 +52,21 @@ JS::ThrowCompletionOr<JS::Object*> OptionConstructor::construct(FunctionObject&)
         auto text = TRY(vm.argument(0).to_string(vm));
         if (!text.is_empty()) {
             auto new_text_node = vm.heap().allocate<DOM::Text>(realm, document, text);
-            option_element->append_child(*new_text_node);
+            MUST(option_element->append_child(*new_text_node));
         }
     }
 
     // 4. If value is given, then set an attribute value for option using "value" and value.
     if (vm.argument_count() > 1) {
         auto value = TRY(vm.argument(1).to_string(vm));
-        option_element->set_attribute(HTML::AttributeNames::value, value);
+        MUST(option_element->set_attribute(HTML::AttributeNames::value, value));
     }
 
     // 5. If defaultSelected is true, then set an attribute value for option using "selected" and the empty string.
     if (vm.argument_count() > 2) {
         auto default_selected = vm.argument(2).to_boolean();
         if (default_selected) {
-            option_element->set_attribute(HTML::AttributeNames::selected, "");
+            MUST(option_element->set_attribute(HTML::AttributeNames::selected, ""));
         }
     }
 

@@ -42,9 +42,6 @@ jobs:
         build_directory: 'Meta/Lagom/Build'
         serenity_ccache_path: '$(SERENITY_CCACHE_DIR)'
         with_remote_data_caches: true
-        ${{ if eq(parameters.os, 'Android') }}:
-          with_ndk_cache: true
-          ndk_version: '$(ndk_version)'
         ${{ if eq(parameters.os, 'macOS') }}:
           ccache_version: 2
           serenity_ccache_size: '2G'
@@ -105,8 +102,8 @@ jobs:
             -DWASM_SPEC_TEST_SKIP_FORMATTING=ON \
             -DENABLE_UNDEFINED_SANITIZER=ON \
             -DENABLE_ADDRESS_SANITIZER=ON \
-            -DCMAKE_C_COMPILER=gcc-11 \
-            -DCMAKE_CXX_COMPILER=g++-11
+            -DCMAKE_C_COMPILER=gcc-12 \
+            -DCMAKE_CXX_COMPILER=g++-12
         displayName: 'Create Build Environment'
         workingDirectory: $(Build.SourcesDirectory)/Meta/Lagom
         env:

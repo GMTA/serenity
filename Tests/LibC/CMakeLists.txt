@@ -11,11 +11,13 @@ set(TEST_SOURCES
     TestLibCString.cpp
     TestLibCTime.cpp
     TestMalloc.cpp
+    TestMath.cpp
     TestMemalign.cpp
     TestMemmem.cpp
     TestMkDir.cpp
     TestPthreadCancel.cpp
     TestPthreadCleanup.cpp
+    TestPThreadPriority.cpp
     TestPthreadSpinLocks.cpp
     TestPthreadRWLocks.cpp
     TestQsort.cpp
@@ -32,6 +34,7 @@ set(TEST_SOURCES
     TestWctype.cpp
 )
 
+set_source_files_properties(TestMath.cpp PROPERTIES COMPILE_FLAGS "-fno-builtin")
 set_source_files_properties(TestStrtodAccuracy.cpp PROPERTIES COMPILE_FLAGS "-fno-builtin-strtod")
 
 foreach(source IN LISTS TEST_SOURCES)

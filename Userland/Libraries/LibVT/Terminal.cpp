@@ -856,7 +856,7 @@ void Terminal::put_character_at(unsigned row, unsigned column, u32 code_point)
 void Terminal::clear_in_line(u16 row, u16 first_column, u16 last_column)
 {
     VERIFY(row < rows());
-    active_buffer()[row].clear_range(first_column, last_column);
+    active_buffer()[row].clear_range(first_column, last_column, m_current_state.attribute);
 }
 #endif
 
@@ -1512,7 +1512,6 @@ void Terminal::set_size(u16 columns, u16 rows)
                 if (buffer[i].length() != columns)
                     lines_to_reevaluate.enqueue(i);
             }
-            size_t rows_inserted = 0;
             while (!lines_to_reevaluate.is_empty()) {
                 auto index = lines_to_reevaluate.dequeue();
                 auto is_at_seam = index + 1 == buffer.size();
@@ -1524,7 +1523,6 @@ void Terminal::set_size(u16 columns, u16 rows)
                     auto current_cursor = cursor_on_line(index);
                     // Split the line into two (or more)
                     ++index;
-                    ++rows_inserted;
                     buffer.insert(index, make<Line>(0));
                     VERIFY(buffer[index].length() == 0);
                     line.rewrap(columns, &buffer[index], current_cursor, false);

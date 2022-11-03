@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/CSSGroupingRulePrototype.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/CSS/CSSGroupingRule.h>
 #include <LibWeb/CSS/CSSRuleList.h>
@@ -12,11 +14,11 @@
 
 namespace Web::CSS {
 
-CSSGroupingRule::CSSGroupingRule(HTML::Window& window_object, CSSRuleList& rules)
-    : CSSRule(window_object)
+CSSGroupingRule::CSSGroupingRule(JS::Realm& realm, CSSRuleList& rules)
+    : CSSRule(realm)
     , m_rules(rules)
 {
-    set_prototype(&window_object.cached_web_prototype("CSSGroupingRule"));
+    set_prototype(&Bindings::ensure_web_prototype<Bindings::CSSGroupingRulePrototype>(realm, "CSSGroupingRule"));
     for (auto& rule : m_rules)
         rule.set_parent_rule(this);
 }
@@ -27,7 +29,7 @@ void CSSGroupingRule::visit_edges(Cell::Visitor& visitor)
     visitor.visit(&m_rules);
 }
 
-DOM::ExceptionOr<u32> CSSGroupingRule::insert_rule(StringView rule, u32 index)
+WebIDL::ExceptionOr<u32> CSSGroupingRule::insert_rule(StringView rule, u32 index)
 {
     TRY(m_rules.insert_a_css_rule(rule, index));
     // NOTE: The spec doesn't say where to set the parent rule, so we'll do it here.
@@ -35,7 +37,7 @@ DOM::ExceptionOr<u32> CSSGroupingRule::insert_rule(StringView rule, u32 index)
     return index;
 }
 
-DOM::ExceptionOr<void> CSSGroupingRule::delete_rule(u32 index)
+WebIDL::ExceptionOr<void> CSSGroupingRule::delete_rule(u32 index)
 {
     return m_rules.remove_a_css_rule(index);
 }

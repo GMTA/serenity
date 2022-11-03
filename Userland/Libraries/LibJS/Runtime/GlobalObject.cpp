@@ -7,6 +7,7 @@
 
 #include <AK/BuiltinWrappers.h>
 #include <AK/CharacterTypes.h>
+#include <AK/FloatingPointStringConversions.h>
 #include <AK/Hex.h>
 #include <AK/UnicodeUtils.h>
 #include <AK/Utf16View.h>
@@ -200,7 +201,7 @@ GlobalObject::~GlobalObject() = default;
 
 JS_DEFINE_NATIVE_FUNCTION(GlobalObject::gc)
 {
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     dbgln("Forced garbage collection requested!");
 #endif
     vm.heap().collect_garbage();
@@ -226,10 +227,21 @@ JS_DEFINE_NATIVE_FUNCTION(GlobalObject::parse_float)
         return vm.argument(0);
     auto input_string = TRY(vm.argument(0).to_string(vm));
     auto trimmed_string = MUST(trim_string(vm, js_string(vm, input_string), TrimMode::Left));
-    for (size_t length = trimmed_string.length(); length > 0; --length) {
-        auto number = MUST(Value(js_string(vm, trimmed_string.substring(0, length))).to_number(vm));
-        if (!number.is_nan())
-            return number;
+    if (trimmed_string.is_empty())
+        return js_nan();
+
+    auto result = parse_first_floating_point<double>(trimmed_string.characters(), trimmed_string.characters() + trimmed_string.length());
+    if (result.parsed_value())
+        return result.value;
+
+    bool starts_with_sign = trimmed_string[0] == '-' || trimmed_string[0] == '+';
+    auto signless_view = starts_with_sign ? trimmed_string.substring_view(1) : trimmed_string.view();
+    if (signless_view.starts_with("Infinity"sv, AK::CaseSensitivity::CaseSensitive)) {
+        // Only an immediate - means we should return negative infinity
+        if (trimmed_string[0] == '-')
+            return js_negative_infinity();
+
+        return js_infinity();
     }
     return js_nan();
 }
@@ -350,7 +362,7 @@ static ThrowCompletionOr<String> encode(VM& vm, String const& string, StringView
         auto code_unit = utf16_string.code_unit_at(k);
         // c. If C is in unescapedSet, then
         // NOTE: We assume the unescaped set only contains ascii characters as unescaped_set is a StringView.
-        if (code_unit < 0x80 && unescaped_set.contains(code_unit)) {
+        if (code_unit < 0x80 && unescaped_set.contains(static_cast<char>(code_unit))) {
             // i. Set k to k + 1.
             k++;
 
@@ -420,8 +432,8 @@ static ThrowCompletionOr<String> decode(VM& vm, String const& string, StringView
             continue;
         }
 
-        if ((decoded_code_unit & 0x80) == 0) {
-            if (reserved_set.contains(decoded_code_unit))
+        if (decoded_code_unit < 0x80) {
+            if (reserved_set.contains(static_cast<char>(decoded_code_unit)))
                 decoded_builder.append(string.substring_view(k - 2, 3));
             else
                 decoded_builder.append(decoded_code_unit);
@@ -480,7 +492,7 @@ JS_DEFINE_NATIVE_FUNCTION(GlobalObject::escape)
     StringBuilder escaped;
     for (auto code_point : utf8_to_utf16(string)) {
         if (code_point < 256) {
-            if ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@*_+-./"sv.contains(code_point))
+            if ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@*_+-./"sv.contains(static_cast<char>(code_point)))
                 escaped.append(code_point);
             else
                 escaped.appendff("%{:02X}", code_point);

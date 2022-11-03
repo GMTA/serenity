@@ -15,19 +15,20 @@ class ResolvedCSSStyleDeclaration final : public CSSStyleDeclaration {
 
 public:
     static ResolvedCSSStyleDeclaration* create(DOM::Element& element);
-    explicit ResolvedCSSStyleDeclaration(DOM::Element&);
 
     virtual ~ResolvedCSSStyleDeclaration() override = default;
 
     virtual size_t length() const override;
     virtual String item(size_t index) const override;
     virtual Optional<StyleProperty> property(PropertyID) const override;
-    virtual DOM::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority) override;
-    virtual DOM::ExceptionOr<String> remove_property(PropertyID) override;
+    virtual WebIDL::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority) override;
+    virtual WebIDL::ExceptionOr<String> remove_property(PropertyID) override;
 
     virtual String serialized() const override;
 
 private:
+    explicit ResolvedCSSStyleDeclaration(DOM::Element&);
+
     virtual void visit_edges(Cell::Visitor&) override;
 
     RefPtr<StyleValue> style_value_for_property(Layout::NodeWithStyle const&, PropertyID) const;

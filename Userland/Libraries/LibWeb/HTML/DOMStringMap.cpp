@@ -5,21 +5,21 @@
  */
 
 #include <AK/CharacterTypes.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/HTML/DOMStringMap.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::HTML {
 
 JS::NonnullGCPtr<DOMStringMap> DOMStringMap::create(DOM::Element& element)
 {
-    auto& realm = element.document().window().realm();
+    auto& realm = element.realm();
     return *realm.heap().allocate<DOMStringMap>(realm, element);
 }
 
 DOMStringMap::DOMStringMap(DOM::Element& element)
-    : PlatformObject(element.window().cached_web_prototype("DOMStringMap"))
+    : LegacyPlatformObject(Bindings::cached_web_prototype(element.realm(), "DOMStringMap"))
     , m_associated_element(element)
 {
 }
@@ -111,7 +111,7 @@ String DOMStringMap::determine_value_of_named_property(String const& name) const
 }
 
 // https://html.spec.whatwg.org/multipage/dom.html#dom-domstringmap-setitem
-DOM::ExceptionOr<void> DOMStringMap::set_value_of_new_named_property(String const& name, String const& value)
+WebIDL::ExceptionOr<void> DOMStringMap::set_value_of_new_named_property(String const& name, String const& value)
 {
     AK::StringBuilder builder;
 
@@ -126,7 +126,7 @@ DOM::ExceptionOr<void> DOMStringMap::set_value_of_new_named_property(String cons
         if (current_character == '-' && character_index + 1 < name.length()) {
             auto next_character = name[character_index + 1];
             if (is_ascii_lower_alpha(next_character))
-                return DOM::SyntaxError::create(global_object(), "Name cannot contain a '-' followed by a lowercase character.");
+                return WebIDL::SyntaxError::create(realm(), "Name cannot contain a '-' followed by a lowercase character.");
         }
 
         // 2. For each ASCII upper alpha in name, insert a U+002D HYPHEN-MINUS character (-) before the character and replace the character with the same character converted to ASCII lowercase.
@@ -144,13 +144,13 @@ DOM::ExceptionOr<void> DOMStringMap::set_value_of_new_named_property(String cons
     // FIXME: 4. If name does not match the XML Name production, throw an "InvalidCharacterError" DOMException.
 
     // 5. Set an attribute value for the DOMStringMap's associated element using name and value.
-    m_associated_element->set_attribute(data_name, value);
+    MUST(m_associated_element->set_attribute(data_name, value));
 
     return {};
 }
 
 // https://html.spec.whatwg.org/multipage/dom.html#dom-domstringmap-setitem
-DOM::ExceptionOr<void> DOMStringMap::set_value_of_existing_named_property(String const& name, String const& value)
+WebIDL::ExceptionOr<void> DOMStringMap::set_value_of_existing_named_property(String const& name, String const& value)
 {
     return set_value_of_new_named_property(name, value);
 }
@@ -181,6 +181,11 @@ bool DOMStringMap::delete_existing_named_property(String const& name)
 
     // The spec doesn't have the step. This indicates that the deletion was successful.
     return true;
+}
+
+JS::Value DOMStringMap::named_item_value(FlyString const& name) const
+{
+    return js_string(vm(), determine_value_of_named_property(name));
 }
 
 }

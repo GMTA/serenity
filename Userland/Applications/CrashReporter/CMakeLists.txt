@@ -9,8 +9,11 @@ compile_gml(CrashReporterWindow.gml CrashReporterWindowGML.h crash_reporter_wind
 
 set(SOURCES
     main.cpp
+)
+
+set(GENERATED_SOURCES
     CrashReporterWindowGML.h
 )
 
 serenity_app(CrashReporter ICON app-crash-reporter)
-target_link_libraries(CrashReporter LibCore LibCoredump LibDesktop LibFileSystemAccessClient LibGUI LibMain)
+target_link_libraries(CrashReporter PRIVATE LibCore LibCoredump LibDebug LibDesktop LibFileSystemAccessClient LibGfx LibGUI LibMain LibThreading)

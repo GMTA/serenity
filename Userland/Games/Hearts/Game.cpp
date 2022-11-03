@@ -199,20 +199,12 @@ void Game::setup(String player_name, int hand_number)
         m_passing_button->set_focus(false);
     }
 
-    NonnullRefPtrVector<Card> deck;
-    deck.ensure_capacity(Card::card_count * 4);
-
-    for (int i = 0; i < Card::card_count; ++i) {
-        deck.append(Card::construct(Cards::Suit::Clubs, static_cast<Cards::Rank>(i)));
-        deck.append(Card::construct(Cards::Suit::Spades, static_cast<Cards::Rank>(i)));
-        deck.append(Card::construct(Cards::Suit::Hearts, static_cast<Cards::Rank>(i)));
-        deck.append(Card::construct(Cards::Suit::Diamonds, static_cast<Cards::Rank>(i)));
-    }
+    NonnullRefPtrVector<Card> deck = Cards::create_standard_deck(Cards::Shuffle::Yes);
 
     for (auto& player : m_players) {
         player.hand.ensure_capacity(Card::card_count);
         for (uint8_t i = 0; i < Card::card_count; ++i) {
-            auto card = deck.take(get_random_uniform(deck.size()));
+            auto card = deck.take_last();
             if constexpr (!HEARTS_DEBUG) {
                 if (&player != &m_players[0])
                     card->set_upside_down(true);
@@ -904,21 +896,21 @@ void Game::paint_event(GUI::PaintEvent& event)
         if (!game_ended()) {
             for (auto& card : player.hand)
                 if (!card.is_null())
-                    card->draw(painter);
+                    card->paint(painter);
         } else {
             // FIXME: reposition cards in advance_game() maybe
             auto card_position = player.first_card_position;
             for (auto& card : player.cards_taken) {
                 card->set_upside_down(false);
                 card->set_position(card_position);
-                card->draw(painter);
+                card->paint(painter);
                 card_position.translate_by(player.card_offset);
             }
         }
     }
 
     for (size_t i = 0; i < m_trick.size(); i++)
-        m_trick[i].draw(painter);
+        m_trick[i].paint(painter);
 }
 
 void Game::dump_state() const

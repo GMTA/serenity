@@ -1,4 +1,11 @@
 {
+  "align-content": {
+    "inherited": false,
+    "initial": "stretch",
+    "valid-types": [
+      "align-content"
+    ]
+  },
   "align-items": {
     "inherited": false,
     "initial": "stretch",
@@ -18,6 +25,18 @@
     "initial": "auto",
     "valid-types": [
       "appearance"
+    ]
+  },
+  "backdrop-filter": {
+    "affects-layout": false,
+    "affects-stacking-context": true,
+    "inherited": false,
+    "initial": "none",
+    "valid-types": [
+      "filter-value-list"
+    ],
+    "valid-identifiers": [
+      "none"
     ]
   },
   "background": {

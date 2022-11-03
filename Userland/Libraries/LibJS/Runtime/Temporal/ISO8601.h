@@ -24,6 +24,7 @@ struct ParseResult {
     Optional<StringView> time_fraction;
     Optional<StringView> calendar_name;
     Optional<StringView> utc_designator;
+    Optional<StringView> time_zone_bracketed_annotation;
     Optional<StringView> time_zone_numeric_utc_offset;
     Optional<StringView> time_zone_utc_offset_sign;
     Optional<StringView> time_zone_utc_offset_hour;
@@ -49,11 +50,12 @@ enum class Production {
     TemporalDurationString,
     TemporalMonthDayString,
     TemporalTimeString,
-    TemporalTimeZoneString,
     TemporalYearMonthString,
     TemporalZonedDateTimeString,
-    TemporalCalendarString,
+    TimeZoneIdentifier,
     TimeZoneNumericUTCOffset,
+    CalendarName,
+    DateMonth,
 };
 
 Optional<ParseResult> parse_iso8601(Production, StringView);
@@ -163,10 +165,8 @@ public:
     [[nodiscard]] bool parse_temporal_duration_string();
     [[nodiscard]] bool parse_temporal_month_day_string();
     [[nodiscard]] bool parse_temporal_time_string();
-    [[nodiscard]] bool parse_temporal_time_zone_string();
     [[nodiscard]] bool parse_temporal_year_month_string();
     [[nodiscard]] bool parse_temporal_zoned_date_time_string();
-    [[nodiscard]] bool parse_temporal_calendar_string();
 
 private:
     struct State {

@@ -5,16 +5,15 @@
  */
 
 #include <LibWeb/DOM/IDLEventListener.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::DOM {
 
-JS::NonnullGCPtr<IDLEventListener> IDLEventListener::create(JS::Realm& realm, JS::NonnullGCPtr<Bindings::CallbackType> callback)
+JS::NonnullGCPtr<IDLEventListener> IDLEventListener::create(JS::Realm& realm, JS::NonnullGCPtr<WebIDL::CallbackType> callback)
 {
     return *realm.heap().allocate<IDLEventListener>(realm, realm, move(callback));
 }
 
-IDLEventListener::IDLEventListener(JS::Realm& realm, JS::NonnullGCPtr<Bindings::CallbackType> callback)
+IDLEventListener::IDLEventListener(JS::Realm& realm, JS::NonnullGCPtr<WebIDL::CallbackType> callback)
     : JS::Object(*realm.intrinsics().object_prototype())
     , m_callback(move(callback))
 {

@@ -8,6 +8,7 @@
 #include "Game.h"
 #include "GameSizeDialog.h"
 #include <AK/URL.h>
+#include <Games/2048/GameWindowGML.h>
 #include <LibConfig/Client.h>
 #include <LibCore/System.h>
 #include <LibDesktop/Launcher.h>
@@ -39,13 +40,13 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     Config::pledge_domain("2048");
 
-    TRY(Desktop::Launcher::add_allowed_handler_with_only_specific_urls("/bin/Help", { URL::create_with_file_protocol("/usr/share/man/man6/2048.md") }));
+    TRY(Desktop::Launcher::add_allowed_handler_with_only_specific_urls("/bin/Help", { URL::create_with_file_scheme("/usr/share/man/man6/2048.md") }));
     TRY(Desktop::Launcher::seal_allowlist());
 
     TRY(Core::System::pledge("stdio rpath recvfd sendfd"));
 
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/launch", "rw"));
     TRY(Core::System::unveil("/res", "r"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/launch", "rw"));
     TRY(Core::System::unveil(nullptr, nullptr));
 
     size_t board_size = Config::read_i32("2048"sv, ""sv, "board_size"sv, 4);
@@ -65,15 +66,15 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     window->set_title("2048");
     window->resize(315, 336);
 
-    auto main_widget = TRY(window->try_set_main_widget<GUI::Widget>());
-    (void)TRY(main_widget->try_set_layout<GUI::VerticalBoxLayout>());
-    main_widget->set_fill_with_background_color(true);
+    auto& main_widget = window->set_main_widget<GUI::Widget>();
+    if (!main_widget.load_from_gml(game_window_gml))
+        VERIFY_NOT_REACHED();
 
     Game game { board_size, target_tile, evil_ai };
 
-    auto board_view = TRY(main_widget->try_add<BoardView>(&game.board()));
+    auto board_view = TRY(main_widget.find_descendant_of_type_named<GUI::Widget>("board_view_container")->try_add<BoardView>(&game.board()));
     board_view->set_focus(true);
-    auto statusbar = TRY(main_widget->try_add<GUI::Statusbar>());
+    auto statusbar = main_widget.find_descendant_of_type_named<GUI::Statusbar>("statusbar");
 
     app->on_action_enter = [&](GUI::Action& action) {
         auto text = action.status_tip();
@@ -112,11 +113,11 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
             Config::write_i32("2048"sv, ""sv, "target_tile"sv, target_tile);
             Config::write_bool("2048"sv, ""sv, "evil_ai"sv, evil_ai);
 
-            GUI::MessageBox::show(window, "New settings have been saved and will be applied on a new game"sv, "Settings Changed Successfully"sv, GUI::MessageBox::Type::Information);
+            GUI::MessageBox::show(size_dialog, "New settings have been saved and will be applied on a new game"sv, "Settings Changed Successfully"sv, GUI::MessageBox::Type::Information);
             return;
         }
 
-        GUI::MessageBox::show(window, "New settings have been set and will be applied on the next game"sv, "Settings Changed Successfully"sv, GUI::MessageBox::Type::Information);
+        GUI::MessageBox::show(size_dialog, "New settings have been set and will be applied on the next game"sv, "Settings Changed Successfully"sv, GUI::MessageBox::Type::Information);
     };
     auto start_a_new_game = [&] {
         // Do not leak game states between games.
@@ -202,8 +203,9 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     })));
 
     auto help_menu = TRY(window->try_add_menu("&Help"));
+    TRY(help_menu->try_add_action(GUI::CommonActions::make_command_palette_action(window)));
     TRY(help_menu->try_add_action(GUI::CommonActions::make_help_action([](auto&) {
-        Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man6/2048.md"), "/bin/Help");
+        Desktop::Launcher::open(URL::create_with_file_scheme("/usr/share/man/man6/2048.md"), "/bin/Help");
     })));
     TRY(help_menu->try_add_action(GUI::CommonActions::make_about_action("2048", app_icon, window)));
 

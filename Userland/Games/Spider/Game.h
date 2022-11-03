@@ -40,12 +40,28 @@ public:
     Mode mode() const { return m_mode; }
     void setup(Mode);
 
+    void perform_undo();
+
     Function<void(uint32_t)> on_score_update;
     Function<void()> on_game_start;
     Function<void(GameOverReason, uint32_t)> on_game_end;
+    Function<void(bool)> on_undo_availability_change;
 
 private:
     Game();
+
+    struct LastMove {
+        enum class Type {
+            Invalid,
+            MoveCards
+        };
+
+        Type type { Type::Invalid };
+        CardStack* from { nullptr };
+        size_t card_count;
+        bool was_visible;
+        CardStack* to { nullptr };
+    };
 
     enum StackLocation {
         Completed,
@@ -68,18 +84,12 @@ private:
     };
 
     void start_timer_if_necessary();
+    void remember_move_for_undo(CardStack&, CardStack&, size_t, bool);
     void update_score(int delta);
     void draw_cards();
-    void mark_intersecting_stacks_dirty(Card& intersecting_card);
-    void ensure_top_card_is_visible(NonnullRefPtr<CardStack> stack);
     void detect_full_stacks();
     void detect_victory();
     void move_focused_cards(CardStack& stack);
-
-    ALWAYS_INLINE CardStack& stack(StackLocation location)
-    {
-        return m_stacks[location];
-    }
 
     void paint_event(GUI::PaintEvent&) override;
     void mousedown_event(GUI::MouseEvent&) override;
@@ -89,10 +99,8 @@ private:
 
     Mode m_mode { Mode::SingleSuit };
 
-    NonnullRefPtrVector<Card> m_focused_cards;
+    LastMove m_last_move;
     NonnullRefPtrVector<Card> m_new_deck;
-    NonnullRefPtrVector<CardStack> m_stacks;
-    CardStack* m_focused_stack { nullptr };
     Gfx::IntPoint m_mouse_down_location;
 
     bool m_mouse_down { false };

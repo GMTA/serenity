@@ -625,7 +625,7 @@ void BarewordLiteral::highlight_in_editor(Line::Editor& editor, Shell& shell, Hi
             Line::Style bold = { Line::Style::Bold };
             Line::Style style = bold;
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
             if (runnable->kind == Shell::RunnablePath::Kind::Executable || runnable->kind == Shell::RunnablePath::Kind::Alias) {
                 auto name = shell.help_path_for({}, *runnable);
                 if (name.has_value()) {
@@ -660,7 +660,7 @@ void BarewordLiteral::highlight_in_editor(Line::Editor& editor, Shell& shell, Hi
     }
     if (Core::File::exists(m_text)) {
         auto realpath = shell.resolve_path(m_text);
-        auto url = URL::create_with_file_protocol(realpath);
+        auto url = URL::create_with_file_scheme(realpath);
         url.set_host(shell.hostname);
         editor.stylize({ m_position.start_offset, m_position.end_offset }, { Line::Style::Hyperlink(url.to_string()) });
     }
@@ -2496,7 +2496,7 @@ void PathRedirectionNode::highlight_in_editor(Line::Editor& editor, Shell& shell
         auto& path = path_text[0];
         if (!path.starts_with('/'))
             path = String::formatted("{}/{}", shell.cwd, path);
-        auto url = URL::create_with_file_protocol(path);
+        auto url = URL::create_with_file_scheme(path);
         url.set_host(shell.hostname);
         editor.stylize({ position.start_offset, position.end_offset }, { Line::Style::Hyperlink(url.to_string()) });
     }
@@ -3058,7 +3058,7 @@ void Juxtaposition::highlight_in_editor(Line::Editor& editor, Shell& shell, High
 
         if (Core::File::exists(path)) {
             auto realpath = shell.resolve_path(path);
-            auto url = URL::create_with_file_protocol(realpath);
+            auto url = URL::create_with_file_scheme(realpath);
             url.set_host(shell.hostname);
             editor.stylize({ m_position.start_offset, m_position.end_offset }, { Line::Style::Hyperlink(url.to_string()) });
         }
@@ -3577,7 +3577,7 @@ String StringValue::resolve_as_string(RefPtr<Shell> shell)
 Vector<String> StringValue::resolve_as_list(RefPtr<Shell> shell)
 {
     if (is_list()) {
-        auto parts = StringView(m_string).split_view(m_split, m_keep_empty);
+        auto parts = StringView(m_string).split_view(m_split, m_keep_empty ? SplitBehavior::KeepEmpty : SplitBehavior::Nothing);
         Vector<String> result;
         result.ensure_capacity(parts.size());
         for (auto& part : parts)

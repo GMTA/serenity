@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/LexicalPath.h>
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
 #include <AK/StringView.h>
@@ -232,7 +233,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 {
     TRY(Core::System::pledge("stdio rpath"));
 
-    StringView path {};
+    String path {};
     static bool display_all = false;
     static bool display_elf_header = false;
     static bool display_program_headers = false;
@@ -288,6 +289,8 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         display_hardening = true;
     }
 
+    path = LexicalPath::absolute_path(TRY(Core::System::getcwd()), path);
+
     auto file_or_error = Core::MappedFile::map(path);
 
     if (file_or_error.is_error()) {
@@ -336,7 +339,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         }
 
         int fd = TRY(Core::System::open(path, O_RDONLY));
-        auto result = ELF::DynamicLoader::try_create(fd, path, path);
+        auto result = ELF::DynamicLoader::try_create(fd, path);
         if (result.is_error()) {
             outln("{}", result.error().text);
             return 1;
@@ -730,7 +733,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         if (maybe_section.has_value()) {
             outln("String dump of section \'{}\':", string_dump_section);
             StringView data(maybe_section->raw_data(), maybe_section->size());
-            data.for_each_split_view('\0', false, [&data](auto string) {
+            data.for_each_split_view('\0', SplitBehavior::Nothing, [&data](auto string) {
                 auto offset = string.characters_without_null_termination() - data.characters_without_null_termination();
                 outln("[{:6x}] {}", offset, string);
             });

@@ -7,8 +7,8 @@
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/IteratorOperations.h>
 #include <LibWeb/Bindings/HeadersIteratorPrototype.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Fetch/HeadersIterator.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::Fetch {
 
@@ -22,7 +22,7 @@ HeadersIterator::HeadersIterator(Headers const& headers, JS::Object::PropertyKin
     , m_headers(headers)
     , m_iteration_kind(iteration_kind)
 {
-    set_prototype(&headers.global_object().ensure_web_prototype<Bindings::HeadersIteratorPrototype>("HeadersIterator"));
+    set_prototype(&Bindings::ensure_web_prototype<Bindings::HeadersIteratorPrototype>(headers.realm(), "HeadersIterator"));
 }
 
 HeadersIterator::~HeadersIterator() = default;
@@ -38,7 +38,7 @@ JS::ThrowCompletionOr<JS::Object*> HeadersIterator::next()
 {
     // The value pairs to iterate over are the return value of running sort and combine with this’s header list.
     auto value_pairs_to_iterate_over = [&]() -> JS::ThrowCompletionOr<Vector<Fetch::Infrastructure::Header>> {
-        auto headers_or_error = m_headers.m_header_list.sort_and_combine();
+        auto headers_or_error = m_headers.m_header_list->sort_and_combine();
         if (headers_or_error.is_error())
             return vm().throw_completion<JS::InternalError>(JS::ErrorType::NotEnoughMemoryToAllocate);
         return headers_or_error.release_value();

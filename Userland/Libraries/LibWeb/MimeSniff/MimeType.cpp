@@ -1,5 +1,7 @@
 /*
  * Copyright (c) 2022, Luke Wilde <lukew@serenityos.org>
+ * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2022, networkException <networkexception@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -11,6 +13,16 @@
 #include <LibWeb/MimeSniff/MimeType.h>
 
 namespace Web::MimeSniff {
+
+// https://mimesniff.spec.whatwg.org/#javascript-mime-type-essence-match
+bool is_javascript_mime_type_essence_match(String const& string)
+{
+    // NOTE: The mime type parser automatically lowercases the essence.
+    auto type = MimeType::from_string(string);
+    if (!type.has_value())
+        return false;
+    return type->is_javascript();
+}
 
 static bool contains_only_http_quoted_string_token_code_points(StringView string)
 {
@@ -172,6 +184,45 @@ String MimeType::essence() const
     return String::formatted("{}/{}", m_type, m_subtype);
 }
 
+// https://mimesniff.spec.whatwg.org/#serialize-a-mime-type
+String MimeType::serialized() const
+{
+    // 1. Let serialization be the concatenation of mimeType’s type, U+002F (/), and mimeType’s subtype.
+    StringBuilder serialization;
+    serialization.append(m_type);
+    serialization.append('/');
+    serialization.append(m_subtype);
+
+    // 2. For each name → value of mimeType’s parameters:
+    for (auto [name, value] : m_parameters) {
+        // 1. Append U+003B (;) to serialization.
+        serialization.append(';');
+
+        // 2. Append name to serialization.
+        serialization.append(name);
+
+        // 3. Append U+003D (=) to serialization.
+        serialization.append('=');
+
+        // 4. If value does not solely contain HTTP token code points or value is the empty string, then:
+        if (!contains_only_http_token_code_points(value) || value.is_empty()) {
+            // 1. Precede each occurence of U+0022 (") or U+005C (\) in value with U+005C (\).
+            value = value.replace("\\"sv, "\\\\"sv, ReplaceMode::All);
+            value = value.replace("\""sv, "\\\""sv, ReplaceMode::All);
+
+            // 2. Prepend U+0022 (") to value.
+            // 3. Append U+0022 (") to value.
+            value = String::formatted("\"{}\"", value);
+        }
+
+        // 5. Append value to serialization.
+        serialization.append(value);
+    }
+
+    // 3. Return serialization.
+    return serialization.to_string();
+}
+
 void MimeType::set_parameter(String const& name, String const& value)
 {
     // https://mimesniff.spec.whatwg.org/#parameters
@@ -179,6 +230,28 @@ void MimeType::set_parameter(String const& name, String const& value)
     VERIFY(contains_only_http_quoted_string_token_code_points(name));
     VERIFY(contains_only_http_quoted_string_token_code_points(value));
     m_parameters.set(name, value);
+}
+
+// https://mimesniff.spec.whatwg.org/#javascript-mime-type
+bool MimeType::is_javascript() const
+{
+    return essence().is_one_of(
+        "application/ecmascript"sv,
+        "application/javascript"sv,
+        "application/x-ecmascript"sv,
+        "application/x-javascript"sv,
+        "text/ecmascript"sv,
+        "text/javascript"sv,
+        "text/javascript1.0"sv,
+        "text/javascript1.1"sv,
+        "text/javascript1.2"sv,
+        "text/javascript1.3"sv,
+        "text/javascript1.4"sv,
+        "text/javascript1.5"sv,
+        "text/jscript"sv,
+        "text/livescript"sv,
+        "text/x-ecmascript"sv,
+        "text/x-javascript"sv);
 }
 
 }

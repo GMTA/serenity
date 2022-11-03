@@ -31,11 +31,9 @@ public:
     };
 
     CardStack();
-    CardStack(Gfx::IntPoint const& position, Type type);
-    CardStack(Gfx::IntPoint const& position, Type type, NonnullRefPtr<CardStack> associated_stack);
+    CardStack(Gfx::IntPoint const& position, Type type, RefPtr<CardStack> covered_stack = nullptr);
 
     bool is_empty() const { return m_stack.is_empty(); }
-    bool is_focused() const { return m_focused; }
     Type type() const { return m_type; }
     NonnullRefPtrVector<Card> const& stack() const { return m_stack; }
     size_t count() const { return m_stack.size(); }
@@ -43,7 +41,7 @@ public:
     Card& peek() { return m_stack.last(); }
     Gfx::IntRect const& bounding_box() const { return m_bounding_box; }
 
-    void set_focused(bool focused) { m_focused = focused; }
+    bool make_top_card_visible(); // Returns true if the card was flipped.
 
     void push(NonnullRefPtr<Card> card);
     NonnullRefPtr<Card> pop();
@@ -52,7 +50,7 @@ public:
 
     bool is_allowed_to_push(Card const&, size_t stack_size = 1, MovementRule movement_rule = MovementRule::Alternating) const;
     void add_all_grabbed_cards(Gfx::IntPoint const& click_location, NonnullRefPtrVector<Card>& grabbed, MovementRule movement_rule = MovementRule::Alternating);
-    void draw(GUI::Painter&, Gfx::Color const& background_color);
+    void paint(GUI::Painter&, Gfx::Color const& background_color);
     void clear();
 
 private:
@@ -63,7 +61,7 @@ private:
         uint8_t shift_y_upside_down { 0 };
     };
 
-    constexpr StackRules rules_for_type(Type stack_type)
+    static constexpr StackRules rules_for_type(Type stack_type)
     {
         switch (stack_type) {
         case Type::Foundation:
@@ -83,14 +81,16 @@ private:
 
     void calculate_bounding_box();
 
-    RefPtr<CardStack> m_associated_stack;
+    // An optional stack that this stack is painted on top of.
+    // eg, in Solitaire the Play stack is positioned over the Waste stack.
+    RefPtr<CardStack> m_covered_stack;
+
     NonnullRefPtrVector<Card> m_stack;
     Vector<Gfx::IntPoint> m_stack_positions;
     Gfx::IntPoint m_position;
     Gfx::IntRect m_bounding_box;
     Type m_type { Type::Invalid };
     StackRules m_rules;
-    bool m_focused { false };
     Gfx::IntRect m_base;
 };
 

@@ -68,15 +68,6 @@ ErrorOr<Account> Account::from_passwd(passwd const& pwd, spwd const& spwd)
     return account;
 }
 
-String Account::parse_path_with_uid(StringView general_path, Optional<uid_t> uid)
-{
-    if (general_path.contains("%uid"sv)) {
-        auto const final_uid = uid.has_value() ? uid.value() : getuid();
-        return general_path.replace("%uid"sv, String::number(final_uid), ReplaceMode::All);
-    }
-    return general_path;
-}
-
 ErrorOr<Account> Account::self([[maybe_unused]] Read options)
 {
     Vector<gid_t> extra_gids = TRY(Core::System::getgroups());
@@ -98,9 +89,9 @@ ErrorOr<Account> Account::self([[maybe_unused]] Read options)
     return Account(*pwd, spwd, extra_gids);
 }
 
-ErrorOr<Account> Account::from_name(char const* username, [[maybe_unused]] Read options)
+ErrorOr<Account> Account::from_name(StringView username, [[maybe_unused]] Read options)
 {
-    auto pwd = TRY(Core::System::getpwnam({ username, strlen(username) }));
+    auto pwd = TRY(Core::System::getpwnam(username));
     if (!pwd.has_value())
         return Error::from_string_literal("No such user");
 
@@ -149,26 +140,13 @@ bool Account::authenticate(SecretString const& password) const
     return hash != nullptr && AK::timing_safe_compare(hash, m_password_hash.characters(), m_password_hash.length());
 }
 
-ErrorOr<void> Account::create_user_temporary_directory_if_needed() const
+ErrorOr<void> Account::login() const
 {
-    auto const temporary_directory = String::formatted("/tmp/user/{}", m_uid);
-    auto directory = TRY(Core::Directory::create(temporary_directory, Core::Directory::CreateDirectories::Yes));
-    TRY(directory.chown(m_uid, m_gid));
+    TRY(Core::System::setgroups(m_extra_gids));
+    TRY(Core::System::setgid(m_gid));
+    TRY(Core::System::setuid(m_uid));
+
     return {};
-}
-
-bool Account::login() const
-{
-    if (setgroups(m_extra_gids.size(), m_extra_gids.data()) < 0)
-        return false;
-
-    if (setgid(m_gid) < 0)
-        return false;
-
-    if (setuid(m_uid) < 0)
-        return false;
-
-    return true;
 }
 
 void Account::set_password(SecretString const& password)

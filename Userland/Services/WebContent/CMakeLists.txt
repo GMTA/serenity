@@ -10,16 +10,17 @@ compile_ipc(WebContentClient.ipc WebContentClientEndpoint.h)
 set(SOURCES
     ConnectionFromClient.cpp
     ConsoleGlobalObject.cpp
-    EventLoopPluginSerenity.cpp
-    FontPluginSerenity.cpp
+    ImageCodecPluginSerenity.cpp
     PageHost.cpp
-    TimerSerenity.cpp
-    WebContentClientEndpoint.h
     WebContentConsoleClient.cpp
-    WebContentServerEndpoint.h
     main.cpp
 )
 
+set(GENERATED_SOURCES
+    WebContentClientEndpoint.h
+    WebContentServerEndpoint.h
+)
+
 serenity_bin(WebContent)
-target_link_libraries(WebContent LibCore LibIPC LibGfx LibWebView LibWeb LibMain)
+target_link_libraries(WebContent PRIVATE LibCore LibIPC LibGfx LibImageDecoderClient LibJS LibWebView LibWeb LibLocale LibMain)
 link_with_locale_data(WebContent)

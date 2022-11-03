@@ -3,6 +3,7 @@
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2022, Mustafa Quraish <mustafa@serenityos.org>
  * Copyright (c) 2021, David Isaksson <davidisaksson93@gmail.com>
+ * Copyright (c) 2022, Timothy Slater <tslater2006@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -30,6 +31,7 @@ constexpr int marching_ant_length = 4;
 ImageEditor::ImageEditor(NonnullRefPtr<Image> image)
     : m_image(move(image))
     , m_title("Untitled")
+    , m_gui_event_loop(Core::EventLoop::current())
 {
     set_focus_policy(GUI::FocusPolicy::StrongFocus);
     m_undo_stack.push(make<ImageUndoCommand>(*m_image, String()));
@@ -125,7 +127,7 @@ void ImageEditor::paint_event(GUI::PaintEvent& event)
     painter.add_clip_rect(frame_inner_rect());
 
     {
-        Gfx::DisjointRectSet background_rects;
+        Gfx::DisjointIntRectSet background_rects;
         background_rects.add(frame_inner_rect());
         background_rects.shatter(content_rect());
         for (auto& rect : background_rects.rects())
@@ -303,12 +305,40 @@ GUI::MouseEvent ImageEditor::event_adjusted_for_layer(GUI::MouseEvent const& eve
     };
 }
 
+void ImageEditor::set_editor_color_to_color_at_mouse_position(GUI::MouseEvent const& event, bool sample_all_layers = false)
+{
+    auto position = event.position();
+    Color color;
+    auto layer = active_layer();
+    if (sample_all_layers) {
+        color = image().color_at(position);
+    } else {
+        if (!layer || !layer->rect().contains(position))
+            return;
+        color = layer->currently_edited_bitmap().get_pixel(position);
+    }
+
+    // We picked a transparent pixel, do nothing.
+    if (!color.alpha())
+        return;
+
+    if (event.button() == GUI::MouseButton::Primary)
+        set_primary_color(color);
+    else if (event.button() == GUI::MouseButton::Secondary)
+        set_secondary_color(color);
+}
+
 void ImageEditor::mousedown_event(GUI::MouseEvent& event)
 {
     if (event.button() == GUI::MouseButton::Middle) {
         start_panning(event.position());
         set_override_cursor(Gfx::StandardCursor::Drag);
         return;
+    }
+
+    if (event.alt() && !m_active_tool->is_overriding_alt()) {
+        set_editor_color_to_color_at_mouse_position(event);
+        return; // Pick Color instead of acivating active tool when holding alt.
     }
 
     if (!m_active_tool)
@@ -324,6 +354,14 @@ void ImageEditor::mousedown_event(GUI::MouseEvent& event)
     auto image_event = event_with_pan_and_scale_applied(event);
     Tool::MouseEvent tool_event(Tool::MouseEvent::Action::MouseDown, layer_event, image_event, event);
     m_active_tool->on_mousedown(m_active_layer.ptr(), tool_event);
+}
+
+void ImageEditor::doubleclick_event(GUI::MouseEvent& event)
+{
+    auto layer_event = m_active_layer ? event_adjusted_for_layer(event, *m_active_layer) : event;
+    auto image_event = event_with_pan_and_scale_applied(event);
+    Tool::MouseEvent tool_event(Tool::MouseEvent::Action::DoubleClick, layer_event, image_event, event);
+    m_active_tool->on_doubleclick(m_active_layer.ptr(), tool_event);
 }
 
 void ImageEditor::mousemove_event(GUI::MouseEvent& event)
@@ -426,6 +464,30 @@ void ImageEditor::set_active_layer(Layer* layer)
     }
 }
 
+ErrorOr<void> ImageEditor::add_new_layer_from_selection()
+{
+    auto current_layer_selection = image().selection();
+    if (current_layer_selection.is_empty())
+        return Error::from_string_literal("There is no active selection to create layer from.");
+
+    // save offsets of selection so we know where to place the new layer
+    auto selection_offset = current_layer_selection.bounding_rect().location();
+
+    auto selection_bitmap = active_layer()->try_copy_bitmap(current_layer_selection);
+    if (selection_bitmap.is_null())
+        return Error::from_string_literal("Unable to create bitmap from selection.");
+
+    auto layer_or_error = PixelPaint::Layer::try_create_with_bitmap(image(), selection_bitmap.release_nonnull(), "New Layer"sv);
+    if (layer_or_error.is_error())
+        return Error::from_string_literal("Unable to create layer from selection.");
+
+    auto new_layer = layer_or_error.release_value();
+    new_layer->set_location(selection_offset);
+    image().add_layer(new_layer);
+    layers_did_change();
+    return {};
+}
+
 void ImageEditor::set_active_tool(Tool* tool)
 {
     if (m_active_tool == tool)
@@ -483,6 +545,12 @@ void ImageEditor::set_pixel_grid_visibility(bool show_pixel_grid)
     if (m_show_pixel_grid == show_pixel_grid)
         return;
     m_show_pixel_grid = show_pixel_grid;
+    update();
+}
+
+void ImageEditor::clear_guides()
+{
+    m_guides.clear();
     update();
 }
 

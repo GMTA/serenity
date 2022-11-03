@@ -170,9 +170,9 @@ TEST_CASE(tmpfs_read_past_end)
     VERIFY(rc == 0);
 }
 
-TEST_CASE(procfs_read_past_end)
+TEST_CASE(sysfs_read_past_uptime_end)
 {
-    int fd = open("/proc/uptime", O_RDONLY);
+    int fd = open("/sys/kernel/uptime", O_RDONLY);
     VERIFY(fd >= 0);
 
     int rc = lseek(fd, 4096, SEEK_SET);
@@ -294,8 +294,7 @@ TEST_CASE(tmpfs_massive_file)
     [[maybe_unused]] auto ignored = strlcpy(buffer, "abcdefghijklmno", sizeof(buffer) - 1);
 
     rc = write(fd, buffer, sizeof(buffer));
-    EXPECT_EQ(rc, -1);
-    EXPECT_EQ(errno, ENOMEM);
+    EXPECT_EQ(rc, 16);
 
     // ok now, write something to it, and try again
     rc = lseek(fd, 0, SEEK_SET);
@@ -307,10 +306,9 @@ TEST_CASE(tmpfs_massive_file)
     rc = lseek(fd, INT32_MAX, SEEK_SET);
     EXPECT_EQ(rc, INT32_MAX);
 
-    // FIXME: Should this return EOVERFLOW? Or is a 0 read fine?
     memset(buffer, 0, sizeof(buffer));
     rc = read(fd, buffer, sizeof(buffer));
-    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(rc, 16);
     EXPECT(buffer != "abcdefghijklmno"sv);
 
     rc = close(fd);
@@ -391,7 +389,7 @@ TEST_CASE(open_silly_things)
     EXPECT_ERROR_2(EINVAL, open, "/dev/zero", (O_DIRECTORY | O_CREAT | O_RDWR));
     EXPECT_ERROR_2(EEXIST, open, "/dev/zero", (O_CREAT | O_EXCL | O_RDWR));
     EXPECT_ERROR_2(EINVAL, open, "/tmp/abcdef", (O_DIRECTORY | O_CREAT | O_RDWR));
-    EXPECT_ERROR_2(EACCES, open, "/proc/all", (O_RDWR));
+    EXPECT_ERROR_2(EACCES, open, "/sys/kernel/processes", (O_RDWR));
     EXPECT_ERROR_2(ENOENT, open, "/boof/baaf/nonexistent", (O_CREAT | O_RDWR));
     EXPECT_ERROR_2(EISDIR, open, "/tmp", (O_DIRECTORY | O_RDWR));
     EXPECT_ERROR_2(EPERM, link, "/", "/home/anon/lolroot");

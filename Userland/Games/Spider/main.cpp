@@ -239,6 +239,12 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         game.setup(mode);
     })));
     TRY(game_menu->try_add_separator());
+    auto undo_action = GUI::CommonActions::make_undo_action([&](auto&) {
+        game.perform_undo();
+    });
+    undo_action->set_enabled(false);
+    TRY(game_menu->try_add_action(undo_action));
+    TRY(game_menu->try_add_separator());
     TRY(game_menu->try_add_action(single_suit_action));
     TRY(game_menu->try_add_action(two_suit_action));
     TRY(game_menu->try_add_separator());
@@ -267,12 +273,17 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     TRY(view_menu->try_add_action(best_time_actions));
 
     auto help_menu = TRY(window->try_add_menu("&Help"));
+    help_menu->add_action(GUI::CommonActions::make_command_palette_action(window));
     help_menu->add_action(GUI::CommonActions::make_about_action("Spider", app_icon, window));
 
     window->set_resizable(false);
     window->resize(Spider::Game::width, Spider::Game::height + statusbar.max_height().as_int());
     window->set_icon(app_icon.bitmap_for_size(16));
     window->show();
+
+    game.on_undo_availability_change = [&](bool undo_available) {
+        undo_action->set_enabled(undo_available);
+    };
 
     game.setup(mode);
 

@@ -1,3 +1,5 @@
+// https://w3c.github.io/uievents/#mouseevent
+[Exposed=Window]
 interface MouseEvent : UIEvent {
 
     readonly attribute double offsetX;
@@ -8,7 +10,7 @@ interface MouseEvent : UIEvent {
     readonly attribute double y;
 
     readonly attribute short button;
-
+    readonly attribute unsigned short buttons;
 };
 
 dictionary MouseEventInit : EventModifierInit {

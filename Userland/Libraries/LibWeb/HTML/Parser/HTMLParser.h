@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
+#include <LibJS/Heap/Cell.h>
 #include <LibWeb/DOM/Node.h>
 #include <LibWeb/HTML/Parser/HTMLTokenizer.h>
 #include <LibWeb/HTML/Parser/ListOfActiveFormattingElements.h>
@@ -38,15 +39,17 @@ namespace Web::HTML {
     __ENUMERATE_INSERTION_MODE(AfterAfterBody)  \
     __ENUMERATE_INSERTION_MODE(AfterAfterFrameset)
 
-class HTMLParser : public RefCounted<HTMLParser> {
+class HTMLParser final : public JS::Cell {
+    JS_CELL(HTMLParser, JS::Cell);
+
     friend class HTMLTokenizer;
 
 public:
     ~HTMLParser();
 
-    static NonnullRefPtr<HTMLParser> create_for_scripting(DOM::Document&);
-    static NonnullRefPtr<HTMLParser> create_with_uncertain_encoding(DOM::Document&, ByteBuffer const& input);
-    static NonnullRefPtr<HTMLParser> create(DOM::Document&, StringView input, String const& encoding);
+    static JS::NonnullGCPtr<HTMLParser> create_for_scripting(DOM::Document&);
+    static JS::NonnullGCPtr<HTMLParser> create_with_uncertain_encoding(DOM::Document&, ByteBuffer const& input);
+    static JS::NonnullGCPtr<HTMLParser> create(DOM::Document&, StringView input, String const& encoding);
 
     void run();
     void run(const AK::URL&);
@@ -68,13 +71,19 @@ public:
 
     HTMLTokenizer& tokenizer() { return m_tokenizer; }
 
+    // https://html.spec.whatwg.org/multipage/parsing.html#abort-a-parser
+    void abort();
+
     bool aborted() const { return m_aborted; }
+    bool stopped() const { return m_stop_parsing; }
 
     size_t script_nesting_level() const { return m_script_nesting_level; }
 
 private:
     HTMLParser(DOM::Document&, StringView input, String const& encoding);
     HTMLParser(DOM::Document&);
+
+    virtual void visit_edges(Cell::Visitor&) override;
 
     char const* insertion_mode_name() const;
 
@@ -165,7 +174,11 @@ private:
     bool m_foster_parenting { false };
     bool m_frameset_ok { true };
     bool m_parsing_fragment { false };
+
+    // https://html.spec.whatwg.org/multipage/parsing.html#scripting-flag
+    // The scripting flag is set to "enabled" if scripting was enabled for the Document with which the parser is associated when the parser was created, and "disabled" otherwise.
     bool m_scripting_enabled { true };
+
     bool m_invoked_via_document_write { false };
     bool m_aborted { false };
     bool m_parser_pause_flag { false };
@@ -174,14 +187,14 @@ private:
 
     JS::Realm& realm();
 
-    JS::Handle<DOM::Document> m_document;
-    JS::Handle<HTMLHeadElement> m_head_element;
-    JS::Handle<HTMLFormElement> m_form_element;
-    JS::Handle<DOM::Element> m_context_element;
+    JS::GCPtr<DOM::Document> m_document;
+    JS::GCPtr<HTMLHeadElement> m_head_element;
+    JS::GCPtr<HTMLFormElement> m_form_element;
+    JS::GCPtr<DOM::Element> m_context_element;
 
     Vector<HTMLToken> m_pending_table_character_tokens;
 
-    JS::Handle<DOM::Text> m_character_insertion_node;
+    JS::GCPtr<DOM::Text> m_character_insertion_node;
     StringBuilder m_character_insertion_builder;
 };
 

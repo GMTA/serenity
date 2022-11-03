@@ -2,7 +2,7 @@
 
 SCRIPT="$(dirname "${0}")"
 
-export SERENITY_ARCH="${SERENITY_ARCH:-i686}"
+export SERENITY_ARCH="${SERENITY_ARCH:-x86_64}"
 export SERENITY_TOOLCHAIN="${SERENITY_TOOLCHAIN:-GNU}"
 
 if [ -z "${HOST_CC:=}" ]; then
@@ -33,12 +33,6 @@ if [ "$SERENITY_TOOLCHAIN" = "Clang" ]; then
     export OBJCOPY="llvm-objcopy"
     export STRIP="llvm-strip"
     export CXXFILT="llvm-cxxfilt"
-    # FIXME: Remove after next toolchain update (symlinks already in BuildClang.sh)
-    if [ ! -f "${SERENITY_TOOLCHAIN_BINDIR}/${SERENITY_ARCH}-pc-serenity-clang" ]; then
-        ln -s clang "${SERENITY_TOOLCHAIN_BINDIR}/${SERENITY_ARCH}-pc-serenity-clang"
-        ln -s clang++ "${SERENITY_TOOLCHAIN_BINDIR}/${SERENITY_ARCH}-pc-serenity-clang++"
-        echo "--sysroot=${SERENITY_BUILD_DIR}/Root" > "${SERENITY_TOOLCHAIN_BINDIR}/${SERENITY_ARCH}-pc-serenity.cfg"
-    fi
 else
     export SERENITY_BUILD_DIR="${SERENITY_SOURCE_DIR}/Build/${SERENITY_ARCH}"
     export SERENITY_TOOLCHAIN_BINDIR="${SERENITY_SOURCE_DIR}/Toolchain/Local/${SERENITY_ARCH}/bin"

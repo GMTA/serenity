@@ -17,22 +17,26 @@
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/Object.h>
 #include <LibJS/Runtime/WeakContainer.h>
+#include <LibJS/SafeFunction.h>
 #include <setjmp.h>
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 #    include <serenity.h>
 #endif
 
 namespace JS {
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 static int gc_perf_string_id;
 #endif
+
+// NOTE: We keep a per-thread list of custom ranges. This hinges on the assumption that there is one JS VM per thread.
+static __thread HashMap<FlatPtr*, size_t>* s_custom_ranges_for_conservative_scan = nullptr;
 
 Heap::Heap(VM& vm)
     : m_vm(vm)
 {
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     auto gc_signpost_string = "Garbage collection"sv;
     gc_perf_string_id = perf_register_string(gc_signpost_string.characters_without_null_termination(), gc_signpost_string.length());
 #endif
@@ -87,7 +91,7 @@ void Heap::collect_garbage(CollectionType collection_type, bool print_report)
     VERIFY(!m_collecting_garbage);
     TemporaryChange change(m_collecting_garbage, true);
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     static size_t global_gc_counter = 0;
     perf_event(PERF_EVENT_SIGNPOST, gc_perf_string_id, global_gc_counter++);
 #endif
@@ -102,6 +106,7 @@ void Heap::collect_garbage(CollectionType collection_type, bool print_report)
         gather_roots(roots);
         mark_live_cells(roots);
     }
+    finalize_unmarked_cells();
     sweep_dead_cells(print_report, collection_measurement_timer);
 }
 
@@ -142,7 +147,7 @@ __attribute__((no_sanitize("address"))) void Heap::gather_conservative_roots(Has
             // match any pointer-backed tag, in that case we have to extract the pointer to its
             // canonical form and add that as a possible pointer.
             if ((data & SHIFTED_IS_CELL_PATTERN) == SHIFTED_IS_CELL_PATTERN)
-                possible_pointers.set((u64)(((i64)data << 16) >> 16));
+                possible_pointers.set(Value::extract_pointer_bits(data));
             else
                 possible_pointers.set(data);
         } else {
@@ -162,6 +167,16 @@ __attribute__((no_sanitize("address"))) void Heap::gather_conservative_roots(Has
     for (FlatPtr stack_address = stack_reference; stack_address < stack_info.top(); stack_address += sizeof(FlatPtr)) {
         auto data = *reinterpret_cast<FlatPtr*>(stack_address);
         add_possible_value(data);
+    }
+
+    // NOTE: If we have any custom ranges registered, scan those as well.
+    //       This is where JS::SafeFunction closures get marked.
+    if (s_custom_ranges_for_conservative_scan) {
+        for (auto& custom_range : *s_custom_ranges_for_conservative_scan) {
+            for (size_t i = 0; i < (custom_range.value / sizeof(FlatPtr)); ++i) {
+                add_possible_value(custom_range.key[i]);
+            }
+        }
     }
 
     HashTable<HeapBlock*> all_live_heap_blocks;
@@ -217,6 +232,24 @@ void Heap::mark_live_cells(HashTable<Cell*> const& roots)
     m_uprooted_cells.clear();
 }
 
+bool Heap::cell_must_survive_garbage_collection(Cell const& cell)
+{
+    if (!cell.overrides_must_survive_garbage_collection({}))
+        return false;
+    return cell.must_survive_garbage_collection();
+}
+
+void Heap::finalize_unmarked_cells()
+{
+    for_each_block([&](auto& block) {
+        block.template for_each_cell_in_state<Cell::State::Live>([](Cell* cell) {
+            if (!cell->is_marked() && !cell_must_survive_garbage_collection(*cell))
+                cell->finalize();
+        });
+        return IterationDecision::Continue;
+    });
+}
+
 void Heap::sweep_dead_cells(bool print_report, Core::ElapsedTimer const& measurement_timer)
 {
     dbgln_if(HEAP_DEBUG, "sweep_dead_cells:");
@@ -232,7 +265,7 @@ void Heap::sweep_dead_cells(bool print_report, Core::ElapsedTimer const& measure
         bool block_has_live_cells = false;
         bool block_was_full = block.is_full();
         block.template for_each_cell_in_state<Cell::State::Live>([&](Cell* cell) {
-            if (!cell->is_marked()) {
+            if (!cell->is_marked() && !cell_must_survive_garbage_collection(*cell)) {
                 dbgln_if(HEAP_DEBUG, "  ~ {}", cell);
                 block.deallocate(cell);
                 ++collected_cells;
@@ -347,6 +380,23 @@ void Heap::undefer_gc(Badge<DeferGC>)
 void Heap::uproot_cell(Cell* cell)
 {
     m_uprooted_cells.append(cell);
+}
+
+void register_safe_function_closure(void* base, size_t size)
+{
+    if (!s_custom_ranges_for_conservative_scan) {
+        // FIXME: This per-thread HashMap is currently leaked on thread exit.
+        s_custom_ranges_for_conservative_scan = new HashMap<FlatPtr*, size_t>;
+    }
+    auto result = s_custom_ranges_for_conservative_scan->set(reinterpret_cast<FlatPtr*>(base), size);
+    VERIFY(result == AK::HashSetResult::InsertedNewEntry);
+}
+
+void unregister_safe_function_closure(void* base, size_t)
+{
+    VERIFY(s_custom_ranges_for_conservative_scan);
+    bool did_remove = s_custom_ranges_for_conservative_scan->remove(reinterpret_cast<FlatPtr*>(base));
+    VERIFY(did_remove);
 }
 
 }

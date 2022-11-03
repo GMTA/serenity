@@ -18,7 +18,7 @@ class Text : public CharacterData {
 public:
     virtual ~Text() override = default;
 
-    static JS::NonnullGCPtr<Text> create_with_global_object(HTML::Window& window, String const& data);
+    static JS::NonnullGCPtr<Text> construct_impl(JS::Realm& realm, String const& data);
 
     // ^Node
     virtual FlyString node_name() const override { return "#text"; }
@@ -29,10 +29,10 @@ public:
     void set_owner_input_element(Badge<HTML::HTMLInputElement>, HTML::HTMLInputElement&);
     HTML::HTMLInputElement* owner_input_element() { return m_owner_input_element.ptr(); }
 
-    ExceptionOr<JS::NonnullGCPtr<Text>> split_text(size_t offset);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Text>> split_text(size_t offset);
 
 protected:
-    explicit Text(Document&, String const&);
+    Text(Document&, String const&);
     Text(Document&, NodeType, String const&);
 
     virtual void visit_edges(Cell::Visitor&) override;
@@ -47,5 +47,3 @@ template<>
 inline bool Node::fast_is<Text>() const { return is_text(); }
 
 }
-
-WRAPPER_HACK(Text, Web::DOM)

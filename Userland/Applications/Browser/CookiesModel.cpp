@@ -47,6 +47,8 @@ String CookiesModel::column_name(int column) const
         return "Value";
     case Column::ExpiryTime:
         return "Expiry time";
+    case Column::SameSite:
+        return "SameSite";
     case Column::__Count:
         return {};
     }
@@ -79,6 +81,8 @@ GUI::Variant CookiesModel::data(GUI::ModelIndex const& index, GUI::ModelRole rol
         return cookie.value;
     case Column::ExpiryTime:
         return cookie.expiry_time.to_string();
+    case Column::SameSite:
+        return Web::Cookie::same_site_to_string(cookie.same_site);
     }
 
     VERIFY_NOT_REACHED();
@@ -95,6 +99,24 @@ TriState CookiesModel::data_matches(GUI::ModelIndex const& index, GUI::Variant c
     if (fuzzy_match(needle, haystack).score > 0)
         return TriState::True;
     return TriState::False;
+}
+
+Web::Cookie::Cookie CookiesModel::take_cookie(GUI::ModelIndex const& index)
+{
+    VERIFY(index.is_valid());
+
+    auto cookie = m_cookies.take(index.row());
+    did_update(InvalidateAllIndices);
+
+    return cookie;
+}
+
+AK::Vector<Web::Cookie::Cookie> CookiesModel::take_all_cookies()
+{
+    auto cookies = move(m_cookies);
+    did_update(InvalidateAllIndices);
+
+    return cookies;
 }
 
 }

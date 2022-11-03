@@ -12,6 +12,8 @@
 #include <AK/Optional.h>
 #include <AK/URL.h>
 #include <AK/Vector.h>
+#include <LibJS/Forward.h>
+#include <LibJS/Heap/Cell.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Bodies.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Headers.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Statuses.h>
@@ -19,7 +21,9 @@
 namespace Web::Fetch::Infrastructure {
 
 // https://fetch.spec.whatwg.org/#concept-response
-class Response {
+class Response : public JS::Cell {
+    JS_CELL(Response, JS::Cell);
+
 public:
     enum class CacheState {
         Local,
@@ -44,10 +48,11 @@ public:
         u64 decoded_size { 0 };
     };
 
-    [[nodiscard]] static Response aborted_network_error();
-    [[nodiscard]] static Response network_error();
+    [[nodiscard]] static JS::NonnullGCPtr<Response> create(JS::VM&);
+    [[nodiscard]] static JS::NonnullGCPtr<Response> aborted_network_error(JS::VM&);
+    [[nodiscard]] static JS::NonnullGCPtr<Response> network_error(JS::VM&, String message);
+    [[nodiscard]] static JS::NonnullGCPtr<Response> appropriate_network_error(JS::VM&, FetchParams const&);
 
-    Response() = default;
     virtual ~Response() = default;
 
     [[nodiscard]] virtual Type type() const { return m_type; }
@@ -57,7 +62,7 @@ public:
     void set_aborted(bool aborted) { m_aborted = aborted; }
 
     [[nodiscard]] virtual Vector<AK::URL> const& url_list() const { return m_url_list; }
-    [[nodiscard]] Vector<AK::URL>& url_list() { return m_url_list; }
+    [[nodiscard]] virtual Vector<AK::URL>& url_list() { return m_url_list; }
     void set_url_list(Vector<AK::URL> url_list) { m_url_list = move(url_list); }
 
     [[nodiscard]] virtual Status status() const { return m_status; }
@@ -66,19 +71,17 @@ public:
     [[nodiscard]] virtual ReadonlyBytes status_message() const { return m_status_message; }
     void set_status_message(ByteBuffer status_message) { m_status_message = move(status_message); }
 
-    [[nodiscard]] virtual HeaderList const& header_list() const { return m_header_list; }
-    [[nodiscard]] HeaderList& header_list() { return m_header_list; }
-    void set_header_list(HeaderList header_list) { m_header_list = move(header_list); }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const { return m_header_list; }
+    void set_header_list(JS::NonnullGCPtr<HeaderList> header_list) { m_header_list = header_list; }
 
     [[nodiscard]] virtual Optional<Body> const& body() const { return m_body; }
-    [[nodiscard]] Optional<Body>& body() { return m_body; }
+    [[nodiscard]] virtual Optional<Body>& body() { return m_body; }
     void set_body(Optional<Body> body) { m_body = move(body); }
 
     [[nodiscard]] virtual Optional<CacheState> const& cache_state() const { return m_cache_state; }
     void set_cache_state(Optional<CacheState> cache_state) { m_cache_state = move(cache_state); }
 
     [[nodiscard]] virtual Vector<ByteBuffer> const& cors_exposed_header_name_list() const { return m_cors_exposed_header_name_list; }
-    [[nodiscard]] Vector<ByteBuffer>& cors_exposed_header_name_list() { return m_cors_exposed_header_name_list; }
     void set_cors_exposed_header_name_list(Vector<ByteBuffer> cors_exposed_header_name_list) { m_cors_exposed_header_name_list = move(cors_exposed_header_name_list); }
 
     [[nodiscard]] virtual bool range_requested() const { return m_range_requested; }
@@ -91,14 +94,26 @@ public:
     void set_timing_allow_passed(bool timing_allow_passed) { m_timing_allow_passed = timing_allow_passed; }
 
     [[nodiscard]] virtual BodyInfo const& body_info() const { return m_body_info; }
-    [[nodiscard]] BodyInfo& body_info() { return m_body_info; }
     void set_body_info(BodyInfo body_info) { m_body_info = body_info; }
+
+    [[nodiscard]] bool has_cross_origin_redirects() const { return m_has_cross_origin_redirects; }
+    void set_has_cross_origin_redirects(bool has_cross_origin_redirects) { m_has_cross_origin_redirects = has_cross_origin_redirects; }
 
     [[nodiscard]] bool is_aborted_network_error() const;
     [[nodiscard]] bool is_network_error() const;
 
     [[nodiscard]] Optional<AK::URL const&> url() const;
     [[nodiscard]] ErrorOr<Optional<AK::URL>> location_url(Optional<String> const& request_fragment) const;
+
+    [[nodiscard]] WebIDL::ExceptionOr<JS::NonnullGCPtr<Response>> clone(JS::VM&) const;
+
+    // Non-standard
+    Optional<String> const& network_error_message() const { return m_network_error_message; }
+
+protected:
+    explicit Response(JS::NonnullGCPtr<HeaderList>);
+
+    virtual void visit_edges(JS::Cell::Visitor&) override;
 
 private:
     // https://fetch.spec.whatwg.org/#concept-response-type
@@ -109,6 +124,7 @@ private:
     // A response can have an associated aborted flag, which is initially unset.
     bool m_aborted { false };
 
+    // https://fetch.spec.whatwg.org/#concept-response-url-list
     // A response has an associated URL list (a list of zero or more URLs). Unless stated otherwise, it is the empty list.
     Vector<AK::URL> m_url_list;
 
@@ -122,7 +138,7 @@ private:
 
     // https://fetch.spec.whatwg.org/#concept-response-header-list
     // A response has an associated header list (a header list). Unless stated otherwise it is empty.
-    HeaderList m_header_list;
+    JS::NonnullGCPtr<HeaderList> m_header_list;
 
     // https://fetch.spec.whatwg.org/#concept-response-body
     // A response has an associated body (null or a body). Unless stated otherwise it is null.
@@ -154,100 +170,131 @@ private:
 
     // https://fetch.spec.whatwg.org/#response-service-worker-timing-info
     // FIXME: A response has an associated service worker timing info (null or a service worker timing info), which is initially null.
+
+    // https://fetch.spec.whatwg.org/#response-has-cross-origin-redirects
+    // A response has an associated has-cross-origin-redirects (a boolean), which is initially false.
+    bool m_has_cross_origin_redirects { false };
+
+    // Non-standard
+    Optional<String> m_network_error_message;
 };
 
 // https://fetch.spec.whatwg.org/#concept-filtered-response
-class FilteredResponse : protected Response {
+class FilteredResponse : public Response {
+    JS_CELL(FilteredResponse, Response);
+
 public:
-    explicit FilteredResponse(Response&);
+    FilteredResponse(JS::NonnullGCPtr<Response>, JS::NonnullGCPtr<HeaderList>);
     virtual ~FilteredResponse() = 0;
 
-    [[nodiscard]] virtual Type type() const override { return m_internal_response.type(); }
-    [[nodiscard]] virtual bool aborted() const override { return m_internal_response.aborted(); }
-    [[nodiscard]] virtual Vector<AK::URL> const& url_list() const override { return m_internal_response.url_list(); }
-    [[nodiscard]] virtual Status status() const override { return m_internal_response.status(); }
-    [[nodiscard]] virtual ReadonlyBytes status_message() const override { return m_internal_response.status_message(); }
-    [[nodiscard]] virtual HeaderList const& header_list() const override { return m_internal_response.header_list(); }
-    [[nodiscard]] virtual Optional<Body> const& body() const override { return m_internal_response.body(); }
-    [[nodiscard]] virtual Optional<CacheState> const& cache_state() const override { return m_internal_response.cache_state(); }
-    [[nodiscard]] virtual Vector<ByteBuffer> const& cors_exposed_header_name_list() const override { return m_internal_response.cors_exposed_header_name_list(); }
-    [[nodiscard]] virtual bool range_requested() const override { return m_internal_response.range_requested(); }
-    [[nodiscard]] virtual bool request_includes_credentials() const override { return m_internal_response.request_includes_credentials(); }
-    [[nodiscard]] virtual bool timing_allow_passed() const override { return m_internal_response.timing_allow_passed(); }
-    [[nodiscard]] virtual BodyInfo const& body_info() const override { return m_internal_response.body_info(); }
+    [[nodiscard]] virtual Type type() const override { return m_internal_response->type(); }
+    [[nodiscard]] virtual bool aborted() const override { return m_internal_response->aborted(); }
+    [[nodiscard]] virtual Vector<AK::URL> const& url_list() const override { return m_internal_response->url_list(); }
+    [[nodiscard]] virtual Vector<AK::URL>& url_list() override { return m_internal_response->url_list(); }
+    [[nodiscard]] virtual Status status() const override { return m_internal_response->status(); }
+    [[nodiscard]] virtual ReadonlyBytes status_message() const override { return m_internal_response->status_message(); }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const override { return m_internal_response->header_list(); }
+    [[nodiscard]] virtual Optional<Body> const& body() const override { return m_internal_response->body(); }
+    [[nodiscard]] virtual Optional<Body>& body() override { return m_internal_response->body(); }
+    [[nodiscard]] virtual Optional<CacheState> const& cache_state() const override { return m_internal_response->cache_state(); }
+    [[nodiscard]] virtual Vector<ByteBuffer> const& cors_exposed_header_name_list() const override { return m_internal_response->cors_exposed_header_name_list(); }
+    [[nodiscard]] virtual bool range_requested() const override { return m_internal_response->range_requested(); }
+    [[nodiscard]] virtual bool request_includes_credentials() const override { return m_internal_response->request_includes_credentials(); }
+    [[nodiscard]] virtual bool timing_allow_passed() const override { return m_internal_response->timing_allow_passed(); }
+    [[nodiscard]] virtual BodyInfo const& body_info() const override { return m_internal_response->body_info(); }
 
-    [[nodiscard]] Response const& internal_response() const { return m_internal_response; }
-    [[nodiscard]] Response& internal_response() { return m_internal_response; }
+    [[nodiscard]] JS::NonnullGCPtr<Response> internal_response() const { return m_internal_response; }
 
 protected:
+    virtual void visit_edges(JS::Cell::Visitor&) override;
+
+private:
     // https://fetch.spec.whatwg.org/#concept-internal-response
-    Response& m_internal_response;
+    JS::NonnullGCPtr<Response> m_internal_response;
 };
 
 // https://fetch.spec.whatwg.org/#concept-filtered-response-basic
 class BasicFilteredResponse final : public FilteredResponse {
+    JS_CELL(OpaqueRedirectFilteredResponse, FilteredResponse);
+
 public:
-    static ErrorOr<BasicFilteredResponse> create(Response&);
+    [[nodiscard]] static ErrorOr<JS::NonnullGCPtr<BasicFilteredResponse>> create(JS::VM&, JS::NonnullGCPtr<Response>);
 
     [[nodiscard]] virtual Type type() const override { return Type::Basic; }
-    [[nodiscard]] virtual HeaderList const& header_list() const override { return m_header_list; }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const override { return m_header_list; }
 
 private:
-    BasicFilteredResponse(Response&, HeaderList);
+    BasicFilteredResponse(JS::NonnullGCPtr<Response>, JS::NonnullGCPtr<HeaderList>);
 
-    HeaderList m_header_list;
+    virtual void visit_edges(JS::Cell::Visitor&) override;
+
+    JS::NonnullGCPtr<HeaderList> m_header_list;
 };
 
 // https://fetch.spec.whatwg.org/#concept-filtered-response-cors
 class CORSFilteredResponse final : public FilteredResponse {
+    JS_CELL(CORSFilteredResponse, FilteredResponse);
+
 public:
-    static ErrorOr<CORSFilteredResponse> create(Response&);
+    [[nodiscard]] static ErrorOr<JS::NonnullGCPtr<CORSFilteredResponse>> create(JS::VM&, JS::NonnullGCPtr<Response>);
 
     [[nodiscard]] virtual Type type() const override { return Type::CORS; }
-    [[nodiscard]] virtual HeaderList const& header_list() const override { return m_header_list; }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const override { return m_header_list; }
 
 private:
-    CORSFilteredResponse(Response&, HeaderList);
+    CORSFilteredResponse(JS::NonnullGCPtr<Response>, JS::NonnullGCPtr<HeaderList>);
 
-    HeaderList m_header_list;
+    virtual void visit_edges(JS::Cell::Visitor&) override;
+
+    JS::NonnullGCPtr<HeaderList> m_header_list;
 };
 
 // https://fetch.spec.whatwg.org/#concept-filtered-response-opaque
 class OpaqueFilteredResponse final : public FilteredResponse {
+    JS_CELL(OpaqueFilteredResponse, FilteredResponse);
+
 public:
-    static OpaqueFilteredResponse create(Response&);
+    [[nodiscard]] static JS::NonnullGCPtr<OpaqueFilteredResponse> create(JS::VM&, JS::NonnullGCPtr<Response>);
 
     [[nodiscard]] virtual Type type() const override { return Type::Opaque; }
     [[nodiscard]] virtual Vector<AK::URL> const& url_list() const override { return m_url_list; }
+    [[nodiscard]] virtual Vector<AK::URL>& url_list() override { return m_url_list; }
     [[nodiscard]] virtual Status status() const override { return 0; }
     [[nodiscard]] virtual ReadonlyBytes status_message() const override { return {}; }
-    [[nodiscard]] virtual HeaderList const& header_list() const override { return m_header_list; }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const override { return m_header_list; }
     [[nodiscard]] virtual Optional<Body> const& body() const override { return m_body; }
+    [[nodiscard]] virtual Optional<Body>& body() override { return m_body; }
 
 private:
-    explicit OpaqueFilteredResponse(Response&);
+    OpaqueFilteredResponse(JS::NonnullGCPtr<Response>, JS::NonnullGCPtr<HeaderList>);
+
+    virtual void visit_edges(JS::Cell::Visitor&) override;
 
     Vector<AK::URL> m_url_list;
-    HeaderList m_header_list;
+    JS::NonnullGCPtr<HeaderList> m_header_list;
     Optional<Body> m_body;
 };
 
 // https://fetch.spec.whatwg.org/#concept-filtered-response-opaque-redirect
 class OpaqueRedirectFilteredResponse final : public FilteredResponse {
+    JS_CELL(OpaqueRedirectFilteredResponse, FilteredResponse);
+
 public:
-    static OpaqueRedirectFilteredResponse create(Response&);
+    [[nodiscard]] static JS::NonnullGCPtr<OpaqueRedirectFilteredResponse> create(JS::VM&, JS::NonnullGCPtr<Response>);
 
     [[nodiscard]] virtual Type type() const override { return Type::OpaqueRedirect; }
     [[nodiscard]] virtual Status status() const override { return 0; }
     [[nodiscard]] virtual ReadonlyBytes status_message() const override { return {}; }
-    [[nodiscard]] virtual HeaderList const& header_list() const override { return m_header_list; }
+    [[nodiscard]] virtual JS::NonnullGCPtr<HeaderList> header_list() const override { return m_header_list; }
     [[nodiscard]] virtual Optional<Body> const& body() const override { return m_body; }
+    [[nodiscard]] virtual Optional<Body>& body() override { return m_body; }
 
 private:
-    explicit OpaqueRedirectFilteredResponse(Response&);
+    OpaqueRedirectFilteredResponse(JS::NonnullGCPtr<Response>, JS::NonnullGCPtr<HeaderList>);
 
-    HeaderList m_header_list;
+    virtual void visit_edges(JS::Cell::Visitor&) override;
+
+    JS::NonnullGCPtr<HeaderList> m_header_list;
     Optional<Body> m_body;
 };
-
 }

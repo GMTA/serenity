@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/HTML/HTMLTableCellElement.h>
 #include <LibWeb/HTML/Parser/HTMLParser.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::HTML {
 
 HTMLTableCellElement::HTMLTableCellElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLTableCellElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLTableCellElement"));
 }
 
 HTMLTableCellElement::~HTMLTableCellElement() = default;
@@ -56,7 +56,7 @@ unsigned int HTMLTableCellElement::col_span() const
 
 void HTMLTableCellElement::set_col_span(unsigned int value)
 {
-    set_attribute(HTML::AttributeNames::colspan, String::number(value));
+    MUST(set_attribute(HTML::AttributeNames::colspan, String::number(value)));
 }
 
 unsigned int HTMLTableCellElement::row_span() const
@@ -66,7 +66,7 @@ unsigned int HTMLTableCellElement::row_span() const
 
 void HTMLTableCellElement::set_row_span(unsigned int value)
 {
-    set_attribute(HTML::AttributeNames::rowspan, String::number(value));
+    MUST(set_attribute(HTML::AttributeNames::rowspan, String::number(value)));
 }
 
 }

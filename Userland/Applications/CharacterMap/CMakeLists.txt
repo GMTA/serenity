@@ -9,11 +9,14 @@ compile_gml(CharacterSearchWindow.gml CharacterSearchWindowGML.h character_searc
 
 set(SOURCES
     CharacterMapWidget.cpp
-    CharacterMapWindowGML.h
     CharacterSearchWidget.cpp
-    CharacterSearchWindowGML.h
     main.cpp
 )
 
+set(GENERATED_SOURCES
+    CharacterMapWindowGML.h
+    CharacterSearchWindowGML.h
+)
+
 serenity_app(CharacterMap ICON app-character-map)
-target_link_libraries(CharacterMap LibDesktop LibGUI LibMain LibUnicode)
+target_link_libraries(CharacterMap PRIVATE LibConfig LibCore LibDesktop LibGfx LibGUI LibMain LibUnicode)

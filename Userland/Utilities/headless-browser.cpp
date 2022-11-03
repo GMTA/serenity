@@ -13,6 +13,7 @@
 #include <AK/StringBuilder.h>
 #include <AK/Types.h>
 #include <LibCore/ArgsParser.h>
+#include <LibCore/ConfigFile.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/File.h>
 #include <LibCore/IODevice.h>
@@ -36,11 +37,13 @@
 #include <LibWeb/Cookie/ParsedCookie.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/HTML/BrowsingContext.h>
-#include <LibWeb/ImageDecoding.h>
 #include <LibWeb/Layout/InitialContainingBlock.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Page/Page.h>
 #include <LibWeb/Painting/PaintableBox.h>
+#include <LibWeb/Platform/EventLoopPluginSerenity.h>
+#include <LibWeb/Platform/FontPluginSerenity.h>
+#include <LibWeb/Platform/ImageCodecPlugin.h>
 #include <LibWeb/WebSockets/WebSocket.h>
 #include <LibWebSocket/ConnectionInfo.h>
 #include <LibWebSocket/Message.h>
@@ -235,26 +238,22 @@ private:
     Web::CSS::PreferredColorScheme m_preferred_color_scheme { Web::CSS::PreferredColorScheme::Auto };
 };
 
-class HeadlessImageDecoderClient : public Web::ImageDecoding::Decoder {
+class ImageCodecPluginHeadless : public Web::Platform::ImageCodecPlugin {
 public:
-    static NonnullRefPtr<HeadlessImageDecoderClient> create()
-    {
-        return adopt_ref(*new HeadlessImageDecoderClient());
-    }
+    ImageCodecPluginHeadless() = default;
+    virtual ~ImageCodecPluginHeadless() override = default;
 
-    virtual ~HeadlessImageDecoderClient() override = default;
-
-    virtual Optional<Web::ImageDecoding::DecodedImage> decode_image(ReadonlyBytes data) override
+    virtual Optional<Web::Platform::DecodedImage> decode_image(ReadonlyBytes data) override
     {
         auto decoder = Gfx::ImageDecoder::try_create(data);
 
         if (!decoder)
-            return Web::ImageDecoding::DecodedImage { false, 0, Vector<Web::ImageDecoding::Frame> {} };
+            return Web::Platform::DecodedImage { false, 0, Vector<Web::Platform::Frame> {} };
 
         if (!decoder->frame_count())
-            return Web::ImageDecoding::DecodedImage { false, 0, Vector<Web::ImageDecoding::Frame> {} };
+            return Web::Platform::DecodedImage { false, 0, Vector<Web::Platform::Frame> {} };
 
-        Vector<Web::ImageDecoding::Frame> frames;
+        Vector<Web::Platform::Frame> frames;
         for (size_t i = 0; i < decoder->frame_count(); ++i) {
             auto frame_or_error = decoder->frame(i);
             if (frame_or_error.is_error()) {
@@ -265,15 +264,12 @@ public:
             }
         }
 
-        return Web::ImageDecoding::DecodedImage {
+        return Web::Platform::DecodedImage {
             decoder->is_animated(),
             static_cast<u32>(decoder->loop_count()),
             frames,
         };
     }
-
-private:
-    explicit HeadlessImageDecoderClient() = default;
 };
 
 static HashTable<RefPtr<Web::ResourceLoaderConnectorRequest>> s_all_requests;
@@ -520,19 +516,19 @@ public:
     virtual RefPtr<Web::ResourceLoaderConnectorRequest> start_request(String const& method, AK::URL const& url, HashMap<String, String> const& request_headers, ReadonlyBytes request_body, Core::ProxyData const& proxy) override
     {
         RefPtr<Web::ResourceLoaderConnectorRequest> request;
-        if (url.protocol().equals_ignoring_case("http"sv)) {
+        if (url.scheme().equals_ignoring_case("http"sv)) {
             auto request_or_error = HTTPHeadlessRequest::create(method, url, request_headers, request_body, proxy);
             if (request_or_error.is_error())
                 return {};
             request = request_or_error.release_value();
         }
-        if (url.protocol().equals_ignoring_case("https"sv)) {
+        if (url.scheme().equals_ignoring_case("https"sv)) {
             auto request_or_error = HTTPSHeadlessRequest::create(method, url, request_headers, request_body, proxy);
             if (request_or_error.is_error())
                 return {};
             request = request_or_error.release_value();
         }
-        if (url.protocol().equals_ignoring_case("gemini"sv)) {
+        if (url.scheme().equals_ignoring_case("gemini"sv)) {
             auto request_or_error = GeminiHeadlessRequest::create(method, url, request_headers, request_body, proxy);
             if (request_or_error.is_error())
                 return {};
@@ -665,6 +661,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     StringView url;
     StringView resources_folder;
     StringView error_page_url;
+    StringView ca_certs_path;
 
     Core::EventLoop event_loop;
     Core::ArgsParser args_parser;
@@ -672,16 +669,28 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     args_parser.add_option(take_screenshot_after, "Take a screenshot after [n] seconds (default: 1)", "screenshot", 's', "n");
     args_parser.add_option(resources_folder, "Path of the base resources folder (defaults to /res)", "resources", 'r', "resources-root-path");
     args_parser.add_option(error_page_url, "URL for the error page (defaults to file:///res/html/error.html)", "error-page", 'e', "error-page-url");
+    args_parser.add_option(ca_certs_path, "The bundled ca certificates file", "certs", 'c', "ca-certs-path");
     args_parser.add_positional_argument(url, "URL to open", "url", Core::ArgsParser::Required::Yes);
     args_parser.parse(arguments);
 
-    Web::ImageDecoding::Decoder::initialize(HeadlessImageDecoderClient::create());
+    Web::Platform::EventLoopPlugin::install(*new Web::Platform::EventLoopPluginSerenity);
+    Web::Platform::FontPlugin::install(*new Web::Platform::FontPluginSerenity);
+    Web::Platform::ImageCodecPlugin::install(*new ImageCodecPluginHeadless);
     Web::ResourceLoader::initialize(HeadlessRequestServer::create());
     Web::WebSockets::WebSocketClientManager::initialize(HeadlessWebSocketClientManager::create());
 
     if (!resources_folder.is_empty()) {
         Web::FrameLoader::set_default_favicon_path(LexicalPath::join(resources_folder, "icons/16x16/app-browser.png"sv).string());
         Gfx::FontDatabase::set_default_fonts_lookup_path(LexicalPath::join(resources_folder, "fonts"sv).string());
+    }
+    if (!ca_certs_path.is_empty()) {
+        auto config_result = Core::ConfigFile::open(ca_certs_path);
+        if (config_result.is_error()) {
+            dbgln("Failed to load CA Certificates: {}", config_result.error());
+        } else {
+            auto config = config_result.release_value();
+            DefaultRootCACertificates::the().reload_certificates(config);
+        }
     }
 
     Gfx::FontDatabase::set_default_font_query("Katica 10 400 0");

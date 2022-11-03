@@ -7,17 +7,16 @@
 
 #include <LibWeb/DOM/LiveNodeList.h>
 #include <LibWeb/DOM/Node.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::DOM {
 
-JS::NonnullGCPtr<NodeList> LiveNodeList::create(HTML::Window& window, Node& root, Function<bool(Node const&)> filter)
+JS::NonnullGCPtr<NodeList> LiveNodeList::create(JS::Realm& realm, Node& root, Function<bool(Node const&)> filter)
 {
-    return *window.heap().allocate<LiveNodeList>(window.realm(), window, root, move(filter));
+    return *realm.heap().allocate<LiveNodeList>(realm, realm, root, move(filter));
 }
 
-LiveNodeList::LiveNodeList(HTML::Window& window, Node& root, Function<bool(Node const&)> filter)
-    : NodeList(window)
+LiveNodeList::LiveNodeList(JS::Realm& realm, Node& root, Function<bool(Node const&)> filter)
+    : NodeList(realm)
     , m_root(root)
     , m_filter(move(filter))
 {

@@ -13,7 +13,9 @@
 
 namespace Web::HTML {
 
-class HTMLScriptElement final : public HTMLElement {
+class HTMLScriptElement final
+    : public HTMLElement
+    , public ResourceClient {
     WEB_PLATFORM_OBJECT(HTMLScriptElement, HTMLElement);
 
 public:
@@ -42,15 +44,18 @@ public:
     virtual void inserted() override;
 
     // https://html.spec.whatwg.org/multipage/scripting.html#dom-script-supports
-    static bool supports(String const& type)
+    static bool supports(JS::VM&, String const& type)
     {
         return type.is_one_of("classic", "module");
     }
 
     void set_source_line_number(Badge<HTMLParser>, size_t source_line_number) { m_source_line_number = source_line_number; }
 
-private:
+public:
     HTMLScriptElement(DOM::Document&, DOM::QualifiedName);
+
+    virtual void resource_did_load() override;
+    virtual void resource_did_fail() override;
 
     virtual void visit_edges(Cell::Visitor&) override;
 
@@ -85,5 +90,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(HTMLScriptElement, Web::HTML)

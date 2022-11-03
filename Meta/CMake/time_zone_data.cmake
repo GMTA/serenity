@@ -2,7 +2,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/utils.cmake)
 
 set(TZDB_PATH "${CMAKE_BINARY_DIR}/TZDB" CACHE PATH "Download location for TZDB files")
 
-set(TZDB_VERSION 2022c)
+set(TZDB_VERSION 2022e)
 set(TZDB_VERSION_FILE "${TZDB_PATH}/version.txt")
 
 set(TZDB_ZIP_URL "https://data.iana.org/time-zones/releases/tzdata${TZDB_VERSION}.tar.gz")
@@ -68,30 +68,17 @@ if (ENABLE_TIME_ZONE_DATABASE_DOWNLOAD)
     extract_tzdb_file("${TZDB_SOUTH_AMERICA_SOURCE}" "${TZDB_SOUTH_AMERICA_PATH}")
     extract_tzdb_file("${TZDB_ZONE_1970_SOURCE}" "${TZDB_ZONE_1970_PATH}")
 
-    set(TIME_ZONE_DATA_HEADER LibTimeZone/TimeZoneData.h)
-    set(TIME_ZONE_DATA_IMPLEMENTATION LibTimeZone/TimeZoneData.cpp)
-
-    set(TIME_ZONE_META_TARGET_PREFIX LibTimeZone_)
-
-    if (CMAKE_CURRENT_BINARY_DIR MATCHES ".*/LibTimeZone") # Serenity build.
-        set(TIME_ZONE_DATA_HEADER TimeZoneData.h)
-        set(TIME_ZONE_DATA_IMPLEMENTATION TimeZoneData.cpp)
-
-        set(TIME_ZONE_META_TARGET_PREFIX "")
-    endif()
-
     invoke_generator(
         "TimeZoneData"
         Lagom::GenerateTimeZoneData
         "${TZDB_VERSION_FILE}"
-        "${TIME_ZONE_META_TARGET_PREFIX}"
-        "${TIME_ZONE_DATA_HEADER}"
-        "${TIME_ZONE_DATA_IMPLEMENTATION}"
+        "TimeZoneData.h"
+        "TimeZoneData.cpp"
         arguments -z "${TZDB_ZONE_1970_PATH}" "${TZDB_AFRICA_PATH}" "${TZDB_ANTARCTICA_PATH}" "${TZDB_ASIA_PATH}" "${TZDB_AUSTRALASIA_PATH}" "${TZDB_BACKWARD_PATH}" "${TZDB_ETCETERA_PATH}" "${TZDB_EUROPE_PATH}" "${TZDB_NORTH_AMERICA_PATH}" "${TZDB_SOUTH_AMERICA_PATH}"
     )
 
     set(TIME_ZONE_DATA_SOURCES
-        ${TIME_ZONE_DATA_HEADER}
-        ${TIME_ZONE_DATA_IMPLEMENTATION}
+        "TimeZoneData.h"
+        "TimeZoneData.cpp"
     )
 endif()

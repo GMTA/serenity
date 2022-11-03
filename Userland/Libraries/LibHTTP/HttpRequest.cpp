@@ -12,30 +12,35 @@
 
 namespace HTTP {
 
-String HttpRequest::method_name() const
+String to_string(HttpRequest::Method method)
 {
-    switch (m_method) {
-    case Method::GET:
+    switch (method) {
+    case HttpRequest::Method::GET:
         return "GET";
-    case Method::HEAD:
+    case HttpRequest::Method::HEAD:
         return "HEAD";
-    case Method::POST:
+    case HttpRequest::Method::POST:
         return "POST";
-    case Method::DELETE:
+    case HttpRequest::Method::DELETE:
         return "DELETE";
-    case Method::PATCH:
+    case HttpRequest::Method::PATCH:
         return "PATCH";
-    case Method::OPTIONS:
+    case HttpRequest::Method::OPTIONS:
         return "OPTIONS";
-    case Method::TRACE:
+    case HttpRequest::Method::TRACE:
         return "TRACE";
-    case Method::CONNECT:
+    case HttpRequest::Method::CONNECT:
         return "CONNECT";
-    case Method::PUT:
+    case HttpRequest::Method::PUT:
         return "PUT";
     default:
         VERIFY_NOT_REACHED();
     }
+}
+
+String HttpRequest::method_name() const
+{
+    return to_string(m_method);
 }
 
 ByteBuffer HttpRequest::to_raw_request() const
@@ -78,6 +83,7 @@ Optional<HttpRequest> HttpRequest::from_raw_request(ReadonlyBytes raw_request)
         InProtocol,
         InHeaderName,
         InHeaderValue,
+        InBody,
     };
 
     State state { State::InMethod };
@@ -101,6 +107,7 @@ Optional<HttpRequest> HttpRequest::from_raw_request(ReadonlyBytes raw_request)
     String protocol;
     Vector<Header> headers;
     Header current_header;
+    ByteBuffer body;
 
     auto commit_and_advance_to = [&](auto& output, State new_state) {
         output = String::copy(buffer);
@@ -151,11 +158,32 @@ Optional<HttpRequest> HttpRequest::from_raw_request(ReadonlyBytes raw_request)
             if (peek(0) == '\r' && peek(1) == '\n') {
                 consume();
                 consume();
-                commit_and_advance_to(current_header.value, State::InHeaderName);
+
+                // Detect end of headers
+                auto next_state = State::InHeaderName;
+                if (peek(0) == '\r' && peek(1) == '\n') {
+                    consume();
+                    consume();
+                    next_state = State::InBody;
+                }
+
+                commit_and_advance_to(current_header.value, next_state);
                 headers.append(move(current_header));
                 break;
             }
             buffer.append(consume());
+            break;
+        case State::InBody:
+            buffer.append(consume());
+            if (index == raw_request.size()) {
+                // End of data, so store the body
+                auto maybe_body = ByteBuffer::copy(buffer);
+                // FIXME: Propagate this error somehow.
+                if (maybe_body.is_error())
+                    return {};
+                body = maybe_body.release_value();
+                buffer.clear();
+            }
             break;
         }
     }
@@ -183,7 +211,7 @@ Optional<HttpRequest> HttpRequest::from_raw_request(ReadonlyBytes raw_request)
         return {};
 
     request.m_headers = move(headers);
-    auto url_parts = resource.split_limit('?', 2, true);
+    auto url_parts = resource.split_limit('?', 2, SplitBehavior::KeepEmpty);
 
     request.m_url.set_cannot_be_a_base_url(true);
     if (url_parts.size() == 2) {
@@ -194,6 +222,8 @@ Optional<HttpRequest> HttpRequest::from_raw_request(ReadonlyBytes raw_request)
         request.m_resource = resource;
         request.m_url.set_paths({ resource });
     }
+
+    request.set_body(move(body));
 
     return request;
 }

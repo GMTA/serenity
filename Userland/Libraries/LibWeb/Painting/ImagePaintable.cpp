@@ -9,6 +9,7 @@
 #include <LibWeb/Layout/ImageBox.h>
 #include <LibWeb/Painting/BorderRadiusCornerClipper.h>
 #include <LibWeb/Painting/ImagePaintable.h>
+#include <LibWeb/Platform/FontPlugin.h>
 
 namespace Web::Painting {
 
@@ -32,8 +33,8 @@ void ImagePaintable::paint(PaintContext& context, PaintPhase phase) const
     if (!is_visible())
         return;
 
-    // FIXME: This should be done at a different level. Also rect() does not include padding etc!
-    if (!context.viewport_rect().intersects(enclosing_int_rect(absolute_rect())))
+    // FIXME: This should be done at a different level.
+    if (is_out_of_view(context))
         return;
 
     PaintableBox::paint(context, phase);
@@ -41,7 +42,7 @@ void ImagePaintable::paint(PaintContext& context, PaintPhase phase) const
     if (phase == PaintPhase::Foreground) {
         if (layout_box().renders_as_alt_text()) {
             auto& image_element = verify_cast<HTML::HTMLImageElement>(*dom_node());
-            context.painter().set_font(Gfx::FontDatabase::default_font());
+            context.painter().set_font(Platform::FontPlugin::the().default_font());
             Gfx::StylePainter::paint_frame(context.painter(), enclosing_int_rect(absolute_rect()), context.palette(), Gfx::FrameShape::Container, Gfx::FrameShadow::Sunken, 2);
             auto alt = image_element.alt();
             if (alt.is_empty())

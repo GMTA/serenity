@@ -22,13 +22,13 @@ HTMLImageElement::HTMLImageElement(DOM::Document& document, DOM::QualifiedName q
     : HTMLElement(document, move(qualified_name))
     , m_image_loader(*this)
 {
-    set_prototype(&window().cached_web_prototype("HTMLImageElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLImageElement"));
 
     m_image_loader.on_load = [this] {
         set_needs_style_update(true);
         this->document().set_needs_layout();
         queue_an_element_task(HTML::Task::Source::DOMManipulation, [this] {
-            dispatch_event(*DOM::Event::create(this->document().window(), EventNames::load));
+            dispatch_event(*DOM::Event::create(this->realm(), EventNames::load));
         });
     };
 
@@ -37,7 +37,7 @@ HTMLImageElement::HTMLImageElement(DOM::Document& document, DOM::QualifiedName q
         set_needs_style_update(true);
         this->document().set_needs_layout();
         queue_an_element_task(HTML::Task::Source::DOMManipulation, [this] {
-            dispatch_event(*DOM::Event::create(this->document().window(), EventNames::error));
+            dispatch_event(*DOM::Event::create(this->realm(), EventNames::error));
         });
     };
 
@@ -85,13 +85,9 @@ void HTMLImageElement::parse_attribute(FlyString const& name, String const& valu
     }
 }
 
-RefPtr<Layout::Node> HTMLImageElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> HTMLImageElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
 {
-    auto display = style->display();
-    auto layout_node = adopt_ref(*new Layout::ImageBox(document(), *this, move(style), m_image_loader));
-    if (display.is_block_outside())
-        layout_node->set_inline(false);
-    return layout_node;
+    return heap().allocate_without_realm<Layout::ImageBox>(document(), *this, move(style), m_image_loader);
 }
 
 Gfx::Bitmap const* HTMLImageElement::bitmap() const
@@ -124,7 +120,7 @@ unsigned HTMLImageElement::width() const
 
 void HTMLImageElement::set_width(unsigned width)
 {
-    set_attribute(HTML::AttributeNames::width, String::number(width));
+    MUST(set_attribute(HTML::AttributeNames::width, String::number(width)));
 }
 
 // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-height
@@ -152,7 +148,7 @@ unsigned HTMLImageElement::height() const
 
 void HTMLImageElement::set_height(unsigned height)
 {
-    set_attribute(HTML::AttributeNames::height, String::number(height));
+    MUST(set_attribute(HTML::AttributeNames::height, String::number(height)));
 }
 
 // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-naturalwidth
@@ -177,6 +173,28 @@ unsigned HTMLImageElement::natural_height() const
 
     // ...or else 0.
     return 0;
+}
+
+// https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-complete
+bool HTMLImageElement::complete() const
+{
+    // The IDL attribute complete must return true if any of the following conditions is true:
+
+    // - Both the src attribute and the srcset attribute are omitted.
+    if (!has_attribute(HTML::AttributeNames::src) && !has_attribute(HTML::AttributeNames::srcset))
+        return true;
+
+    // - The srcset attribute is omitted and the src attribute's value is the empty string.
+    if (!has_attribute(HTML::AttributeNames::srcset) && attribute(HTML::AttributeNames::src) == ""sv)
+        return true;
+
+    // - The img element's current request's state is completely available and its pending request is null.
+    // - The img element's current request's state is broken and its pending request is null.
+    // FIXME: This is ad-hoc and should be updated once we are loading images via the Fetch mechanism.
+    if (m_image_loader.has_loaded_or_failed())
+        return true;
+
+    return false;
 }
 
 }

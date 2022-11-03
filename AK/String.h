@@ -116,6 +116,10 @@ public:
     [[nodiscard]] Optional<T> to_int(TrimWhitespace = TrimWhitespace::Yes) const;
     template<typename T = unsigned>
     [[nodiscard]] Optional<T> to_uint(TrimWhitespace = TrimWhitespace::Yes) const;
+#ifndef KERNEL
+    [[nodiscard]] Optional<double> to_double(TrimWhitespace = TrimWhitespace::Yes) const;
+    [[nodiscard]] Optional<float> to_float(TrimWhitespace = TrimWhitespace::Yes) const;
+#endif
 
     [[nodiscard]] String to_lowercase() const;
     [[nodiscard]] String to_uppercase() const;
@@ -146,10 +150,10 @@ public:
     [[nodiscard]] bool contains(StringView, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
     [[nodiscard]] bool contains(char, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
 
-    [[nodiscard]] Vector<String> split_limit(char separator, size_t limit, bool keep_empty = false) const;
-    [[nodiscard]] Vector<String> split(char separator, bool keep_empty = false) const;
-    [[nodiscard]] Vector<StringView> split_view(char separator, bool keep_empty = false) const;
-    [[nodiscard]] Vector<StringView> split_view(Function<bool(char)> separator, bool keep_empty = false) const;
+    [[nodiscard]] Vector<String> split_limit(char separator, size_t limit, SplitBehavior = SplitBehavior::Nothing) const;
+    [[nodiscard]] Vector<String> split(char separator, SplitBehavior = SplitBehavior::Nothing) const;
+    [[nodiscard]] Vector<StringView> split_view(char separator, SplitBehavior = SplitBehavior::Nothing) const;
+    [[nodiscard]] Vector<StringView> split_view(Function<bool(char)> separator, SplitBehavior = SplitBehavior::Nothing) const;
 
     [[nodiscard]] Optional<size_t> find(char needle, size_t start = 0) const { return StringUtils::find(*this, needle, start); }
     [[nodiscard]] Optional<size_t> find(StringView needle, size_t start = 0) const { return StringUtils::find(*this, needle, start); }

@@ -78,6 +78,14 @@ struct ContextParameter {
     } value;
 };
 
+struct VertexAttribPointer {
+    GLint size { 4 };
+    GLenum type { GL_FLOAT };
+    bool normalize;
+    GLsizei stride { 0 };
+    void const* pointer { 0 };
+};
+
 enum Face {
     Front = 0,
     Back = 1,
@@ -213,6 +221,11 @@ public:
     void gl_array_element(GLint i);
     void gl_copy_tex_sub_image_2d(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
     void gl_point_size(GLfloat size);
+    void gl_bind_buffer(GLenum target, GLuint buffer);
+    void gl_buffer_data(GLenum target, GLsizeiptr size, void const* data, GLenum usage);
+    void gl_buffer_sub_data(GLenum target, GLintptr offset, GLsizeiptr size, void const* data);
+    void gl_delete_buffers(GLsizei n, GLuint const* buffers);
+    void gl_gen_buffers(GLsizei n, GLuint* buffers);
 
 private:
     void sync_device_config();
@@ -253,6 +266,13 @@ private:
     void invoke_list(size_t list_index);
     [[nodiscard]] bool should_append_to_listing() const { return m_current_listing_index.has_value(); }
     [[nodiscard]] bool should_execute_after_appending_to_listing() const { return m_current_listing_index.has_value() && m_current_listing_index->mode == GL_COMPILE_AND_EXECUTE; }
+
+    // FIXME: we store GPU::Texture objects that do not point back to either the driver or device, so we need
+    //        to destruct the latter two at the very end. Fix this by making all GPU objects point back to
+    //        the device that created them, and the device back to the driver.
+    RefPtr<GPU::Driver> m_driver;
+    NonnullOwnPtr<GPU::Device> m_rasterizer;
+    GPU::DeviceInfo const m_device_info;
 
     GLenum m_current_draw_mode;
     GLenum m_current_matrix_mode { GL_MODELVIEW };
@@ -374,9 +394,6 @@ private:
         return m_texture_coordinate_generation[texture_unit][capability - GL_TEXTURE_GEN_S];
     }
 
-    RefPtr<GPU::Driver> m_driver;
-    NonnullOwnPtr<GPU::Device> m_rasterizer;
-    GPU::DeviceInfo const m_device_info;
     bool m_sampler_config_is_dirty { true };
     bool m_light_state_is_dirty { true };
 
@@ -437,8 +454,6 @@ private:
             decltype(&GLContext::gl_tex_parameter),
             decltype(&GLContext::gl_tex_parameterfv),
             decltype(&GLContext::gl_depth_mask),
-            decltype(&GLContext::gl_draw_arrays),
-            decltype(&GLContext::gl_draw_elements),
             decltype(&GLContext::gl_draw_pixels),
             decltype(&GLContext::gl_depth_range),
             decltype(&GLContext::gl_polygon_offset),
@@ -469,7 +484,6 @@ private:
             decltype(&GLContext::gl_color_material),
             decltype(&GLContext::gl_get_light),
             decltype(&GLContext::gl_clip_plane),
-            decltype(&GLContext::gl_array_element),
             decltype(&GLContext::gl_copy_tex_sub_image_2d),
             decltype(&GLContext::gl_point_size)>;
 
@@ -491,24 +505,23 @@ private:
     };
     Optional<CurrentListing> m_current_listing_index;
 
-    struct VertexAttribPointer {
-        GLint size { 4 };
-        GLenum type { GL_FLOAT };
-        bool normalize { true };
-        GLsizei stride { 0 };
-        void const* pointer { 0 };
-    };
-
-    static void read_from_vertex_attribute_pointer(VertexAttribPointer const&, int index, float* elements);
-
     VertexAttribPointer m_client_vertex_pointer;
     VertexAttribPointer m_client_color_pointer;
     Vector<VertexAttribPointer> m_client_tex_coord_pointer;
     VertexAttribPointer m_client_normal_pointer;
 
-    u8 m_pack_alignment { 4 };
-    GLsizei m_unpack_row_length { 0 };
-    u8 m_unpack_alignment { 4 };
+    struct PixelParameters {
+        i32 image_height { 0 };
+        bool least_significant_bit_first { false };
+        u8 pack_alignment { 4 };
+        i32 row_length { 0 };
+        i32 skip_images { 0 };
+        i32 skip_pixels { 0 };
+        i32 skip_rows { 0 };
+        bool swap_bytes { false };
+    };
+    PixelParameters m_packing_parameters;
+    PixelParameters m_unpacking_parameters;
 
     // Point drawing configuration
     bool m_point_smooth { false };
@@ -532,8 +545,7 @@ private:
     String m_extensions;
 };
 
-NonnullOwnPtr<GLContext> create_context(Gfx::Bitmap&);
+ErrorOr<NonnullOwnPtr<GLContext>> create_context(Gfx::Bitmap&);
 void make_context_current(GLContext*);
-void present_context(GLContext*);
 
 }

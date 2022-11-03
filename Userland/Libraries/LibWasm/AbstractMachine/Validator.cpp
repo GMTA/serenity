@@ -318,9 +318,9 @@ ErrorOr<void, ValidationError> Validator::validate(Limits const& limits, size_t 
 }
 
 template<u32 opcode>
-ErrorOr<void, ValidationError> Validator::validate_instruction(Instruction const&, Stack&, bool&)
+ErrorOr<void, ValidationError> Validator::validate_instruction(Instruction const& instruction, Stack&, bool&)
 {
-    return Errors::invalid("instruction opcode"sv);
+    return Errors::invalid(String::formatted("instruction opcode (0x{:x}) (missing validation!)", instruction.opcode().value()));
 }
 
 #define VALIDATE_INSTRUCTION(name) \
@@ -1887,6 +1887,15 @@ VALIDATE_INSTRUCTION(memory_fill)
     return {};
 }
 
+VALIDATE_INSTRUCTION(memory_copy)
+{
+    TRY(validate(MemoryIndex { 0 }));
+
+    TRY((stack.take<ValueType::I32, ValueType::I32, ValueType::I32>()));
+
+    return {};
+}
+
 VALIDATE_INSTRUCTION(memory_init)
 {
     TRY(validate(MemoryIndex { 0 }));
@@ -2170,7 +2179,7 @@ ErrorOr<void, ValidationError> Validator::validate(Instruction const& instructio
 #undef M
     default:
         is_constant = false;
-        return Errors::invalid("instruction opcode"sv);
+        return Errors::invalid(String::formatted("instruction opcode (0x{:x})", instruction.opcode().value()));
     }
 }
 

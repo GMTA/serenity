@@ -12,7 +12,7 @@ namespace Web::HTML {
 HTMLAnchorElement::HTMLAnchorElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLAnchorElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLAnchorElement"));
 
     activation_behavior = [this](auto const& event) {
         run_activation_behavior(event);
@@ -36,7 +36,7 @@ String HTMLAnchorElement::hyperlink_element_utils_href() const
 
 void HTMLAnchorElement::set_hyperlink_element_utils_href(String href)
 {
-    set_attribute(HTML::AttributeNames::href, move(href));
+    MUST(set_attribute(HTML::AttributeNames::href, move(href)));
 }
 
 void HTMLAnchorElement::run_activation_behavior(Web::DOM::Event const&)

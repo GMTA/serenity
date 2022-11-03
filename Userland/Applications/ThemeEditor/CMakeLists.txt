@@ -12,9 +12,12 @@ compile_gml(PathProperty.gml PathPropertyGML.h path_property_gml)
 compile_gml(Previews/WindowPreview.gml WindowPreviewGML.h window_preview_gml)
 
 set(SOURCES
-    main.cpp
     MainWidget.cpp
     PreviewWidget.cpp
+    main.cpp
+)
+
+set(GENERATED_SOURCES
     AlignmentPropertyGML.h
     ColorPropertyGML.h
     FlagPropertyGML.h
@@ -25,4 +28,4 @@ set(SOURCES
 )
 
 serenity_app(ThemeEditor ICON app-theme-editor)
-target_link_libraries(ThemeEditor LibGUI LibFileSystemAccessClient LibMain)
+target_link_libraries(ThemeEditor PRIVATE LibCore LibGfx LibGUI LibFileSystemAccessClient LibIPC LibMain)

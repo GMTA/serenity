@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2021, Tim Flynn <trflynn89@serenityos.org>
  * Copyright (c) 2022, the SerenityOS developers.
+ * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -48,6 +49,34 @@ void CookieJar::set_cookie(const URL& url, Web::Cookie::ParsedCookie const& pars
     purge_expired_cookies();
 }
 
+// This is based on https://www.rfc-editor.org/rfc/rfc6265#section-5.3 as store_cookie() below
+// however the whole ParsedCookie->Cookie conversion is skipped.
+void CookieJar::update_cookie(URL const& url, Web::Cookie::Cookie cookie)
+{
+    auto domain = canonicalize_domain(url);
+    if (!domain.has_value())
+        return;
+
+    // 6. If the canonicalized request-host does not domain-match the domain-attribute: Ignore the cookie entirely and abort these steps.
+    if (!domain_matches(domain.value(), cookie.domain))
+        return;
+
+    // 11. If the cookie store contains a cookie with the same name, domain, and path as the newly created cookie:
+    CookieStorageKey key { cookie.name, cookie.domain, cookie.path };
+
+    if (auto old_cookie = m_cookies.find(key); old_cookie != m_cookies.end()) {
+        // Update the creation-time of the newly created cookie to match the creation-time of the old-cookie.
+        cookie.creation_time = old_cookie->value.creation_time;
+        // Remove the old-cookie from the cookie store.
+        m_cookies.remove(old_cookie);
+    }
+
+    // 12. Insert the newly created cookie into the cookie store.
+    m_cookies.set(key, move(cookie));
+
+    purge_expired_cookies();
+}
+
 void CookieJar::dump_cookies() const
 {
     constexpr auto key_color = "\033[34;1m"sv;
@@ -70,6 +99,7 @@ void CookieJar::dump_cookies() const
         builder.appendff("\t{}HttpOnly{} = {:s}\n", attribute_color, no_color, cookie.value.http_only);
         builder.appendff("\t{}HostOnly{} = {:s}\n", attribute_color, no_color, cookie.value.host_only);
         builder.appendff("\t{}Persistent{} = {:s}\n", attribute_color, no_color, cookie.value.persistent);
+        builder.appendff("\t{}SameSite{} = {:s}\n", attribute_color, no_color, Web::Cookie::same_site_to_string(cookie.value.same_site));
     }
 
     dbgln("{}", builder.build());
@@ -170,7 +200,7 @@ void CookieJar::store_cookie(Web::Cookie::ParsedCookie const& parsed_cookie, con
     // https://tools.ietf.org/html/rfc6265#section-5.3
 
     // 2. Create a new cookie with name cookie-name, value cookie-value. Set the creation-time and the last-access-time to the current date and time.
-    Web::Cookie::Cookie cookie { parsed_cookie.name, parsed_cookie.value };
+    Web::Cookie::Cookie cookie { parsed_cookie.name, parsed_cookie.value, parsed_cookie.same_site_attribute };
     cookie.creation_time = Core::DateTime::now();
     cookie.last_access_time = cookie.creation_time;
 
@@ -273,7 +303,7 @@ Vector<Web::Cookie::Cookie&> CookieJar::get_matching_cookies(const URL& url, Str
             continue;
 
         // If the cookie's secure-only-flag is true, then the request-uri's scheme must denote a "secure" protocol.
-        if (cookie.value.secure && (url.protocol() != "https"))
+        if (cookie.value.secure && (url.scheme() != "https"))
             continue;
 
         // If the cookie's http-only-flag is true, then exclude the cookie if the cookie-string is being generated for a "non-HTTP" API.

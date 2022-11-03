@@ -34,9 +34,9 @@ void InlineLevelIterator::enter_node_with_box_model_metrics(Layout::NodeWithStyl
     auto& used_values = m_layout_state.get_mutable(node);
     auto const& computed_values = node.computed_values();
 
-    used_values.margin_left = computed_values.margin().left.resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
+    used_values.margin_left = computed_values.margin().left().resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
     used_values.border_left = computed_values.border_left().width;
-    used_values.padding_left = computed_values.padding().left.resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
+    used_values.padding_left = computed_values.padding().left().resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
 
     m_extra_leading_metrics->margin += used_values.margin_left;
     m_extra_leading_metrics->border += used_values.border_left;
@@ -54,9 +54,9 @@ void InlineLevelIterator::exit_node_with_box_model_metrics()
     auto& used_values = m_layout_state.get_mutable(node);
     auto const& computed_values = node.computed_values();
 
-    used_values.margin_right = computed_values.margin().right.resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
+    used_values.margin_right = computed_values.margin().right().resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
     used_values.border_right = computed_values.border_right().width;
-    used_values.padding_right = computed_values.padding().right.resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
+    used_values.padding_right = computed_values.padding().right().resolved(node, CSS::Length::make_px(m_container_state.content_width())).to_px(node);
 
     m_extra_trailing_metrics->margin += used_values.margin_right;
     m_extra_trailing_metrics->border += used_values.border_right;
@@ -68,7 +68,10 @@ void InlineLevelIterator::exit_node_with_box_model_metrics()
 // This is similar to Layout::Node::next_in_pre_order() but will not descend into inline-block nodes.
 Layout::Node const* InlineLevelIterator::next_inline_node_in_pre_order(Layout::Node const& current, Layout::Node const* stay_within)
 {
-    if (current.first_child() && current.first_child()->is_inline() && !current.is_inline_block() && !current.is_replaced_box()) {
+    if (current.first_child()
+        && current.first_child()->display().is_inline_outside()
+        && current.display().is_flow_inside()
+        && !current.is_replaced_box()) {
         if (!current.is_box() || !static_cast<Box const&>(current).is_out_of_flow(m_inline_formatting_context))
             return current.first_child();
     }
@@ -107,7 +110,11 @@ void InlineLevelIterator::compute_next()
 
 void InlineLevelIterator::skip_to_next()
 {
-    if (m_next_node && is<Layout::NodeWithStyleAndBoxModelMetrics>(*m_next_node) && !m_next_node->is_inline_block() && !m_next_node->is_out_of_flow(m_inline_formatting_context) && !is<ReplacedBox>(m_next_node))
+    if (m_next_node
+        && is<Layout::NodeWithStyleAndBoxModelMetrics>(*m_next_node)
+        && m_next_node->display().is_flow_inside()
+        && !m_next_node->is_out_of_flow(m_inline_formatting_context)
+        && !m_next_node->is_replaced_box())
         enter_node_with_box_model_metrics(static_cast<Layout::NodeWithStyleAndBoxModelMetrics const&>(*m_next_node));
 
     m_current_node = m_next_node;
@@ -145,13 +152,16 @@ Optional<InlineLevelIterator::Item> InlineLevelIterator::next(float available_wi
             };
         }
 
+        // NOTE: We never consider `content: ""` to be collapsible whitespace.
+        bool is_generated_empty_string = text_node.is_generated() && chunk.length == 0;
+
         Item item {
             .type = Item::Type::Text,
             .node = &text_node,
             .offset_in_node = chunk.start,
             .length_in_node = chunk.length,
             .width = chunk_width,
-            .is_collapsible_whitespace = m_text_node_context->do_collapse && chunk.is_all_whitespace,
+            .is_collapsible_whitespace = m_text_node_context->do_collapse && chunk.is_all_whitespace && !is_generated_empty_string,
         };
 
         add_extra_box_model_metrics_to_item(item, m_text_node_context->is_first_chunk, m_text_node_context->is_last_chunk);
@@ -254,7 +264,7 @@ void InlineLevelIterator::enter_text_node(Layout::TextNode const& text_node)
         .do_respect_linebreaks = do_respect_linebreaks,
         .is_first_chunk = true,
         .is_last_chunk = false,
-        .chunk_iterator = TextNode::ChunkIterator { text_node.text_for_rendering(), m_layout_mode, do_wrap_lines, do_respect_linebreaks },
+        .chunk_iterator = TextNode::ChunkIterator { text_node.text_for_rendering(), do_wrap_lines, do_respect_linebreaks, text_node.is_generated() && text_node.text_for_rendering().is_empty() },
     };
     m_text_node_context->next_chunk = m_text_node_context->chunk_iterator.next();
 }

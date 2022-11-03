@@ -20,6 +20,7 @@
 #import <HTML/HTMLScriptElement.idl>
 
 // https://dom.spec.whatwg.org/#document
+[Exposed=Window]
 interface Document : Node {
     constructor();
 
@@ -27,6 +28,7 @@ interface Document : Node {
 
     // FIXME: These attributes currently don't do anything.
     [PutForwards=href, LegacyUnforgeable] readonly attribute Location? location;
+    attribute USVString domain;
 
     readonly attribute DOMImplementation implementation;
 
@@ -67,6 +69,9 @@ interface Document : Node {
     readonly attribute HTMLCollection links;
     readonly attribute HTMLCollection forms;
     readonly attribute HTMLCollection scripts;
+
+    // FIXME: Should return an HTMLAllCollection
+    readonly attribute HTMLCollection all;
 
     Element createElement(DOMString tagName);
     Element createElementNS(DOMString? namespace, DOMString qualifiedName);

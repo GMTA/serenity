@@ -1,21 +1,17 @@
 set(SOURCES
     AnonymousBuffer.cpp
     ArgsParser.cpp
-    ConfigFile.cpp
     Command.cpp
+    ConfigFile.cpp
     DateTime.cpp
     Directory.cpp
     DirIterator.cpp
     ElapsedTimer.cpp
     Event.cpp
     EventLoop.cpp
-    FileWatcher.cpp
     File.cpp
-    FilePermissionsMask.cpp
-    GetPassword.cpp
-    Group.cpp
+    FileWatcher.cpp
     IODevice.cpp
-    LocalServer.cpp
     LockFile.cpp
     MappedFile.cpp
     MimeData.cpp
@@ -26,9 +22,10 @@ set(SOURCES
     ProcessStatisticsReader.cpp
     Property.cpp
     SecretString.cpp
+    SessionManagement.cpp
     SOCKSProxyClient.cpp
-    Stream.cpp
     StandardPaths.cpp
+    Stream.cpp
     System.cpp
     SystemServerTakeover.cpp
     TCPServer.cpp
@@ -37,9 +34,15 @@ set(SOURCES
     UDPServer.cpp
     Version.cpp
 )
-if (NOT ANDROID)
-    list(APPEND SOURCES Account.cpp)
+if (NOT ANDROID AND NOT WIN32)
+    list(APPEND SOURCES
+        Account.cpp
+        FilePermissionsMask.cpp
+        GetPassword.cpp
+        Group.cpp
+        LocalServer.cpp
+    )
 endif()
 
 serenity_lib(LibCore core)
-target_link_libraries(LibCore LibC LibCrypt)
+target_link_libraries(LibCore PRIVATE LibCrypt LibSystem)

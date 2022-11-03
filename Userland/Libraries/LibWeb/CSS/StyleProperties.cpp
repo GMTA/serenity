@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2022, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021-2022, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -7,12 +7,12 @@
 
 #include <AK/TypeCasts.h>
 #include <LibCore/DirIterator.h>
-#include <LibGfx/Font/FontDatabase.h>
 #include <LibWeb/CSS/Clip.h>
 #include <LibWeb/CSS/StyleProperties.h>
 #include <LibWeb/FontCache.h>
 #include <LibWeb/Layout/BlockContainer.h>
 #include <LibWeb/Layout/Node.h>
+#include <LibWeb/Platform/FontPlugin.h>
 
 namespace Web::CSS {
 
@@ -42,6 +42,47 @@ NonnullRefPtr<StyleValue> StyleProperties::property(CSS::PropertyID property_id)
     // By the time we call this method, all properties have values assigned.
     VERIFY(!value.is_null());
     return value.release_nonnull();
+}
+
+RefPtr<StyleValue> StyleProperties::maybe_null_property(CSS::PropertyID property_id) const
+{
+    return m_property_values[to_underlying(property_id)];
+}
+
+CSS::Size StyleProperties::size_value(CSS::PropertyID id) const
+{
+    auto value = property(id);
+    if (value->is_identifier()) {
+        switch (value->to_identifier()) {
+        case ValueID::Auto:
+            return CSS::Size::make_auto();
+        case ValueID::MinContent:
+            return CSS::Size::make_min_content();
+        case ValueID::MaxContent:
+            return CSS::Size::make_max_content();
+        case ValueID::None:
+            return CSS::Size::make_none();
+        default:
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    if (value->is_calculated())
+        return CSS::Size::make_length(CSS::Length::make_calculated(value->as_calculated()));
+
+    if (value->is_percentage())
+        return CSS::Size::make_percentage(value->as_percentage().percentage());
+
+    if (value->has_length()) {
+        auto length = value->to_length();
+        if (length.is_auto())
+            return CSS::Size::make_auto();
+        return CSS::Size::make_length(value->to_length());
+    }
+
+    // FIXME: Support `fit-content(<length>)`
+    dbgln("FIXME: Unsupported size value: `{}`, treating as `auto`", value->to_string());
+    return CSS::Size::make_auto();
 }
 
 Length StyleProperties::length_or_fallback(CSS::PropertyID id, Length const& fallback) const
@@ -81,10 +122,10 @@ Optional<LengthPercentage> StyleProperties::length_percentage(CSS::PropertyID id
 LengthBox StyleProperties::length_box(CSS::PropertyID left_id, CSS::PropertyID top_id, CSS::PropertyID right_id, CSS::PropertyID bottom_id, const CSS::Length& default_value) const
 {
     LengthBox box;
-    box.left = length_percentage_or_fallback(left_id, default_value);
-    box.top = length_percentage_or_fallback(top_id, default_value);
-    box.right = length_percentage_or_fallback(right_id, default_value);
-    box.bottom = length_percentage_or_fallback(bottom_id, default_value);
+    box.left() = length_percentage_or_fallback(left_id, default_value);
+    box.top() = length_percentage_or_fallback(top_id, default_value);
+    box.right() = length_percentage_or_fallback(right_id, default_value);
+    box.bottom() = length_percentage_or_fallback(bottom_id, default_value);
     return box;
 }
 
@@ -99,15 +140,15 @@ Color StyleProperties::color_or_fallback(CSS::PropertyID id, Layout::NodeWithSty
 NonnullRefPtr<Gfx::Font> StyleProperties::font_fallback(bool monospace, bool bold)
 {
     if (monospace && bold)
-        return Gfx::FontDatabase::default_fixed_width_font().bold_variant();
+        return Platform::FontPlugin::the().default_fixed_width_font().bold_variant();
 
     if (monospace)
-        return Gfx::FontDatabase::default_fixed_width_font();
+        return Platform::FontPlugin::the().default_fixed_width_font();
 
     if (bold)
-        return Gfx::FontDatabase::default_font().bold_variant();
+        return Platform::FontPlugin::the().default_font().bold_variant();
 
-    return Gfx::FontDatabase::default_font();
+    return Platform::FontPlugin::the().default_font();
 }
 
 float StyleProperties::line_height(Layout::Node const& layout_node) const
@@ -313,6 +354,12 @@ CSS::TransformOrigin StyleProperties::transform_origin() const
     return { x_value.value(), y_value.value() };
 }
 
+Optional<CSS::AlignContent> StyleProperties::align_content() const
+{
+    auto value = property(CSS::PropertyID::AlignContent);
+    return value_id_to_align_content(value->to_identifier());
+}
+
 Optional<CSS::AlignItems> StyleProperties::align_items() const
 {
     auto value = property(CSS::PropertyID::AlignItems);
@@ -353,6 +400,14 @@ Optional<CSS::Appearance> StyleProperties::appearance() const
         }
     }
     return appearance;
+}
+
+CSS::BackdropFilter StyleProperties::backdrop_filter() const
+{
+    auto value = property(CSS::PropertyID::BackdropFilter);
+    if (value->is_filter_value_list())
+        return BackdropFilter(value->as_filter_value_list());
+    return BackdropFilter::make_none();
 }
 
 Optional<CSS::Position> StyleProperties::position() const
@@ -553,7 +608,8 @@ Vector<CSS::TextDecorationLine> StyleProperties::text_decoration_line() const
     if (value->is_identifier() && value->to_identifier() == ValueID::None)
         return {};
 
-    VERIFY_NOT_REACHED();
+    dbgln("FIXME: Unsupported value for text-decoration-line: {}", value->to_string());
+    return {};
 }
 
 Optional<CSS::TextDecorationStyle> StyleProperties::text_decoration_style() const
@@ -655,16 +711,16 @@ Optional<CSS::FontVariant> StyleProperties::font_variant() const
     return value_id_to_font_variant(value->to_identifier());
 }
 
-Vector<CSS::GridTrackSize> StyleProperties::grid_template_columns() const
+CSS::GridTrackSizeList StyleProperties::grid_template_columns() const
 {
     auto value = property(CSS::PropertyID::GridTemplateColumns);
-    return value->as_grid_track_size().grid_track_size();
+    return value->as_grid_track_size_list().grid_track_size_list();
 }
 
-Vector<CSS::GridTrackSize> StyleProperties::grid_template_rows() const
+CSS::GridTrackSizeList StyleProperties::grid_template_rows() const
 {
     auto value = property(CSS::PropertyID::GridTemplateRows);
-    return value->as_grid_track_size().grid_track_size();
+    return value->as_grid_track_size_list().grid_track_size_list();
 }
 
 CSS::GridTrackPlacement StyleProperties::grid_column_end() const

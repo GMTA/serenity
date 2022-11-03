@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/HostDefined.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/HTML/Scripting/WindowEnvironmentSettingsObject.h>
 #include <LibWeb/HTML/Window.h>
@@ -32,21 +34,22 @@ void WindowEnvironmentSettingsObject::setup(AK::URL const& creation_url, Nonnull
     VERIFY(realm);
 
     // 2. Let window be realm's global object.
-    // NOTE: We want to store the Window impl rather than the WindowObject.
-    auto& window = verify_cast<HTML::Window>(realm->global_object()).impl();
+    auto& window = verify_cast<HTML::Window>(realm->global_object());
 
     // 3. Let settings object be a new environment settings object whose algorithms are defined as follows:
     // NOTE: See the functions defined for this class.
-    auto settings_object = adopt_own(*new WindowEnvironmentSettingsObject(window, move(execution_context)));
+    auto* settings_object = realm->heap().allocate<WindowEnvironmentSettingsObject>(*realm, window, move(execution_context));
 
     // 4. If reservedEnvironment is non-null, then:
     if (reserved_environment.has_value()) {
         // FIXME:    1. Set settings object's id to reservedEnvironment's id,
         //              target browsing context to reservedEnvironment's target browsing context,
         //              and active service worker to reservedEnvironment's active service worker.
+        settings_object->id = reserved_environment->id;
         settings_object->target_browsing_context = reserved_environment->target_browsing_context;
 
-        // FIXME:    2. Set reservedEnvironment's id to the empty string.
+        // 2. Set reservedEnvironment's id to the empty string.
+        reserved_environment->id = String::empty();
     }
 
     // 5. Otherwise, ...
@@ -54,6 +57,8 @@ void WindowEnvironmentSettingsObject::setup(AK::URL const& creation_url, Nonnull
         // FIXME: ...set settings object's id to a new unique opaque string,
         //        settings object's target browsing context to null,
         //        and settings object's active service worker to null.
+        static i64 next_id = 1;
+        settings_object->id = String::number(next_id++);
         settings_object->target_browsing_context = nullptr;
     }
 
@@ -65,7 +70,14 @@ void WindowEnvironmentSettingsObject::setup(AK::URL const& creation_url, Nonnull
     settings_object->top_level_origin = top_level_origin;
 
     // 7. Set realm's [[HostDefined]] field to settings object.
-    realm->set_host_defined(move(settings_object));
+    // Non-Standard: We store the ESO next to the web intrinsics in a custom HostDefined object
+    auto* intrinsics = realm->heap().allocate<Bindings::Intrinsics>(*realm, *realm);
+    auto host_defined = make<Bindings::HostDefined>(*settings_object, *intrinsics);
+    realm->set_host_defined(move(host_defined));
+
+    // Non-Standard: We cannot fully initialize window object until *after* the we set up
+    //    the realm's [[HostDefined]] internal slot as the internal slot contains the web platform intrinsics
+    window.initialize_web_interfaces({});
 }
 
 // https://html.spec.whatwg.org/multipage/window-object.html#script-settings-for-window-objects:responsible-document
@@ -96,13 +108,20 @@ Origin WindowEnvironmentSettingsObject::origin()
     return m_window->associated_document().origin();
 }
 
+// https://html.spec.whatwg.org/multipage/window-object.html#script-settings-for-window-objects:concept-settings-object-policy-container
+PolicyContainer WindowEnvironmentSettingsObject::policy_container()
+{
+    // Return the policy container of window's associated Document.
+    return m_window->associated_document().policy_container();
+}
+
 // https://html.spec.whatwg.org/multipage/window-object.html#script-settings-for-window-objects:concept-settings-object-cross-origin-isolated-capability
 CanUseCrossOriginIsolatedAPIs WindowEnvironmentSettingsObject::cross_origin_isolated_capability()
 {
     // FIXME: Return true if both of the following hold, and false otherwise:
     //          1. realm's agent cluster's cross-origin-isolation mode is "concrete", and
     //          2. window's associated Document is allowed to use the "cross-origin-isolated" feature.
-    TODO();
+    return CanUseCrossOriginIsolatedAPIs::Yes;
 }
 
 }

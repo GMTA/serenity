@@ -36,16 +36,12 @@ private:
     Optional<OffsetType> m_offset_nanoseconds; // [[OffsetNanoseconds]]
 };
 
-bool is_valid_time_zone_name(String const& time_zone);
+bool is_available_time_zone_name(StringView time_zone);
 String canonicalize_time_zone_name(String const& time_zone);
-String default_time_zone();
 ThrowCompletionOr<TimeZone*> create_temporal_time_zone(VM&, String const& identifier, FunctionObject const* new_target = nullptr);
 ISODateTime get_iso_parts_from_epoch(VM&, Crypto::SignedBigInteger const& epoch_nanoseconds);
-MarkedVector<BigInt*> get_iana_time_zone_epoch_value(VM&, StringView time_zone_identifier, i32 year, u8 month, u8 day, u8 hour, u8 minute, u8 second, u16 millisecond, u16 microsecond, u16 nanosecond);
-i64 get_iana_time_zone_offset_nanoseconds(BigInt const& epoch_nanoseconds, String const& time_zone_identifier);
-BigInt* get_iana_time_zone_next_transition(VM&, BigInt const& epoch_nanoseconds, StringView time_zone_identifier);
-BigInt* get_iana_time_zone_previous_transition(VM&, BigInt const& epoch_nanoseconds, StringView time_zone_identifier);
-ThrowCompletionOr<double> parse_time_zone_offset_string(VM&, String const&);
+BigInt* get_named_time_zone_next_transition(VM&, StringView time_zone_identifier, BigInt const& epoch_nanoseconds);
+BigInt* get_named_time_zone_previous_transition(VM&, StringView time_zone_identifier, BigInt const& epoch_nanoseconds);
 String format_time_zone_offset_string(double offset_nanoseconds);
 String format_iso_time_zone_offset_string(double offset_nanoseconds);
 ThrowCompletionOr<Object*> to_temporal_time_zone(VM&, Value temporal_time_zone_like);

@@ -6,20 +6,21 @@
  */
 
 #include <AK/StringBuilder.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/Node.h>
 #include <LibWeb/DOM/Text.h>
+#include <LibWeb/HTML/HTMLOptGroupElement.h>
 #include <LibWeb/HTML/HTMLOptionElement.h>
 #include <LibWeb/HTML/HTMLScriptElement.h>
 #include <LibWeb/HTML/HTMLSelectElement.h>
-#include <LibWeb/HTML/Window.h>
-#include <ctype.h>
+#include <LibWeb/Infra/Strings.h>
 
 namespace Web::HTML {
 
 HTMLOptionElement::HTMLOptionElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLOptionElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLOptionElement"));
 }
 
 HTMLOptionElement::~HTMLOptionElement() = default;
@@ -71,32 +72,7 @@ String HTMLOptionElement::value() const
 // https://html.spec.whatwg.org/multipage/form-elements.html#dom-option-value
 void HTMLOptionElement::set_value(String value)
 {
-    set_attribute(HTML::AttributeNames::value, value);
-}
-
-// https://infra.spec.whatwg.org/#strip-and-collapse-ascii-whitespace
-static String strip_and_collapse_whitespace(StringView string)
-{
-    // Replace any sequence of one or more consecutive code points that are ASCII whitespace in the string with a single U+0020 SPACE code point.
-    StringBuilder builder;
-    for (size_t i = 0; i < string.length(); ++i) {
-        if (isspace(string[i])) {
-            builder.append(' ');
-            while (i < string.length()) {
-                if (isspace(string[i])) {
-                    ++i;
-                    continue;
-                }
-                builder.append(string[i]);
-                break;
-            }
-            continue;
-        }
-        builder.append(string[i]);
-    }
-
-    // ...and then remove any leading and trailing ASCII whitespace from that string.
-    return builder.to_string().trim_whitespace();
+    MUST(set_attribute(HTML::AttributeNames::value, value));
 }
 
 static void concatenate_descendants_text_content(DOM::Node const* node, StringBuilder& builder)
@@ -124,7 +100,7 @@ String HTMLOptionElement::text() const
     });
 
     // Return the result of stripping and collapsing ASCII whitespace from the above concatenation.
-    return strip_and_collapse_whitespace(builder.to_string());
+    return Infra::strip_and_collapse_whitespace(builder.string_view());
 }
 
 // https://html.spec.whatwg.org/multipage/form-elements.html#dom-option-text
@@ -154,6 +130,14 @@ int HTMLOptionElement::index() const
 void HTMLOptionElement::ask_for_a_reset()
 {
     // FIXME: Implement this operation.
+}
+
+// https://html.spec.whatwg.org/multipage/form-elements.html#concept-option-disabled
+bool HTMLOptionElement::disabled() const
+{
+    // An option element is disabled if its disabled attribute is present or if it is a child of an optgroup element whose disabled attribute is present.
+    return has_attribute(AttributeNames::disabled)
+        || (parent() && is<HTMLOptGroupElement>(parent()) && static_cast<HTMLOptGroupElement const&>(*parent()).has_attribute(AttributeNames::disabled));
 }
 
 }

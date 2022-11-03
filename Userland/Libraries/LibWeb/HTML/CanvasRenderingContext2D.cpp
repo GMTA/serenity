@@ -10,29 +10,31 @@
 #include <LibGfx/Painter.h>
 #include <LibGfx/Quad.h>
 #include <LibGfx/Rect.h>
-#include <LibWeb/DOM/ExceptionOr.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/HTML/CanvasRenderingContext2D.h>
 #include <LibWeb/HTML/HTMLCanvasElement.h>
 #include <LibWeb/HTML/HTMLImageElement.h>
 #include <LibWeb/HTML/ImageData.h>
 #include <LibWeb/HTML/Path2D.h>
 #include <LibWeb/HTML/TextMetrics.h>
-#include <LibWeb/HTML/Window.h>
+#include <LibWeb/Infra/CharacterTypes.h>
 #include <LibWeb/Layout/TextNode.h>
+#include <LibWeb/Platform/FontPlugin.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::HTML {
 
-JS::NonnullGCPtr<CanvasRenderingContext2D> CanvasRenderingContext2D::create(HTML::Window& window, HTMLCanvasElement& element)
+JS::NonnullGCPtr<CanvasRenderingContext2D> CanvasRenderingContext2D::create(JS::Realm& realm, HTMLCanvasElement& element)
 {
-    return *window.heap().allocate<CanvasRenderingContext2D>(window.realm(), window, element);
+    return *realm.heap().allocate<CanvasRenderingContext2D>(realm, realm, element);
 }
 
-CanvasRenderingContext2D::CanvasRenderingContext2D(HTML::Window& window, HTMLCanvasElement& element)
-    : PlatformObject(window.realm())
+CanvasRenderingContext2D::CanvasRenderingContext2D(JS::Realm& realm, HTMLCanvasElement& element)
+    : PlatformObject(realm)
     , CanvasPath(static_cast<Bindings::PlatformObject&>(*this))
     , m_element(element)
 {
-    set_prototype(&window.cached_web_prototype("CanvasRenderingContext2D"));
+    set_prototype(&Bindings::cached_web_prototype(realm, "CanvasRenderingContext2D"));
 }
 
 CanvasRenderingContext2D::~CanvasRenderingContext2D() = default;
@@ -106,7 +108,7 @@ void CanvasRenderingContext2D::stroke_rect(float x, float y, float width, float 
 }
 
 // 4.12.5.1.14 Drawing images, https://html.spec.whatwg.org/multipage/canvas.html#drawing-images
-DOM::ExceptionOr<void> CanvasRenderingContext2D::draw_image_internal(CanvasImageSource const& image, float source_x, float source_y, float source_width, float source_height, float destination_x, float destination_y, float destination_width, float destination_height)
+WebIDL::ExceptionOr<void> CanvasRenderingContext2D::draw_image_internal(CanvasImageSource const& image, float source_x, float source_y, float source_width, float source_height, float destination_x, float destination_y, float destination_width, float destination_height)
 {
     // 1. If any of the arguments are infinite or NaN, then return.
     if (!isfinite(source_x) || !isfinite(source_y) || !isfinite(source_width) || !isfinite(source_height) || !isfinite(destination_x) || !isfinite(destination_y) || !isfinite(destination_width) || !isfinite(destination_height))
@@ -154,60 +156,7 @@ DOM::ExceptionOr<void> CanvasRenderingContext2D::draw_image_internal(CanvasImage
     if (!painter)
         return {};
 
-    auto& drawing_state = this->drawing_state();
-
-    if (drawing_state.transform.is_identity_or_translation()) {
-        painter->translate(drawing_state.transform.e(), drawing_state.transform.f());
-        painter->draw_scaled_bitmap(destination_rect.to_rounded<int>(), *bitmap, source_rect, 1.0f, Gfx::Painter::ScalingMode::BilinearBlend);
-        painter->translate(-drawing_state.transform.e(), -drawing_state.transform.f());
-    } else {
-        // The context has an affine transform, we have to draw through it!
-
-        // FIXME: This is *super* inefficient.
-        // What we currently do, roughly:
-        // - Map the destination rect through the context's transform.
-        // - Compute the bounding rect of the destination quad.
-        // - For each point in the computed bounding rect, reverse-map it to a point in the source image.
-        //   - Sample the source image at the computed point.
-        //   - Set or blend (depending on alpha values) one pixel in the canvas.
-        //   - Loop.
-
-        // FIXME: Gfx::Painter should have an affine transform as part of its state and handle all of this instead.
-
-        auto inverse_transform = drawing_state.transform.inverse();
-        if (!inverse_transform.has_value())
-            return {};
-
-        auto destination_quad = drawing_state.transform.map_to_quad(destination_rect);
-        auto destination_bounding_rect = destination_quad.bounding_rect().to_rounded<int>();
-
-        Gfx::AffineTransform source_transform;
-        source_transform.translate(source_x, source_y);
-        source_transform.scale(source_width / destination_width, source_height / destination_height);
-        source_transform.translate(-destination_x, -destination_y);
-
-        for (int y = destination_bounding_rect.y(); y <= destination_bounding_rect.bottom(); ++y) {
-            for (int x = destination_bounding_rect.x(); x <= destination_bounding_rect.right(); ++x) {
-                auto destination_point = Gfx::IntPoint { x, y };
-                if (!painter->clip_rect().contains(destination_point))
-                    continue;
-                if (!destination_quad.contains(destination_point.to_type<float>()))
-                    continue;
-                auto source_point = source_transform.map(inverse_transform->map(destination_point)).to_rounded<int>();
-                if (!bitmap->rect().contains(source_point))
-                    continue;
-                auto source_color = bitmap->get_pixel(source_point);
-                if (source_color.alpha() == 0)
-                    continue;
-                if (source_color.alpha() == 255) {
-                    painter->set_pixel(destination_point, source_color);
-                    continue;
-                }
-                auto dst_color = painter->target()->get_pixel(destination_point);
-                painter->set_pixel(destination_point, dst_color.blend(source_color));
-            }
-        }
-    }
+    painter->draw_scaled_bitmap_with_transform(destination_rect.to_rounded<int>(), *bitmap, source_rect, drawing_state().transform, 1.0f, Gfx::Painter::ScalingMode::BilinearBlend);
 
     // 7. If image is not origin-clean, then set the CanvasRenderingContext2D's origin-clean flag to false.
     if (image_is_not_origin_clean(image))
@@ -319,23 +268,23 @@ void CanvasRenderingContext2D::fill(Path2D& path, String const& fill_rule)
 
 JS::GCPtr<ImageData> CanvasRenderingContext2D::create_image_data(int width, int height) const
 {
-    return ImageData::create_with_size(global_object(), width, height);
+    return ImageData::create_with_size(realm(), width, height);
 }
 
 // https://html.spec.whatwg.org/multipage/canvas.html#dom-context-2d-getimagedata
-DOM::ExceptionOr<JS::GCPtr<ImageData>> CanvasRenderingContext2D::get_image_data(int x, int y, int width, int height) const
+WebIDL::ExceptionOr<JS::GCPtr<ImageData>> CanvasRenderingContext2D::get_image_data(int x, int y, int width, int height) const
 {
     // 1. If either the sw or sh arguments are zero, then throw an "IndexSizeError" DOMException.
     if (width == 0 || height == 0)
-        return DOM::IndexSizeError::create(global_object(), "Width and height must not be zero");
+        return WebIDL::IndexSizeError::create(realm(), "Width and height must not be zero");
 
     // 2. If the CanvasRenderingContext2D's origin-clean flag is set to false, then throw a "SecurityError" DOMException.
     if (!m_origin_clean)
-        return DOM::SecurityError::create(global_object(), "CanvasRenderingContext2D is not origin-clean");
+        return WebIDL::SecurityError::create(realm(), "CanvasRenderingContext2D is not origin-clean");
 
     // 3. Let imageData be a new ImageData object.
     // 4. Initialize imageData given sw, sh, settings set to settings, and defaultColorSpace set to this's color space.
-    auto image_data = ImageData::create_with_size(global_object(), width, height);
+    auto image_data = ImageData::create_with_size(realm(), width, height);
 
     // NOTE: We don't attempt to create the underlying bitmap here; if it doesn't exist, it's like copying only transparent black pixels (which is a no-op).
     if (!canvas_element().bitmap())
@@ -404,9 +353,9 @@ JS::NonnullGCPtr<TextMetrics> CanvasRenderingContext2D::measure_text(String cons
     // TextMetrics object with members behaving as described in the following
     // list:
     auto prepared_text = prepare_text(text);
-    auto metrics = TextMetrics::create(global_object());
+    auto metrics = TextMetrics::create(realm());
     // FIXME: Use the font that was used to create the glyphs in prepared_text.
-    auto& font = Gfx::FontDatabase::default_font();
+    auto& font = Platform::FontPlugin::the().default_font();
 
     // width attribute: The width of that inline box, in CSS pixels. (The text's advance width.)
     metrics->set_width(prepared_text.bounding_box.width());
@@ -445,11 +394,9 @@ CanvasRenderingContext2D::PreparedText CanvasRenderingContext2D::prepare_text(St
     }
 
     // 2. Replace all ASCII whitespace in text with U+0020 SPACE characters.
-    // NOTE: This also replaces vertical tabs with space even though WHATWG
-    //       doesn't consider it as whitespace.
     StringBuilder builder { text.length() };
     for (auto c : text) {
-        builder.append(is_ascii_space(c) ? ' ' : c);
+        builder.append(Infra::is_ascii_whitespace(c) ? ' ' : c);
     }
     String replaced_text = builder.build();
 
@@ -477,7 +424,7 @@ CanvasRenderingContext2D::PreparedText CanvasRenderingContext2D::prepare_text(St
     // ...and with all other properties set to their initial values.
     // FIXME: Actually use a LineBox here instead of, you know, using the default font and measuring its size (which is not the spec at all).
     // FIXME: Once we have CanvasTextDrawingStyles, add the CSS attributes.
-    auto& font = Gfx::FontDatabase::default_font();
+    auto& font = Platform::FontPlugin::the().default_font();
     size_t width = 0;
     size_t height = font.pixel_size();
     for (auto c : Utf8View { replaced_text }) {
@@ -523,12 +470,12 @@ void CanvasRenderingContext2D::clip()
 }
 
 // https://html.spec.whatwg.org/multipage/canvas.html#check-the-usability-of-the-image-argument
-DOM::ExceptionOr<CanvasImageSourceUsability> check_usability_of_image(CanvasImageSource const& image)
+WebIDL::ExceptionOr<CanvasImageSourceUsability> check_usability_of_image(CanvasImageSource const& image)
 {
     // 1. Switch on image:
     auto usability = TRY(image.visit(
         // HTMLOrSVGImageElement
-        [](JS::Handle<HTMLImageElement> const& image_element) -> DOM::ExceptionOr<Optional<CanvasImageSourceUsability>> {
+        [](JS::Handle<HTMLImageElement> const& image_element) -> WebIDL::ExceptionOr<Optional<CanvasImageSourceUsability>> {
             // FIXME: If image's current request's state is broken, then throw an "InvalidStateError" DOMException.
 
             // If image is not fully decodable, then return bad.
@@ -546,10 +493,10 @@ DOM::ExceptionOr<CanvasImageSourceUsability> check_usability_of_image(CanvasImag
 
         // HTMLCanvasElement
         // FIXME: OffscreenCanvas
-        [](JS::Handle<HTMLCanvasElement> const& canvas_element) -> DOM::ExceptionOr<Optional<CanvasImageSourceUsability>> {
+        [](JS::Handle<HTMLCanvasElement> const& canvas_element) -> WebIDL::ExceptionOr<Optional<CanvasImageSourceUsability>> {
             // If image has either a horizontal dimension or a vertical dimension equal to zero, then throw an "InvalidStateError" DOMException.
             if (canvas_element->width() == 0 || canvas_element->height() == 0)
-                return DOM::InvalidStateError::create(canvas_element->global_object(), "Canvas width or height is zero");
+                return WebIDL::InvalidStateError::create(canvas_element->realm(), "Canvas width or height is zero");
             return Optional<CanvasImageSourceUsability> {};
         }));
     if (usability.has_value())

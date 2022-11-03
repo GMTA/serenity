@@ -29,8 +29,8 @@
 #include <LibJS/Runtime/NativeFunction.h>
 #include <LibJS/Runtime/ObjectEnvironment.h>
 #include <LibJS/Runtime/PrimitiveString.h>
+#include <LibJS/Runtime/PromiseCapability.h>
 #include <LibJS/Runtime/PromiseConstructor.h>
-#include <LibJS/Runtime/PromiseReaction.h>
 #include <LibJS/Runtime/Reference.h>
 #include <LibJS/Runtime/RegExpObject.h>
 #include <LibJS/Runtime/Shape.h>
@@ -404,21 +404,25 @@ Completion NewExpression::execute(Interpreter& interpreter) const
     return Value { TRY(construct(vm, constructor.as_function(), move(arg_list))) };
 }
 
+Optional<String> CallExpression::expression_string() const
+{
+    if (is<Identifier>(*m_callee))
+        return static_cast<Identifier const&>(*m_callee).string();
+
+    if (is<MemberExpression>(*m_callee))
+        return static_cast<MemberExpression const&>(*m_callee).to_string_approximation();
+
+    return {};
+}
+
 Completion CallExpression::throw_type_error_for_callee(Interpreter& interpreter, Value callee_value, StringView call_type) const
 {
     auto& vm = interpreter.vm();
 
-    if (is<Identifier>(*m_callee) || is<MemberExpression>(*m_callee)) {
-        String expression_string;
-        if (is<Identifier>(*m_callee)) {
-            expression_string = static_cast<Identifier const&>(*m_callee).string();
-        } else {
-            expression_string = static_cast<MemberExpression const&>(*m_callee).to_string_approximation();
-        }
-        return vm.throw_completion<TypeError>(ErrorType::IsNotAEvaluatedFrom, callee_value.to_string_without_side_effects(), call_type, expression_string);
-    } else {
-        return vm.throw_completion<TypeError>(ErrorType::IsNotA, callee_value.to_string_without_side_effects(), call_type);
-    }
+    if (auto expression_string = this->expression_string(); expression_string.has_value())
+        return vm.throw_completion<TypeError>(ErrorType::IsNotAEvaluatedFrom, callee_value.to_string_without_side_effects(), call_type, expression_string.release_value());
+
+    return vm.throw_completion<TypeError>(ErrorType::IsNotA, callee_value.to_string_without_side_effects(), call_type);
 }
 
 // 13.3.6.1 Runtime Semantics: Evaluation, https://tc39.es/ecma262/#sec-function-calls-runtime-semantics-evaluation
@@ -3361,10 +3365,10 @@ Completion ImportCall::execute(Interpreter& interpreter) const
         if (!options_value.is_object()) {
             auto* error = TypeError::create(realm, String::formatted(ErrorType::NotAnObject.message(), "ImportOptions"));
             // i. Perform ! Call(promiseCapability.[[Reject]], undefined, « a newly created TypeError object »).
-            MUST(call(vm, *promise_capability.reject, js_undefined(), error));
+            MUST(call(vm, *promise_capability->reject(), js_undefined(), error));
 
             // ii. Return promiseCapability.[[Promise]].
-            return Value { promise_capability.promise };
+            return Value { promise_capability->promise() };
         }
 
         // b. Let assertionsObj be Get(options, "assert").
@@ -3377,10 +3381,10 @@ Completion ImportCall::execute(Interpreter& interpreter) const
             if (!assertion_object.is_object()) {
                 auto* error = TypeError::create(realm, String::formatted(ErrorType::NotAnObject.message(), "ImportOptionsAssertions"));
                 // 1. Perform ! Call(promiseCapability.[[Reject]], undefined, « a newly created TypeError object »).
-                MUST(call(vm, *promise_capability.reject, js_undefined(), error));
+                MUST(call(vm, *promise_capability->reject(), js_undefined(), error));
 
                 // 2. Return promiseCapability.[[Promise]].
-                return Value { promise_capability.promise };
+                return Value { promise_capability->promise() };
             }
 
             // ii. Let keys be EnumerableOwnPropertyNames(assertionsObj, key).
@@ -3402,10 +3406,10 @@ Completion ImportCall::execute(Interpreter& interpreter) const
                 if (!value.is_string()) {
                     auto* error = TypeError::create(realm, String::formatted(ErrorType::NotAString.message(), "Import Assertion option value"));
                     // a. Perform ! Call(promiseCapability.[[Reject]], undefined, « a newly created TypeError object »).
-                    MUST(call(vm, *promise_capability.reject, js_undefined(), error));
+                    MUST(call(vm, *promise_capability->reject(), js_undefined(), error));
 
                     // b. Return promiseCapability.[[Promise]].
-                    return Value { promise_capability.promise };
+                    return Value { promise_capability->promise() };
                 }
 
                 // 4. If supportedAssertions contains key, then
@@ -3426,7 +3430,7 @@ Completion ImportCall::execute(Interpreter& interpreter) const
     interpreter.vm().host_import_module_dynamically(referencing_script_or_module, move(request), promise_capability);
 
     // 13. Return promiseCapability.[[Promise]].
-    return Value { promise_capability.promise };
+    return Value { promise_capability->promise() };
 }
 
 // 13.2.3.1 Runtime Semantics: Evaluation, https://tc39.es/ecma262/#sec-literals-runtime-semantics-evaluation
@@ -3506,7 +3510,14 @@ Completion RegExpLiteral::execute(Interpreter& interpreter) const
 
     // 3. Return ! RegExpCreate(pattern, flags).
     Regex<ECMA262> regex(parsed_regex(), parsed_pattern(), parsed_flags());
-    return Value { RegExpObject::create(realm, move(regex), move(pattern), move(flags)) };
+    // NOTE: We bypass RegExpCreate and subsequently RegExpAlloc as an optimization to use the already parsed values.
+    auto* regexp_object = RegExpObject::create(realm, move(regex), move(pattern), move(flags));
+    // RegExpAlloc has these two steps from the 'Legacy RegExp features' proposal.
+    regexp_object->set_realm(*vm.current_realm());
+    // We don't need to check 'If SameValue(newTarget, thisRealm.[[Intrinsics]].[[%RegExp%]]) is true'
+    // here as we know RegExpCreate calls RegExpAlloc with %RegExp% for newTarget.
+    regexp_object->set_legacy_features_enabled(true);
+    return Value { regexp_object };
 }
 
 void ArrayExpression::dump(int indent) const

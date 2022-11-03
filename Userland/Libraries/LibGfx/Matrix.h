@@ -36,13 +36,23 @@ public:
     {
     }
 
-    Matrix(Matrix const& other)
+    constexpr Matrix(Matrix const& other)
     {
-        __builtin_memcpy(m_elements, other.elements(), sizeof(T) * N * N);
+        *this = other;
     }
 
-    Matrix& operator=(Matrix const& other)
+    constexpr Matrix& operator=(Matrix const& other)
     {
+#ifndef __clang__
+        if (is_constant_evaluated()) {
+            for (size_t i = 0; i < N; i++) {
+                for (size_t j = 0; j < N; j++) {
+                    m_elements[i][j] = other.elements()[i][j];
+                }
+            }
+            return *this;
+        }
+#endif
         __builtin_memcpy(m_elements, other.elements(), sizeof(T) * N * N);
         return *this;
     }
@@ -50,7 +60,7 @@ public:
     constexpr auto elements() const { return m_elements; }
     constexpr auto elements() { return m_elements; }
 
-    constexpr Matrix operator*(Matrix const& other) const
+    [[nodiscard]] constexpr Matrix operator*(Matrix const& other) const
     {
         Matrix product;
         for (size_t i = 0; i < N; ++i) {
@@ -84,7 +94,17 @@ public:
         return product;
     }
 
-    constexpr Matrix operator/(T divisor) const
+    [[nodiscard]] constexpr Matrix operator+(Matrix const& other) const
+    {
+        Matrix sum;
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = 0; j < N; ++j)
+                sum.m_elements[i][j] = m_elements[i][j] + other.m_elements[i][j];
+        }
+        return sum;
+    }
+
+    [[nodiscard]] constexpr Matrix operator/(T divisor) const
     {
         Matrix division;
         for (size_t i = 0; i < N; ++i) {
@@ -92,6 +112,21 @@ public:
                 division.m_elements[i][j] = m_elements[i][j] / divisor;
         }
         return division;
+    }
+
+    [[nodiscard]] friend constexpr Matrix operator*(Matrix const& matrix, T scalar)
+    {
+        Matrix scaled;
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = 0; j < N; ++j)
+                scaled.m_elements[i][j] = matrix.m_elements[i][j] * scalar;
+        }
+        return scaled;
+    }
+
+    [[nodiscard]] friend constexpr Matrix operator*(T scalar, Matrix const& matrix)
+    {
+        return matrix * scalar;
     }
 
     [[nodiscard]] constexpr Matrix adjugate() const

@@ -10,9 +10,12 @@ compile_ipc(ConfigClient.ipc ConfigClientEndpoint.h)
 set(SOURCES
     ConnectionFromClient.cpp
     main.cpp
+)
+
+set(GENERATED_SOURCES
     ConfigServerEndpoint.h
     ConfigClientEndpoint.h
 )
 
 serenity_bin(ConfigServer)
-target_link_libraries(ConfigServer LibIPC LibMain)
+target_link_libraries(ConfigServer PRIVATE LibCore LibIPC LibMain)

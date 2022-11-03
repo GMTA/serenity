@@ -13,8 +13,11 @@ set(SOURCES
     Player.cpp
     ScoreCard.cpp
     SettingsDialog.cpp
+)
+
+set(GENERATED_SOURCES
     HeartsGML.h
 )
 
 serenity_app(Hearts ICON app-hearts)
-target_link_libraries(Hearts LibCards LibGUI LibGfx LibCore LibConfig LibMain LibDesktop)
+target_link_libraries(Hearts PRIVATE LibCards LibGUI LibGfx LibCore LibConfig LibMain LibDesktop)

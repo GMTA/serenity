@@ -5,6 +5,8 @@
  */
 
 #include <AK/TypeCasts.h>
+#include <LibWeb/Bindings/CSSRuleListPrototype.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/CSS/CSSImportRule.h>
 #include <LibWeb/CSS/CSSMediaRule.h>
 #include <LibWeb/CSS/CSSRule.h>
@@ -15,22 +17,22 @@
 
 namespace Web::CSS {
 
-CSSRuleList* CSSRuleList::create(HTML::Window& window_object, JS::MarkedVector<CSSRule*> const& rules)
+CSSRuleList* CSSRuleList::create(JS::Realm& realm, JS::MarkedVector<CSSRule*> const& rules)
 {
-    auto* rule_list = window_object.heap().allocate<CSSRuleList>(window_object.realm(), window_object);
+    auto* rule_list = realm.heap().allocate<CSSRuleList>(realm, realm);
     for (auto* rule : rules)
         rule_list->m_rules.append(*rule);
     return rule_list;
 }
 
-CSSRuleList::CSSRuleList(HTML::Window& window_object)
-    : Bindings::LegacyPlatformObject(window_object.cached_web_prototype("CSSRuleList"))
+CSSRuleList::CSSRuleList(JS::Realm& realm)
+    : Bindings::LegacyPlatformObject(Bindings::ensure_web_prototype<Bindings::CSSRuleListPrototype>(realm, "CSSRuleList"))
 {
 }
 
-CSSRuleList* CSSRuleList::create_empty(HTML::Window& window_object)
+CSSRuleList* CSSRuleList::create_empty(JS::Realm& realm)
 {
-    return window_object.heap().allocate<CSSRuleList>(window_object.realm(), window_object);
+    return realm.heap().allocate<CSSRuleList>(realm, realm);
 }
 
 void CSSRuleList::visit_edges(Cell::Visitor& visitor)
@@ -48,14 +50,14 @@ bool CSSRuleList::is_supported_property_index(u32 index) const
 }
 
 // https://www.w3.org/TR/cssom/#insert-a-css-rule
-DOM::ExceptionOr<unsigned> CSSRuleList::insert_a_css_rule(Variant<StringView, CSSRule*> rule, u32 index)
+WebIDL::ExceptionOr<unsigned> CSSRuleList::insert_a_css_rule(Variant<StringView, CSSRule*> rule, u32 index)
 {
     // 1. Set length to the number of items in list.
     auto length = m_rules.size();
 
     // 2. If index is greater than length, then throw an IndexSizeError exception.
     if (index > length)
-        return DOM::IndexSizeError::create(global_object(), "CSS rule index out of bounds.");
+        return WebIDL::IndexSizeError::create(realm(), "CSS rule index out of bounds.");
 
     // 3. Set new rule to the results of performing parse a CSS rule on argument rule.
     // NOTE: The insert-a-css-rule spec expects `rule` to be a string, but the CSSStyleSheet.insertRule()
@@ -64,7 +66,7 @@ DOM::ExceptionOr<unsigned> CSSRuleList::insert_a_css_rule(Variant<StringView, CS
     CSSRule* new_rule = nullptr;
     if (rule.has<StringView>()) {
         new_rule = parse_css_rule(
-            CSS::Parser::ParsingContext { static_cast<HTML::Window&>(global_object()) },
+            CSS::Parser::ParsingContext { realm() },
             rule.get<StringView>());
     } else {
         new_rule = rule.get<CSSRule*>();
@@ -72,7 +74,7 @@ DOM::ExceptionOr<unsigned> CSSRuleList::insert_a_css_rule(Variant<StringView, CS
 
     // 4. If new rule is a syntax error, throw a SyntaxError exception.
     if (!new_rule)
-        return DOM::SyntaxError::create(global_object(), "Unable to parse CSS rule.");
+        return WebIDL::SyntaxError::create(realm(), "Unable to parse CSS rule.");
 
     // FIXME: 5. If new rule cannot be inserted into list at the zero-index position index due to constraints specified by CSS, then throw a HierarchyRequestError exception. [CSS21]
 
@@ -86,14 +88,14 @@ DOM::ExceptionOr<unsigned> CSSRuleList::insert_a_css_rule(Variant<StringView, CS
 }
 
 // https://www.w3.org/TR/cssom/#remove-a-css-rule
-DOM::ExceptionOr<void> CSSRuleList::remove_a_css_rule(u32 index)
+WebIDL::ExceptionOr<void> CSSRuleList::remove_a_css_rule(u32 index)
 {
     // 1. Set length to the number of items in list.
     auto length = m_rules.size();
 
     // 2. If index is greater than or equal to length, then throw an IndexSizeError exception.
     if (index >= length)
-        return DOM::IndexSizeError::create(global_object(), "CSS rule index out of bounds.");
+        return WebIDL::IndexSizeError::create(realm(), "CSS rule index out of bounds.");
 
     // 3. Set old rule to the indexth item in list.
     CSSRule& old_rule = m_rules[index];

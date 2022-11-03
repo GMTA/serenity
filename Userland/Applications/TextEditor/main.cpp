@@ -31,10 +31,11 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     parser.add_positional_argument(file_to_edit, "File to edit, with optional starting line and column number", "file[:line[:column]]", Core::ArgsParser::Required::No);
     parser.parse(arguments);
 
+    TRY(Core::System::unveil("/sys/kernel/processes", "r"));
     TRY(Core::System::unveil("/res", "r"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/launch", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/webcontent", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/filesystemaccess", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/launch", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/webcontent", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/filesystemaccess", "rw"));
     TRY(Core::System::unveil(nullptr, nullptr));
 
     auto app_icon = GUI::Icon::default_icon("app-text-editor"sv);
@@ -66,6 +67,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     }
 
     text_widget->initialize_menubar(*window);
+    text_widget->update_title();
 
     window->show();
     window->set_icon(app_icon.bitmap_for_size(16));
@@ -84,8 +86,9 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
                 return 1;
             text_widget->editor().set_cursor_and_focus_line(parsed_argument.line().value_or(1) - 1, parsed_argument.column().value_or(0));
         }
+
+        text_widget->update_title();
     }
-    text_widget->update_title();
     text_widget->update_statusbar();
 
     return app->exec();

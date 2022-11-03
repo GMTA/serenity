@@ -20,8 +20,6 @@ set(SOURCES
     CellType/String.cpp
     CellType/Type.cpp
     CellTypeDialog.cpp
-    CondFormattingGML.h
-    CondFormattingViewGML.h
     ExportDialog.cpp
     HelpWindow.cpp
     ImportDialog.cpp
@@ -38,11 +36,13 @@ set(SOURCES
 set(GENERATED_SOURCES
     CSVExportGML.h
     CSVImportGML.h
+    CondFormattingGML.h
+    CondFormattingViewGML.h
     FormatSelectionPageGML.h
 )
 
 serenity_app(Spreadsheet ICON app-spreadsheet)
-target_link_libraries(Spreadsheet LibFileSystemAccessClient LibGUI LibJS LibMain LibWebView LibWeb)
+target_link_libraries(Spreadsheet PRIVATE LibCore LibFileSystemAccessClient LibGfx LibGUI LibJS LibMain LibMarkdown LibSyntax LibWebView LibWeb)
 
 serenity_test(Writers/Test/TestXSVWriter.cpp Spreadsheet)
 

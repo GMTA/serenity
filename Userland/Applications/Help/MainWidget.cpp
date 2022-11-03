@@ -92,7 +92,7 @@ MainWidget::MainWidget()
 
     m_web_view = find_descendant_of_type_named<WebView::OutOfProcessWebView>("web_view");
     m_web_view->on_link_click = [this](auto& url, auto&, unsigned) {
-        if (url.protocol() == "file") {
+        if (url.scheme() == "file") {
             auto path = url.path();
             if (!path.starts_with("/usr/share/man/"sv)) {
                 open_external(url);
@@ -106,7 +106,7 @@ MainWidget::MainWidget()
             }
             m_history.push(path);
             open_page(path);
-        } else if (url.protocol() == "help") {
+        } else if (url.scheme() == "help") {
             if (url.host() == "man") {
                 if (url.paths().size() != 2) {
                     dbgln("Bad help page URL '{}'", url);
@@ -244,6 +244,7 @@ ErrorOr<void> MainWidget::initialize_fallibles(GUI::Window& window)
     TRY(go_menu->try_add_action(*m_go_home_action));
 
     auto help_menu = TRY(window.try_add_menu("&Help"));
+    TRY(help_menu->try_add_action(GUI::CommonActions::make_command_palette_action(&window)));
     TRY(help_menu->try_add_action(GUI::Action::create("&Contents", { Key_F1 }, TRY(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-unknown.png"sv)), [&](auto&) {
         String path = "/usr/share/man/man1/Help.md";
         open_page(path);
@@ -272,7 +273,7 @@ void MainWidget::open_url(URL const& url)
     m_go_back_action->set_enabled(m_history.can_go_back());
     m_go_forward_action->set_enabled(m_history.can_go_forward());
 
-    if (url.protocol() == "file") {
+    if (url.scheme() == "file") {
         m_web_view->load(url);
         m_web_view->scroll_to_top();
 

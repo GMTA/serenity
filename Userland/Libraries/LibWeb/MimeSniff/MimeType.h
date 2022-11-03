@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2022, Luke Wilde <lukew@serenityos.org>
+ * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -10,6 +11,8 @@
 #include <AK/String.h>
 
 namespace Web::MimeSniff {
+
+bool is_javascript_mime_type_essence_match(String const&);
 
 // https://mimesniff.spec.whatwg.org/#mime-type
 class MimeType {
@@ -23,9 +26,12 @@ public:
     String const& subtype() const { return m_subtype; }
     OrderedHashMap<String, String> const& parameters() const { return m_parameters; }
 
+    bool is_javascript() const;
+
     void set_parameter(String const& name, String const& value);
 
     String essence() const;
+    String serialized() const;
 
 private:
     // https://mimesniff.spec.whatwg.org/#type

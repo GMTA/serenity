@@ -121,6 +121,11 @@ if [ "$installed_major_version" -lt "$SERENITY_QEMU_MIN_REQ_MAJOR_VERSION" ] ||
     die
 fi
 
+# https://github.com/SerenityOS/serenity/issues/14952
+if [ "$installed_major_version" -ge 7 ] && [ "$installed_minor_version" -gt 0  ]; then
+    SERENITY_MACHINE_FORCE_VERSION_SEVEN_ZERO="-machine pc-i440fx-7.0"
+fi
+
 NATIVE_WINDOWS_QEMU="0"
 
 if command -v wslpath >/dev/null; then
@@ -191,6 +196,8 @@ elif ! command -v wslpath >/dev/null && ("${SERENITY_QEMU_BIN}" --display help |
 elif "${SERENITY_QEMU_BIN}" --display help | grep -iq cocoa; then
     # QEMU for OSX seems to only support cocoa
     SERENITY_QEMU_DISPLAY_BACKEND="${SERENITY_QEMU_DISPLAY_BACKEND:-cocoa,gl=off}"
+elif [ "$(uname -s)" = "SerenityOS" ]; then
+    SERENITY_QEMU_DISPLAY_BACKEND="${SERENITY_QEMU_DISPLAY_BACKEND:-sdl,gl=off}"
 else
     SERENITY_QEMU_DISPLAY_BACKEND="${SERENITY_QEMU_DISPLAY_BACKEND:-gtk,gl=off}"
 fi
@@ -256,6 +263,7 @@ if [ -z "$SERENITY_MACHINE" ]; then
         SERENITY_MACHINE="-M raspi3b -serial stdio"
     else
         SERENITY_MACHINE="
+        $SERENITY_MACHINE_FORCE_VERSION_SEVEN_ZERO
         -m $SERENITY_RAM_SIZE
         -smp $SERENITY_CPUS
         -display $SERENITY_QEMU_DISPLAY_BACKEND
@@ -323,6 +331,7 @@ $SERENITY_EXTRA_QEMU_ARGS
 -cpu pentium3
 -machine isapc
 -d guest_errors
+-device isa-vga
 -chardev stdio,id=stdout,mux=on
 -device isa-debugcon,chardev=stdout
 $SERENITY_BOOT_DRIVE
@@ -336,7 +345,7 @@ $SERENITY_EXTRA_QEMU_ARGS
 -d guest_errors
 -chardev stdio,id=stdout,mux=on
 -device isa-debugcon,chardev=stdout
--device isa-cirrus-vga
+-device isa-vga
 -device isa-ide
 $SERENITY_BOOT_DRIVE
 -device i8042 

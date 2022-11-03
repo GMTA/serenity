@@ -24,12 +24,10 @@ class StaticRange final : public AbstractRange {
     WEB_PLATFORM_OBJECT(StaticRange, JS::Object);
 
 public:
-    static ExceptionOr<StaticRange*> create_with_global_object(HTML::Window&, StaticRangeInit& init);
+    static WebIDL::ExceptionOr<StaticRange*> construct_impl(JS::Realm&, StaticRangeInit& init);
 
     StaticRange(Node& start_container, u32 start_offset, Node& end_container, u32 end_offset);
     virtual ~StaticRange() override;
 };
 
 }
-
-WRAPPER_HACK(StaticRange, Web::DOM)

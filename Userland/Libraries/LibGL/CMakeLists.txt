@@ -1,4 +1,5 @@
 set(SOURCES
+    Buffer.cpp
     ClipPlane.cpp
     ContextParameter.cpp
     GLAPI.cpp
@@ -15,4 +16,4 @@ set(SOURCES
 )
 
 serenity_lib(LibGL gl)
-target_link_libraries(LibGL LibM LibCore LibGfx LibGPU)
+target_link_libraries(LibGL PRIVATE LibCore LibGfx LibGPU)

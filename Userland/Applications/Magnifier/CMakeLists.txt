@@ -6,9 +6,8 @@ serenity_component(
 
 set(SOURCES
     MagnifierWidget.cpp
-    MagnifierWidget.h
     main.cpp
 )
 
 serenity_app(Magnifier ICON app-magnifier)
-target_link_libraries(Magnifier LibGfx LibGUI LibMain)
+target_link_libraries(Magnifier PRIVATE LibCore LibGfx LibGUI LibIPC LibMain LibFileSystemAccessClient)

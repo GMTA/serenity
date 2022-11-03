@@ -11,9 +11,9 @@
 #include <LibCore/Object.h>
 #include <LibWeb/Bindings/PlatformObject.h>
 #include <LibWeb/DOM/EventTarget.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 #define ENUMERATE_WEBSOCKET_EVENT_HANDLERS(E) \
     E(onerror, HTML::EventNames::error)       \
@@ -37,16 +37,16 @@ public:
         Closed = 3,
     };
 
-    static DOM::ExceptionOr<JS::NonnullGCPtr<WebSocket>> create_with_global_object(HTML::Window&, String const& url);
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<WebSocket>> construct_impl(JS::Realm&, String const& url);
 
     virtual ~WebSocket() override;
 
     String url() const { return m_url.to_string(); }
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)         \
-    void set_##attribute_name(Bindings::CallbackType*); \
-    Bindings::CallbackType* attribute_name();
+#define __ENUMERATE(attribute_name, event_name)       \
+    void set_##attribute_name(WebIDL::CallbackType*); \
+    WebIDL::CallbackType* attribute_name();
     ENUMERATE_WEBSOCKET_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE
 
@@ -57,8 +57,8 @@ public:
     String const& binary_type() { return m_binary_type; };
     void set_binary_type(String const& type) { m_binary_type = type; };
 
-    DOM::ExceptionOr<void> close(Optional<u16> code, Optional<String> reason);
-    DOM::ExceptionOr<void> send(String const& data);
+    WebIDL::ExceptionOr<void> close(Optional<u16> code, Optional<String> reason);
+    WebIDL::ExceptionOr<void> send(String const& data);
 
 private:
     void on_open();
@@ -66,7 +66,7 @@ private:
     void on_error();
     void on_close(u16 code, String reason, bool was_clean);
 
-    explicit WebSocket(HTML::Window&, AK::URL&);
+    WebSocket(HTML::Window&, AK::URL&);
 
     virtual void visit_edges(Cell::Visitor&) override;
 
@@ -126,5 +126,3 @@ protected:
 };
 
 }
-
-WRAPPER_HACK(WebSocket, Web::WebSockets)

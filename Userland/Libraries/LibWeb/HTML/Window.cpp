@@ -12,17 +12,15 @@
 #include <LibJS/Runtime/Completion.h>
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/FunctionObject.h>
+#include <LibJS/Runtime/GlobalEnvironment.h>
 #include <LibJS/Runtime/Shape.h>
 #include <LibTextCodec/Decoder.h>
 #include <LibWeb/Bindings/CSSNamespace.h>
-#include <LibWeb/Bindings/EventTargetConstructor.h>
-#include <LibWeb/Bindings/EventTargetPrototype.h>
 #include <LibWeb/Bindings/ExceptionOrUtils.h>
-#include <LibWeb/Bindings/IDLAbstractOperations.h>
+#include <LibWeb/Bindings/FetchMethod.h>
 #include <LibWeb/Bindings/LocationObject.h>
-#include <LibWeb/Bindings/NavigatorObject.h>
 #include <LibWeb/Bindings/Replaceable.h>
-#include <LibWeb/Bindings/WindowObjectHelper.h>
+#include <LibWeb/Bindings/WindowExposedInterfaces.h>
 #include <LibWeb/Bindings/WindowPrototype.h>
 #include <LibWeb/CSS/MediaQueryList.h>
 #include <LibWeb/CSS/Parser/Parser.h>
@@ -36,6 +34,7 @@
 #include <LibWeb/HTML/EventHandler.h>
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/MessageEvent.h>
+#include <LibWeb/HTML/Navigator.h>
 #include <LibWeb/HTML/Origin.h>
 #include <LibWeb/HTML/PageTransitionEvent.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
@@ -44,12 +43,15 @@
 #include <LibWeb/HTML/Storage.h>
 #include <LibWeb/HTML/Timer.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/HTML/WindowProxy.h>
 #include <LibWeb/HighResolutionTime/Performance.h>
+#include <LibWeb/HighResolutionTime/TimeOrigin.h>
 #include <LibWeb/Layout/InitialContainingBlock.h>
 #include <LibWeb/Page/Page.h>
 #include <LibWeb/RequestIdleCallback/IdleDeadline.h>
 #include <LibWeb/Selection/Selection.h>
 #include <LibWeb/WebAssembly/WebAssemblyObject.h>
+#include <LibWeb/WebIDL/AbstractOperations.h>
 
 namespace Web::HTML {
 
@@ -96,25 +98,12 @@ void Window::visit_edges(JS::Cell::Visitor& visitor)
     visitor.visit(m_screen.ptr());
     visitor.visit(m_location_object);
     visitor.visit(m_crypto);
-    for (auto& it : m_prototypes)
-        visitor.visit(it.value);
-    for (auto& it : m_constructors)
-        visitor.visit(it.value);
+    visitor.visit(m_navigator);
     for (auto& it : m_timers)
         visitor.visit(it.value.ptr());
 }
 
 Window::~Window() = default;
-
-JS::Object& Window::cached_web_prototype(String const& class_name)
-{
-    auto it = m_prototypes.find(class_name);
-    if (it == m_prototypes.end()) {
-        dbgln("Missing prototype: {}", class_name);
-    }
-    VERIFY(it != m_prototypes.end());
-    return *it->value;
-}
 
 HighResolutionTime::Performance& Window::performance()
 {
@@ -202,20 +191,16 @@ i32 Window::run_timer_initialization_steps(TimerHandler handler, i32 timeout, JS
     // 8. Assert: initiating script is not null, since this algorithm is always called from some script.
 
     // 9. Let task be a task that runs the following substeps:
-    auto task = [weak_window = make_weak_ptr<Window>(), handler = move(handler), timeout, arguments = move(arguments), repeat, id]() mutable {
-        JS::GCPtr<Window> window = weak_window.ptr();
-        if (!window)
-            return;
-
+    JS::SafeFunction<void()> task = [this, handler = move(handler), timeout, arguments = move(arguments), repeat, id]() mutable {
         // 1. If id does not exist in global's map of active timers, then abort these steps.
-        if (!window->m_timers.contains(id))
+        if (!m_timers.contains(id))
             return;
 
         handler.visit(
             // 2. If handler is a Function, then invoke handler given arguments with the callback this value set to thisArg. If this throws an exception, catch it, and report the exception.
-            [&](JS::Handle<Bindings::CallbackType> callback) {
-                if (auto result = Bindings::IDL::invoke_callback(*callback, window.ptr(), arguments); result.is_error())
-                    HTML::report_exception(result);
+            [&](JS::Handle<WebIDL::CallbackType> callback) {
+                if (auto result = WebIDL::invoke_callback(*callback, this, arguments); result.is_error())
+                    HTML::report_exception(result, realm());
             },
             // 3. Otherwise:
             [&](String const& source) {
@@ -223,10 +208,10 @@ i32 Window::run_timer_initialization_steps(TimerHandler handler, i32 timeout, JS
                 // FIXME: 2. Perform HostEnsureCanCompileStrings(callerRealm, calleeRealm). If this throws an exception, catch it, report the exception, and abort these steps.
 
                 // 3. Let settings object be global's relevant settings object.
-                auto& settings_object = window->associated_document().relevant_settings_object();
+                auto& settings_object = associated_document().relevant_settings_object();
 
                 // 4. Let base URL be initiating script's base URL.
-                auto url = window->associated_document().url();
+                auto url = associated_document().url();
 
                 // 5. Assert: base URL is not null, as initiating script is a classic script or a JavaScript module script.
 
@@ -239,18 +224,18 @@ i32 Window::run_timer_initialization_steps(TimerHandler handler, i32 timeout, JS
             });
 
         // 4. If id does not exist in global's map of active timers, then abort these steps.
-        if (!window->m_timers.contains(id))
+        if (!m_timers.contains(id))
             return;
 
         switch (repeat) {
         // 5. If repeat is true, then perform the timer initialization steps again, given global, handler, timeout, arguments, true, and id.
         case Repeat::Yes:
-            window->run_timer_initialization_steps(handler, timeout, move(arguments), repeat, id);
+            run_timer_initialization_steps(handler, timeout, move(arguments), repeat, id);
             break;
 
         // 6. Otherwise, remove global's map of active timers[id].
         case Repeat::No:
-            window->m_timers.remove(id);
+            m_timers.remove(id);
             break;
         }
     };
@@ -259,12 +244,8 @@ i32 Window::run_timer_initialization_steps(TimerHandler handler, i32 timeout, JS
     // FIXME: 11. Set task's timer nesting level to nesting level.
 
     // 12. Let completionStep be an algorithm step which queues a global task on the timer task source given global to run task.
-    auto completion_step = [weak_window = make_weak_ptr<Window>(), task = move(task)]() mutable {
-        JS::GCPtr<Window> window = weak_window.ptr();
-        if (!window)
-            return;
-
-        HTML::queue_global_task(HTML::Task::Source::TimerTask, *window, move(task));
+    JS::SafeFunction<void()> completion_step = [this, task = move(task)]() mutable {
+        HTML::queue_global_task(HTML::Task::Source::TimerTask, *this, move(task));
     };
 
     // 13. Run steps after a timeout given global, "setTimeout/setInterval", timeout, completionStep, and id.
@@ -277,15 +258,15 @@ i32 Window::run_timer_initialization_steps(TimerHandler handler, i32 timeout, JS
 }
 
 // https://html.spec.whatwg.org/multipage/imagebitmap-and-animations.html#run-the-animation-frame-callbacks
-i32 Window::request_animation_frame_impl(Bindings::CallbackType& js_callback)
+i32 Window::request_animation_frame_impl(WebIDL::CallbackType& js_callback)
 {
     return m_animation_frame_callback_driver.add([this, js_callback = JS::make_handle(js_callback)](auto) mutable {
         // 3. Invoke callback, passing now as the only argument,
-        auto result = Bindings::IDL::invoke_callback(*js_callback, {}, JS::Value(performance().now()));
+        auto result = WebIDL::invoke_callback(*js_callback, {}, JS::Value(performance().now()));
 
         // and if an exception is thrown, report the exception.
         if (result.is_error())
-            HTML::report_exception(result);
+            HTML::report_exception(result, realm());
     });
 }
 
@@ -493,7 +474,7 @@ void Window::fire_a_page_transition_event(FlyString const& event_name, bool pers
     // with the persisted attribute initialized to persisted,
     HTML::PageTransitionEventInit event_init {};
     event_init.persisted = persisted;
-    auto event = HTML::PageTransitionEvent::create(associated_document().window(), event_name, event_init);
+    auto event = HTML::PageTransitionEvent::create(associated_document().realm(), event_name, event_init);
 
     // ...the cancelable attribute initialized to true,
     event->set_cancelable(true);
@@ -506,14 +487,14 @@ void Window::fire_a_page_transition_event(FlyString const& event_name, bool pers
 }
 
 // https://html.spec.whatwg.org/#dom-queuemicrotask
-void Window::queue_microtask_impl(Bindings::CallbackType& callback)
+void Window::queue_microtask_impl(WebIDL::CallbackType& callback)
 {
     // The queueMicrotask(callback) method must queue a microtask to invoke callback,
-    HTML::queue_a_microtask(&associated_document(), [callback = JS::make_handle(callback)]() mutable {
-        auto result = Bindings::IDL::invoke_callback(*callback, {});
+    HTML::queue_a_microtask(&associated_document(), [this, &callback]() mutable {
+        auto result = WebIDL::invoke_callback(callback, {});
         // and if callback throws an exception, report the exception.
         if (result.is_error())
-            HTML::report_exception(result);
+            HTML::report_exception(result, realm());
     });
 }
 
@@ -528,6 +509,8 @@ int Window::screen_x() const
 {
     // The screenX and screenLeft attributes must return the x-coordinate, relative to the origin of the Web-exposed screen area,
     // of the left of the client window as number of CSS pixels, or zero if there is no such thing.
+    if (auto* page = this->page())
+        return page->window_position().x();
     return 0;
 }
 
@@ -536,14 +519,27 @@ int Window::screen_y() const
 {
     // The screenY and screenTop attributes must return the y-coordinate, relative to the origin of the screen of the Web-exposed screen area,
     // of the top of the client window as number of CSS pixels, or zero if there is no such thing.
+    if (auto* page = this->page())
+        return page->window_position().y();
     return 0;
 }
 
-// https://w3c.github.io/selection-api/#dom-window-getselection
-Selection::Selection* Window::get_selection_impl()
+// https://drafts.csswg.org/cssom-view/#dom-window-outerwidth
+int Window::outer_width() const
 {
-    // FIXME: Implement.
-    return nullptr;
+    // The outerWidth attribute must return the width of the client window. If there is no client window this attribute must return zero.
+    if (auto* page = this->page())
+        return page->window_size().width();
+    return 0;
+}
+
+// https://drafts.csswg.org/cssom-view/#dom-window-screeny
+int Window::outer_height() const
+{
+    // The outerHeight attribute must return the height of the client window. If there is no client window this attribute must return zero.
+    if (auto* page = this->page())
+        return page->window_size().height();
+    return 0;
 }
 
 // https://html.spec.whatwg.org/multipage/webstorage.html#dom-localstorage
@@ -553,7 +549,7 @@ JS::NonnullGCPtr<HTML::Storage> Window::local_storage()
 
     static HashMap<Origin, JS::Handle<HTML::Storage>> local_storage_per_origin;
     auto storage = local_storage_per_origin.ensure(associated_document().origin(), [this]() -> JS::Handle<HTML::Storage> {
-        return *HTML::Storage::create(*this);
+        return *HTML::Storage::create(realm());
     });
     return *storage;
 }
@@ -565,16 +561,16 @@ JS::NonnullGCPtr<HTML::Storage> Window::session_storage()
 
     static HashMap<Origin, JS::Handle<HTML::Storage>> session_storage_per_origin;
     auto storage = session_storage_per_origin.ensure(associated_document().origin(), [this]() -> JS::Handle<HTML::Storage> {
-        return *HTML::Storage::create(*this);
+        return *HTML::Storage::create(realm());
     });
     return *storage;
 }
 
 // https://html.spec.whatwg.org/multipage/browsers.html#dom-parent
-Window* Window::parent()
+WindowProxy* Window::parent()
 {
     // 1. Let current be this Window object's browsing context.
-    auto* current = associated_document().browsing_context();
+    auto* current = browsing_context();
 
     // 2. If current is null, then return null.
     if (!current)
@@ -583,28 +579,26 @@ Window* Window::parent()
     // 3. If current is a child browsing context of another browsing context parent,
     //    then return parent's WindowProxy object.
     if (current->parent()) {
-        VERIFY(current->parent()->active_document());
-        return &current->parent()->active_document()->window();
+        return current->parent()->window_proxy();
     }
 
     // 4. Assert: current is a top-level browsing context.
     VERIFY(current->is_top_level());
 
-    // FIXME: 5. Return current's WindowProxy object.
-    VERIFY(current->active_document());
-    return &current->active_document()->window();
+    // 5. Return current's WindowProxy object.
+    return current->window_proxy();
 }
 
 // https://html.spec.whatwg.org/multipage/web-messaging.html#window-post-message-steps
-DOM::ExceptionOr<void> Window::post_message_impl(JS::Value message, String const&)
+WebIDL::ExceptionOr<void> Window::post_message_impl(JS::Value message, String const&)
 {
     // FIXME: This is an ad-hoc hack implementation instead, since we don't currently
     //        have serialization and deserialization of messages.
-    HTML::queue_global_task(HTML::Task::Source::PostedMessage, *this, [strong_this = JS::make_handle(*this), message]() mutable {
+    HTML::queue_global_task(HTML::Task::Source::PostedMessage, *this, [this, message]() mutable {
         HTML::MessageEventInit event_init {};
         event_init.data = message;
         event_init.origin = "<origin>";
-        strong_this->dispatch_event(*HTML::MessageEvent::create(*strong_this, HTML::EventNames::message, event_init));
+        dispatch_event(*HTML::MessageEvent::create(realm(), HTML::EventNames::message, event_init));
     });
     return {};
 }
@@ -629,6 +623,13 @@ void Window::set_name(String const& name)
     browsing_context()->set_name(name);
 }
 
+// https://html.spec.whatwg.org/multipage/interaction.html#transient-activation
+bool Window::has_transient_activation() const
+{
+    // FIXME: Implement this.
+    return false;
+}
+
 // https://w3c.github.io/requestidlecallback/#start-an-idle-period-algorithm
 void Window::start_an_idle_period()
 {
@@ -648,8 +649,8 @@ void Window::start_an_idle_period()
 
     // 5. Queue a task on the queue associated with the idle-task task source,
     //    which performs the steps defined in the invoke idle callbacks algorithm with window and getDeadline as parameters.
-    HTML::queue_global_task(HTML::Task::Source::IdleTask, *this, [window = JS::make_handle(*this)]() mutable {
-        window->invoke_idle_callbacks();
+    HTML::queue_global_task(HTML::Task::Source::IdleTask, *this, [this]() mutable {
+        invoke_idle_callbacks();
     });
 }
 
@@ -659,27 +660,27 @@ void Window::invoke_idle_callbacks()
     auto& event_loop = main_thread_event_loop();
     // 1. If the user-agent believes it should end the idle period early due to newly scheduled high-priority work, return from the algorithm.
     // 2. Let now be the current time.
-    auto now = event_loop.unsafe_shared_current_time();
+    auto now = HighResolutionTime::unsafe_shared_current_time();
     // 3. If now is less than the result of calling getDeadline and the window's list of runnable idle callbacks is not empty:
     if (now < event_loop.compute_deadline() && !m_runnable_idle_callbacks.is_empty()) {
         // 1. Pop the top callback from window's list of runnable idle callbacks.
         auto callback = m_runnable_idle_callbacks.take_first();
         // 2. Let deadlineArg be a new IdleDeadline whose [get deadline time algorithm] is getDeadline.
-        auto deadline_arg = RequestIdleCallback::IdleDeadline::create(*this);
+        auto deadline_arg = RequestIdleCallback::IdleDeadline::create(realm());
         // 3. Call callback with deadlineArg as its argument. If an uncaught runtime script error occurs, then report the exception.
         auto result = callback->invoke(deadline_arg);
         if (result.is_error())
-            HTML::report_exception(result);
+            HTML::report_exception(result, realm());
         // 4. If window's list of runnable idle callbacks is not empty, queue a task which performs the steps
         //    in the invoke idle callbacks algorithm with getDeadline and window as a parameters and return from this algorithm
-        HTML::queue_global_task(HTML::Task::Source::IdleTask, *this, [window = JS::make_handle(*this)]() mutable {
-            window->invoke_idle_callbacks();
+        HTML::queue_global_task(HTML::Task::Source::IdleTask, *this, [this]() mutable {
+            invoke_idle_callbacks();
         });
     }
 }
 
 // https://w3c.github.io/requestidlecallback/#the-requestidlecallback-method
-u32 Window::request_idle_callback_impl(Bindings::CallbackType& callback)
+u32 Window::request_idle_callback_impl(WebIDL::CallbackType& callback)
 {
     // 1. Let window be this Window object.
     auto& window = *this;
@@ -689,7 +690,7 @@ u32 Window::request_idle_callback_impl(Bindings::CallbackType& callback)
     auto handle = window.m_idle_callback_identifier;
     // 4. Push callback to the end of window's list of idle request callbacks, associated with handle.
     auto handler = [callback = JS::make_handle(callback)](JS::NonnullGCPtr<RequestIdleCallback::IdleDeadline> deadline) -> JS::Completion {
-        return Bindings::IDL::invoke_callback(const_cast<Bindings::CallbackType&>(*callback), {}, deadline.ptr());
+        return WebIDL::invoke_callback(const_cast<WebIDL::CallbackType&>(*callback), {}, deadline.ptr());
     };
     window.m_idle_request_callbacks.append(adopt_ref(*new IdleCallback(move(handler), handle)));
     // 5. Return handle and then continue running this algorithm asynchronously.
@@ -737,26 +738,23 @@ HTML::BrowsingContext* Window::browsing_context()
     return m_associated_document->browsing_context();
 }
 
-void Window::initialize(JS::Realm& realm)
+void Window::initialize_web_interfaces(Badge<WindowEnvironmentSettingsObject>)
 {
-    Base::initialize(realm);
+    auto& realm = this->realm();
+    add_window_exposed_interfaces(*this, realm);
 
-    // FIXME: This is a hack..
-    realm.set_global_object(this, this);
+    Object::set_prototype(&Bindings::ensure_web_prototype<Bindings::WindowPrototype>(realm, "Window"));
 
-    ADD_WINDOW_OBJECT_INTERFACES;
-
-    Object::set_prototype(&ensure_web_prototype<Bindings::WindowPrototype>("Window"));
-
-    m_crypto = Crypto::Crypto::create(*this);
+    m_crypto = Crypto::Crypto::create(realm);
 
     // FIXME: These should be native accessors, not properties
-    define_direct_property("window", this, JS::Attribute::Enumerable);
-    define_direct_property("frames", this, JS::Attribute::Enumerable);
-    define_direct_property("self", this, JS::Attribute::Enumerable);
     define_native_accessor(realm, "top", top_getter, nullptr, JS::Attribute::Enumerable);
+    define_native_accessor(realm, "window", window_getter, {}, JS::Attribute::Enumerable);
+    define_native_accessor(realm, "frames", frames_getter, {}, JS::Attribute::Enumerable);
+    define_native_accessor(realm, "self", self_getter, {}, JS::Attribute::Enumerable);
     define_native_accessor(realm, "parent", parent_getter, {}, JS::Attribute::Enumerable);
     define_native_accessor(realm, "document", document_getter, {}, JS::Attribute::Enumerable);
+    define_native_accessor(realm, "frameElement", frame_element_getter, {}, JS::Attribute::Enumerable);
     define_native_accessor(realm, "name", name_getter, name_setter, JS::Attribute::Enumerable);
     define_native_accessor(realm, "history", history_getter, {}, JS::Attribute::Enumerable);
     define_native_accessor(realm, "performance", performance_getter, performance_setter, JS::Attribute::Enumerable | JS::Attribute::Configurable);
@@ -789,6 +787,8 @@ void Window::initialize(JS::Realm& realm)
 
     define_native_function(realm, "postMessage", post_message, 1, attr);
 
+    define_native_function(realm, "fetch", Bindings::fetch, 1, attr);
+
     // FIXME: These properties should be [Replaceable] according to the spec, but [Writable+Configurable] is the closest we have.
     define_native_accessor(realm, "scrollX", scroll_x_getter, {}, attr);
     define_native_accessor(realm, "pageXOffset", scroll_x_getter, {}, attr);
@@ -805,6 +805,9 @@ void Window::initialize(JS::Realm& realm)
     define_native_accessor(realm, "screenLeft", screen_left_getter, {}, attr);
     define_native_accessor(realm, "screenTop", screen_top_getter, {}, attr);
 
+    define_native_accessor(realm, "outerWidth", outer_width_getter, {}, attr);
+    define_native_accessor(realm, "outerHeight", outer_height_getter, {}, attr);
+
     define_direct_property("CSS", heap().allocate<Bindings::CSSNamespace>(realm, realm), 0);
 
     define_native_accessor(realm, "localStorage", local_storage_getter, {}, attr);
@@ -816,9 +819,9 @@ void Window::initialize(JS::Realm& realm)
 
     m_location_object = heap().allocate<Bindings::LocationObject>(realm, realm);
 
-    auto* m_navigator_object = heap().allocate<Bindings::NavigatorObject>(realm, realm);
-    define_direct_property("navigator", m_navigator_object, JS::Attribute::Enumerable | JS::Attribute::Configurable);
-    define_direct_property("clientInformation", m_navigator_object, JS::Attribute::Enumerable | JS::Attribute::Configurable);
+    m_navigator = heap().allocate<HTML::Navigator>(realm, realm);
+    define_direct_property("navigator", m_navigator, JS::Attribute::Enumerable | JS::Attribute::Configurable);
+    define_direct_property("clientInformation", m_navigator, JS::Attribute::Enumerable | JS::Attribute::Configurable);
 
     // NOTE: location is marked as [LegacyUnforgeable], meaning it isn't configurable.
     define_native_accessor(realm, "location", location_getter, location_setter, JS::Attribute::Enumerable);
@@ -836,7 +839,7 @@ void Window::initialize(JS::Realm& realm)
 
 HTML::Origin Window::origin() const
 {
-    return impl().associated_document().origin();
+    return associated_document().origin();
 }
 
 // https://webidl.spec.whatwg.org/#platform-object-setprototypeof
@@ -860,9 +863,13 @@ static JS::ThrowCompletionOr<HTML::Window*> impl_from(JS::VM& vm)
 
     auto* this_object = MUST(this_value.to_object(vm));
 
-    if (!is<Window>(*this_object))
-        return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAnObjectOfType, "Window");
-    return &static_cast<Window*>(this_object)->impl();
+    if (is<WindowProxy>(*this_object))
+        return static_cast<WindowProxy*>(this_object)->window().ptr();
+
+    if (is<Window>(*this_object))
+        return static_cast<Window*>(this_object);
+
+    return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAnObjectOfType, "Window");
 }
 
 JS_DEFINE_NATIVE_FUNCTION(Window::alert)
@@ -906,7 +913,7 @@ JS_DEFINE_NATIVE_FUNCTION(Window::prompt)
 static JS::ThrowCompletionOr<TimerHandler> make_timer_handler(JS::VM& vm, JS::Value handler)
 {
     if (handler.is_function())
-        return JS::make_handle(vm.heap().allocate_without_realm<Bindings::CallbackType>(handler.as_function(), HTML::incumbent_settings_object()));
+        return JS::make_handle(vm.heap().allocate_without_realm<WebIDL::CallbackType>(handler.as_function(), HTML::incumbent_settings_object()));
     return TRY(handler.to_string(vm));
 }
 
@@ -988,7 +995,7 @@ JS_DEFINE_NATIVE_FUNCTION(Window::request_animation_frame)
     auto* callback_object = TRY(vm.argument(0).to_object(vm));
     if (!callback_object->is_function())
         return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAFunctionNoParam);
-    auto* callback = vm.heap().allocate_without_realm<Bindings::CallbackType>(*callback_object, HTML::incumbent_settings_object());
+    auto* callback = vm.heap().allocate_without_realm<WebIDL::CallbackType>(*callback_object, HTML::incumbent_settings_object());
     return JS::Value(impl->request_animation_frame_impl(*callback));
 }
 
@@ -1011,7 +1018,7 @@ JS_DEFINE_NATIVE_FUNCTION(Window::queue_microtask)
     if (!callback_object->is_function())
         return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAFunctionNoParam);
 
-    auto* callback = vm.heap().allocate_without_realm<Bindings::CallbackType>(*callback_object, HTML::incumbent_settings_object());
+    auto* callback = vm.heap().allocate_without_realm<WebIDL::CallbackType>(*callback_object, HTML::incumbent_settings_object());
 
     impl->queue_microtask_impl(*callback);
     return JS::js_undefined();
@@ -1027,7 +1034,7 @@ JS_DEFINE_NATIVE_FUNCTION(Window::request_idle_callback)
         return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAFunctionNoParam);
     // FIXME: accept options object
 
-    auto* callback = vm.heap().allocate_without_realm<Bindings::CallbackType>(*callback_object, HTML::incumbent_settings_object());
+    auto* callback = vm.heap().allocate_without_realm<WebIDL::CallbackType>(*callback_object, HTML::incumbent_settings_object());
 
     return JS::Value(impl->request_idle_callback_impl(*callback));
 }
@@ -1067,7 +1074,7 @@ JS_DEFINE_NATIVE_FUNCTION(Window::btoa)
     byte_string.ensure_capacity(string.length());
     for (u32 code_point : Utf8View(string)) {
         if (code_point > 0xff)
-            return throw_completion(DOM::InvalidCharacterError::create(vm.current_realm()->global_object(), "Data contains characters outside the range U+0000 and U+00FF"));
+            return throw_completion(WebIDL::InvalidCharacterError::create(*vm.current_realm(), "Data contains characters outside the range U+0000 and U+00FF"));
         byte_string.append(code_point);
     }
 
@@ -1078,10 +1085,8 @@ JS_DEFINE_NATIVE_FUNCTION(Window::btoa)
 // https://html.spec.whatwg.org/multipage/window-object.html#number-of-document-tree-child-browsing-contexts
 JS::ThrowCompletionOr<size_t> Window::document_tree_child_browsing_context_count() const
 {
-    auto* impl = TRY(impl_from(vm()));
-
     // 1. If W's browsing context is null, then return 0.
-    auto* this_browsing_context = impl->associated_document().browsing_context();
+    auto* this_browsing_context = associated_document().browsing_context();
     if (!this_browsing_context)
         return 0;
 
@@ -1103,13 +1108,37 @@ JS_DEFINE_NATIVE_FUNCTION(Window::top_getter)
 {
     auto* impl = TRY(impl_from(vm));
 
-    auto* this_browsing_context = impl->associated_document().browsing_context();
-    if (!this_browsing_context)
+    // 1. If this Window object's browsing context is null, then return null.
+    auto* browsing_context = impl->browsing_context();
+    if (!browsing_context)
         return JS::js_null();
 
-    VERIFY(this_browsing_context->top_level_browsing_context().active_document());
-    auto& top_window = this_browsing_context->top_level_browsing_context().active_document()->window();
-    return &top_window;
+    // 2. Return this Window object's browsing context's top-level browsing context's WindowProxy object.
+    return browsing_context->top_level_browsing_context().window_proxy();
+}
+
+// https://html.spec.whatwg.org/multipage/window-object.html#dom-self
+JS_DEFINE_NATIVE_FUNCTION(Window::self_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+    // The window, frames, and self getter steps are to return this's relevant realm.[[GlobalEnv]].[[GlobalThisValue]].
+    return &relevant_realm(*impl).global_environment().global_this_value();
+}
+
+// https://html.spec.whatwg.org/multipage/window-object.html#dom-window
+JS_DEFINE_NATIVE_FUNCTION(Window::window_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+    // The window, frames, and self getter steps are to return this's relevant realm.[[GlobalEnv]].[[GlobalThisValue]].
+    return &relevant_realm(*impl).global_environment().global_this_value();
+}
+
+// https://html.spec.whatwg.org/multipage/window-object.html#dom-frames
+JS_DEFINE_NATIVE_FUNCTION(Window::frames_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+    // The window, frames, and self getter steps are to return this's relevant realm.[[GlobalEnv]].[[GlobalThisValue]].
+    return &relevant_realm(*impl).global_environment().global_this_value();
 }
 
 JS_DEFINE_NATIVE_FUNCTION(Window::parent_getter)
@@ -1125,6 +1154,33 @@ JS_DEFINE_NATIVE_FUNCTION(Window::document_getter)
 {
     auto* impl = TRY(impl_from(vm));
     return &impl->associated_document();
+}
+
+// https://html.spec.whatwg.org/multipage/browsers.html#dom-frameelement
+JS_DEFINE_NATIVE_FUNCTION(Window::frame_element_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+
+    // 1. Let current be this Window object's browsing context.
+    auto* current = impl->browsing_context();
+
+    // 2. If current is null, then return null.
+    if (!current)
+        return JS::js_null();
+
+    // 3. Let container be current's container.
+    auto* container = current->container();
+
+    // 4. If container is null, then return null.
+    if (!container)
+        return JS::js_null();
+
+    // 5. If container's node document's origin is not same origin-domain with the current settings object's origin, then return null.
+    if (!container->document().origin().is_same_origin(current_settings_object().origin()))
+        return JS::js_null();
+
+    // 6. Return container.
+    return container;
 }
 
 JS_DEFINE_NATIVE_FUNCTION(Window::performance_getter)
@@ -1216,10 +1272,12 @@ JS_DEFINE_NATIVE_FUNCTION(Window::get_computed_style)
     return impl->get_computed_style_impl(*static_cast<DOM::Element*>(object));
 }
 
+// https://w3c.github.io/selection-api/#dom-window-getselection
 JS_DEFINE_NATIVE_FUNCTION(Window::get_selection)
 {
+    // The method must invoke and return the result of getSelection() on this's Window.document attribute.
     auto* impl = TRY(impl_from(vm));
-    return impl->get_selection_impl();
+    return impl->associated_document().get_selection();
 }
 
 JS_DEFINE_NATIVE_FUNCTION(Window::match_media)
@@ -1386,11 +1444,25 @@ JS_DEFINE_NATIVE_FUNCTION(Window::screen_y_getter)
     return JS::Value(impl->screen_y());
 }
 
+JS_DEFINE_NATIVE_FUNCTION(Window::outer_width_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+    return JS::Value(impl->outer_width());
+}
+
+JS_DEFINE_NATIVE_FUNCTION(Window::outer_height_getter)
+{
+    auto* impl = TRY(impl_from(vm));
+    return JS::Value(impl->outer_height());
+}
+
 JS_DEFINE_NATIVE_FUNCTION(Window::post_message)
 {
     auto* impl = TRY(impl_from(vm));
     auto target_origin = TRY(vm.argument(1).to_string(vm));
-    impl->post_message_impl(vm.argument(0), target_origin);
+    TRY(Bindings::throw_dom_exception_if_needed(vm, [&] {
+        return impl->post_message_impl(vm.argument(0), target_origin);
+    }));
     return JS::js_undefined();
 }
 
@@ -1426,26 +1498,26 @@ JS_DEFINE_NATIVE_FUNCTION(Window::name_setter)
     return JS::js_undefined();
 }
 
-#define __ENUMERATE(attribute, event_name)                                        \
-    JS_DEFINE_NATIVE_FUNCTION(Window::attribute##_getter)                         \
-    {                                                                             \
-        auto* impl = TRY(impl_from(vm));                                          \
-        auto retval = impl->attribute();                                          \
-        if (!retval)                                                              \
-            return JS::js_null();                                                 \
-        return &retval->callback;                                                 \
-    }                                                                             \
-    JS_DEFINE_NATIVE_FUNCTION(Window::attribute##_setter)                         \
-    {                                                                             \
-        auto* impl = TRY(impl_from(vm));                                          \
-        auto value = vm.argument(0);                                              \
-        Bindings::CallbackType* cpp_value = nullptr;                              \
-        if (value.is_object()) {                                                  \
-            cpp_value = vm.heap().allocate_without_realm<Bindings::CallbackType>( \
-                value.as_object(), HTML::incumbent_settings_object());            \
-        }                                                                         \
-        impl->set_##attribute(cpp_value);                                         \
-        return JS::js_undefined();                                                \
+#define __ENUMERATE(attribute, event_name)                                      \
+    JS_DEFINE_NATIVE_FUNCTION(Window::attribute##_getter)                       \
+    {                                                                           \
+        auto* impl = TRY(impl_from(vm));                                        \
+        auto retval = impl->attribute();                                        \
+        if (!retval)                                                            \
+            return JS::js_null();                                               \
+        return &retval->callback;                                               \
+    }                                                                           \
+    JS_DEFINE_NATIVE_FUNCTION(Window::attribute##_setter)                       \
+    {                                                                           \
+        auto* impl = TRY(impl_from(vm));                                        \
+        auto value = vm.argument(0);                                            \
+        WebIDL::CallbackType* cpp_value = nullptr;                              \
+        if (value.is_object()) {                                                \
+            cpp_value = vm.heap().allocate_without_realm<WebIDL::CallbackType>( \
+                value.as_object(), HTML::incumbent_settings_object());          \
+        }                                                                       \
+        impl->set_##attribute(cpp_value);                                       \
+        return JS::js_undefined();                                              \
     }
 ENUMERATE_GLOBAL_EVENT_HANDLERS(__ENUMERATE)
 ENUMERATE_WINDOW_EVENT_HANDLERS(__ENUMERATE)

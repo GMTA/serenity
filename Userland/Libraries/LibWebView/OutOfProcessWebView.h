@@ -11,12 +11,19 @@
 #include <LibGUI/Widget.h>
 #include <LibWeb/CSS/Selector.h>
 #include <LibWeb/Page/Page.h>
+#include <LibWebView/ViewImplementation.h>
+
+namespace Messages::WebContentServer {
+class WebdriverExecuteScriptResponse;
+}
 
 namespace WebView {
 
 class WebContentClient;
 
-class OutOfProcessWebView final : public GUI::AbstractScrollableWidget {
+class OutOfProcessWebView final
+    : public GUI::AbstractScrollableWidget
+    , public ViewImplementation {
     C_OBJECT(OutOfProcessWebView);
 
 public:
@@ -55,9 +62,26 @@ public:
     OrderedHashMap<String, String> get_local_storage_entries();
     OrderedHashMap<String, String> get_session_storage_entries();
 
+    Optional<i32> get_document_element();
+    Optional<Vector<i32>> query_selector_all(i32 start_node_id, String const& selector);
+    Optional<String> get_element_attribute(i32 element_id, String const& name);
+    Optional<String> get_element_property(i32 element_id, String const& name);
+    String get_active_documents_type();
+    String get_computed_value_for_element(i32 element_id, String const& property_name);
+    String get_element_text(i32 element_id);
+    String get_element_tag_name(i32 element_id);
+
     void set_content_filters(Vector<String>);
     void set_proxy_mappings(Vector<String> proxies, HashMap<String, size_t> mappings);
     void set_preferred_color_scheme(Web::CSS::PreferredColorScheme);
+    void set_is_webdriver_active(bool);
+
+    void set_window_position(Gfx::IntPoint const&);
+    void set_window_size(Gfx::IntSize const&);
+
+    Gfx::ShareableBitmap take_screenshot() const;
+
+    Messages::WebContentServer::WebdriverExecuteScriptResponse webdriver_execute_script(String const& body, Vector<String> const& json_arguments, Optional<u64> const& timeout, bool async);
 
     Function<void(Gfx::IntPoint const& screen_position)> on_context_menu_request;
     Function<void(const AK::URL&, String const& target, unsigned modifiers)> on_link_click;
@@ -80,40 +104,6 @@ public:
     Function<void(const AK::URL& url, Web::Cookie::ParsedCookie const& cookie, Web::Cookie::Source source)> on_set_cookie;
     Function<void(i32 count_waiting)> on_resource_status_change;
 
-    void notify_server_did_layout(Badge<WebContentClient>, Gfx::IntSize const& content_size);
-    void notify_server_did_paint(Badge<WebContentClient>, i32 bitmap_id);
-    void notify_server_did_invalidate_content_rect(Badge<WebContentClient>, Gfx::IntRect const&);
-    void notify_server_did_change_selection(Badge<WebContentClient>);
-    void notify_server_did_request_cursor_change(Badge<WebContentClient>, Gfx::StandardCursor cursor);
-    void notify_server_did_change_title(Badge<WebContentClient>, String const&);
-    void notify_server_did_request_scroll(Badge<WebContentClient>, i32, i32);
-    void notify_server_did_request_scroll_to(Badge<WebContentClient>, Gfx::IntPoint const&);
-    void notify_server_did_request_scroll_into_view(Badge<WebContentClient>, Gfx::IntRect const&);
-    void notify_server_did_enter_tooltip_area(Badge<WebContentClient>, Gfx::IntPoint const&, String const&);
-    void notify_server_did_leave_tooltip_area(Badge<WebContentClient>);
-    void notify_server_did_hover_link(Badge<WebContentClient>, const AK::URL&);
-    void notify_server_did_unhover_link(Badge<WebContentClient>);
-    void notify_server_did_click_link(Badge<WebContentClient>, const AK::URL&, String const& target, unsigned modifiers);
-    void notify_server_did_middle_click_link(Badge<WebContentClient>, const AK::URL&, String const& target, unsigned modifiers);
-    void notify_server_did_start_loading(Badge<WebContentClient>, const AK::URL&);
-    void notify_server_did_finish_loading(Badge<WebContentClient>, const AK::URL&);
-    void notify_server_did_request_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&);
-    void notify_server_did_request_link_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&, const AK::URL&, String const& target, unsigned modifiers);
-    void notify_server_did_request_image_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&, const AK::URL&, String const& target, unsigned modifiers, Gfx::ShareableBitmap const&);
-    void notify_server_did_request_alert(Badge<WebContentClient>, String const& message);
-    bool notify_server_did_request_confirm(Badge<WebContentClient>, String const& message);
-    String notify_server_did_request_prompt(Badge<WebContentClient>, String const& message, String const& default_);
-    void notify_server_did_get_source(const AK::URL& url, String const& source);
-    void notify_server_did_get_dom_tree(String const& dom_tree);
-    void notify_server_did_get_dom_node_properties(i32 node_id, String const& specified_style, String const& computed_style, String const& custom_properties, String const& node_box_sizing);
-    void notify_server_did_output_js_console_message(i32 message_index);
-    void notify_server_did_get_js_console_messages(i32 start_index, Vector<String> const& message_types, Vector<String> const& messages);
-    void notify_server_did_change_favicon(Gfx::Bitmap const& favicon);
-    String notify_server_did_request_cookie(Badge<WebContentClient>, const AK::URL& url, Web::Cookie::Source source);
-    void notify_server_did_set_cookie(Badge<WebContentClient>, const AK::URL& url, Web::Cookie::ParsedCookie const& cookie, Web::Cookie::Source source);
-    void notify_server_did_update_resource_count(i32 count_waiting);
-    void notify_server_did_request_file(Badge<WebContentClient>, String const& path, i32);
-
 private:
     OutOfProcessWebView();
 
@@ -131,9 +121,46 @@ private:
     virtual void screen_rects_change_event(GUI::ScreenRectsChangeEvent&) override;
     virtual void focusin_event(GUI::FocusEvent&) override;
     virtual void focusout_event(GUI::FocusEvent&) override;
+    virtual void show_event(GUI::ShowEvent&) override;
+    virtual void hide_event(GUI::HideEvent&) override;
 
     // ^AbstractScrollableWidget
     virtual void did_scroll() override;
+
+    // ^WebView::ViewImplementation
+    virtual void notify_server_did_layout(Badge<WebContentClient>, Gfx::IntSize const& content_size) override;
+    virtual void notify_server_did_paint(Badge<WebContentClient>, i32 bitmap_id) override;
+    virtual void notify_server_did_invalidate_content_rect(Badge<WebContentClient>, Gfx::IntRect const&) override;
+    virtual void notify_server_did_change_selection(Badge<WebContentClient>) override;
+    virtual void notify_server_did_request_cursor_change(Badge<WebContentClient>, Gfx::StandardCursor cursor) override;
+    virtual void notify_server_did_change_title(Badge<WebContentClient>, String const&) override;
+    virtual void notify_server_did_request_scroll(Badge<WebContentClient>, i32, i32) override;
+    virtual void notify_server_did_request_scroll_to(Badge<WebContentClient>, Gfx::IntPoint const&) override;
+    virtual void notify_server_did_request_scroll_into_view(Badge<WebContentClient>, Gfx::IntRect const&) override;
+    virtual void notify_server_did_enter_tooltip_area(Badge<WebContentClient>, Gfx::IntPoint const&, String const&) override;
+    virtual void notify_server_did_leave_tooltip_area(Badge<WebContentClient>) override;
+    virtual void notify_server_did_hover_link(Badge<WebContentClient>, const AK::URL&) override;
+    virtual void notify_server_did_unhover_link(Badge<WebContentClient>) override;
+    virtual void notify_server_did_click_link(Badge<WebContentClient>, const AK::URL&, String const& target, unsigned modifiers) override;
+    virtual void notify_server_did_middle_click_link(Badge<WebContentClient>, const AK::URL&, String const& target, unsigned modifiers) override;
+    virtual void notify_server_did_start_loading(Badge<WebContentClient>, const AK::URL&) override;
+    virtual void notify_server_did_finish_loading(Badge<WebContentClient>, const AK::URL&) override;
+    virtual void notify_server_did_request_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&) override;
+    virtual void notify_server_did_request_link_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&, const AK::URL&, String const& target, unsigned modifiers) override;
+    virtual void notify_server_did_request_image_context_menu(Badge<WebContentClient>, Gfx::IntPoint const&, const AK::URL&, String const& target, unsigned modifiers, Gfx::ShareableBitmap const&) override;
+    virtual void notify_server_did_request_alert(Badge<WebContentClient>, String const& message) override;
+    virtual bool notify_server_did_request_confirm(Badge<WebContentClient>, String const& message) override;
+    virtual String notify_server_did_request_prompt(Badge<WebContentClient>, String const& message, String const& default_) override;
+    virtual void notify_server_did_get_source(const AK::URL& url, String const& source) override;
+    virtual void notify_server_did_get_dom_tree(String const& dom_tree) override;
+    virtual void notify_server_did_get_dom_node_properties(i32 node_id, String const& specified_style, String const& computed_style, String const& custom_properties, String const& node_box_sizing) override;
+    virtual void notify_server_did_output_js_console_message(i32 message_index) override;
+    virtual void notify_server_did_get_js_console_messages(i32 start_index, Vector<String> const& message_types, Vector<String> const& messages) override;
+    virtual void notify_server_did_change_favicon(Gfx::Bitmap const& favicon) override;
+    virtual String notify_server_did_request_cookie(Badge<WebContentClient>, const AK::URL& url, Web::Cookie::Source source) override;
+    virtual void notify_server_did_set_cookie(Badge<WebContentClient>, const AK::URL& url, Web::Cookie::ParsedCookie const& cookie, Web::Cookie::Source source) override;
+    virtual void notify_server_did_update_resource_count(i32 count_waiting) override;
+    virtual void notify_server_did_request_file(Badge<WebContentClient>, String const& path, i32) override;
 
     void request_repaint();
     void handle_resize();

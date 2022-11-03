@@ -9,11 +9,11 @@
 #include <AK/Time.h>
 #include <AK/Types.h>
 #include <Kernel/API/Syscall.h>
-#include <Kernel/Arch/InterruptDisabler.h>
 #include <Kernel/Coredump.h>
 #include <Kernel/Credentials.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Devices/DeviceManagement.h>
+#include <Kernel/InterruptDisabler.h>
 #ifdef ENABLE_KERNEL_COVERAGE_COLLECTION
 #    include <Kernel/Devices/KCOVDevice.h>
 #endif
@@ -189,6 +189,9 @@ LockRefPtr<Process> Process::create_kernel_process(LockRefPtr<Thread>& first_thr
     first_thread->regs().esp = FlatPtr(entry_data); // entry function argument is expected to be in regs.esp
 #elif ARCH(X86_64)
     first_thread->regs().rdi = FlatPtr(entry_data); // entry function argument is expected to be in regs.rdi
+#elif ARCH(AARCH64)
+    (void)entry_data;
+    TODO_AARCH64();
 #else
 #    error Unknown architecture
 #endif
@@ -412,7 +415,9 @@ void Process::crash(int signal, FlatPtr ip, bool out_of_memory)
         protected_data.termination_signal = signal;
     });
     set_should_generate_coredump(!out_of_memory);
-    address_space().with([](auto& space) { space->dump_regions(); });
+    if constexpr (DUMP_REGIONS_ON_CRASH) {
+        address_space().with([](auto& space) { space->dump_regions(); });
+    }
     VERIFY(is_user_process());
     die();
     // We can not return from here, as there is nowhere

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2019-2020, Ryan Grieb <ryan.m.grieb@gmail.com>
  * Copyright (c) 2020-2022, the SerenityOS developers.
+ * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -8,13 +9,16 @@
 #pragma once
 
 #include <AK/String.h>
+#include <LibConfig/Listener.h>
 #include <LibCore/DateTime.h>
 #include <LibGUI/Frame.h>
 #include <LibGUI/Widget.h>
 
 namespace GUI {
 
-class Calendar final : public GUI::Frame {
+class Calendar final
+    : public GUI::Frame
+    , public Config::Listener {
     C_OBJECT(Calendar)
 
 public:
@@ -67,6 +71,9 @@ public:
         m_unadjusted_tile_size.set_height(height);
     }
 
+    virtual void config_string_did_change(String const&, String const&, String const&, String const&) override;
+    virtual void config_i32_did_change(String const&, String const&, String const&, i32 value) override;
+
     Function<void()> on_tile_click;
     Function<void()> on_tile_doubleclick;
     Function<void()> on_month_click;
@@ -75,6 +82,8 @@ private:
     Calendar(Core::DateTime date_time = Core::DateTime::now(), Mode mode = Month);
     virtual ~Calendar() override = default;
 
+    static size_t day_of_week_index(String const&);
+
     virtual void resize_event(GUI::ResizeEvent&) override;
     virtual void paint_event(GUI::PaintEvent&) override;
     virtual void mousemove_event(GUI::MouseEvent&) override;
@@ -82,6 +91,18 @@ private:
     virtual void mouseup_event(MouseEvent&) override;
     virtual void doubleclick_event(MouseEvent&) override;
     virtual void leave_event(Core::Event&) override;
+
+    enum class DayOfWeek {
+        Sunday,
+        Monday,
+        Tuesday,
+        Wednesday,
+        Thursday,
+        Friday,
+        Saturday
+    };
+
+    bool is_day_in_weekend(DayOfWeek);
 
     struct Day {
         String name;
@@ -128,6 +149,10 @@ private:
     Gfx::IntSize m_event_size;
     Gfx::IntSize m_month_size[12];
     Mode m_mode { Month };
+
+    DayOfWeek m_first_day_of_week { DayOfWeek::Sunday };
+    DayOfWeek m_first_day_of_weekend { DayOfWeek::Saturday };
+    int m_weekend_length { 2 };
 };
 
 }

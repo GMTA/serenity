@@ -57,19 +57,18 @@ ThrowCompletionOr<BigInt const*> interpret_iso_date_time_offset(VM& vm, i32 year
 
     // 4. If offsetBehaviour is exact or offsetOption is "use", then
     if (offset_behavior == OffsetBehavior::Exact || offset_option == "use"sv) {
-        // a. Let epochNanoseconds be GetEpochFromISOParts(year, month, day, hour, minute, second, millisecond, microsecond, nanosecond).
-        auto* epoch_nanoseconds = get_epoch_from_iso_parts(vm, year, month, day, hour, minute, second, millisecond, microsecond, nanosecond);
+        // a. Let epochNanoseconds be GetUTCEpochNanoseconds(year, month, day, hour, minute, second, millisecond, microsecond, nanosecond).
+        auto epoch_nanoseconds = get_utc_epoch_nanoseconds(year, month, day, hour, minute, second, millisecond, microsecond, nanosecond);
 
         // b. Set epochNanoseconds to epochNanoseconds - ℤ(offsetNanoseconds).
-        auto offset_nanoseconds_bigint = Crypto::SignedBigInteger { offset_nanoseconds };
-        epoch_nanoseconds = js_bigint(vm, epoch_nanoseconds->big_integer().minus(offset_nanoseconds_bigint));
+        epoch_nanoseconds = epoch_nanoseconds.minus(Crypto::SignedBigInteger { offset_nanoseconds });
 
         // c. If ! IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
-        if (!is_valid_epoch_nanoseconds(*epoch_nanoseconds))
+        if (!is_valid_epoch_nanoseconds(epoch_nanoseconds))
             return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidEpochNanoseconds);
 
         // d. Return epochNanoseconds.
-        return epoch_nanoseconds;
+        return js_bigint(vm, move(epoch_nanoseconds));
     }
 
     // 5. Assert: offsetBehaviour is option.
@@ -190,32 +189,29 @@ ThrowCompletionOr<ZonedDateTime*> to_temporal_zoned_date_time(VM& vm, Value item
         auto string = TRY(item.to_string(vm));
 
         // c. Let result be ? ParseTemporalZonedDateTimeString(string).
-        auto parsed_result = TRY(parse_temporal_zoned_date_time_string(vm, string));
+        result = TRY(parse_temporal_zoned_date_time_string(vm, string));
 
-        // NOTE: The ISODateTime struct inside parsed_result will be moved into `result` at the end of this path to avoid mismatching names.
-        //       Thus, all remaining references to `result` in this path actually refers to `parsed_result`.
-
-        // d. Let timeZoneName be result.[[TimeZoneName]].
-        auto time_zone_name = parsed_result.time_zone.name;
+        // d. Let timeZoneName be result.[[TimeZone]].[[Name]].
+        auto time_zone_name = result.time_zone.name;
 
         // e. Assert: timeZoneName is not undefined.
         VERIFY(time_zone_name.has_value());
 
-        // f. If ParseText(StringToCodePoints(timeZoneName), TimeZoneNumericUTCOffset) is a List of errors, then
-        if (!is_valid_time_zone_numeric_utc_offset_syntax(*time_zone_name)) {
-            // i. If IsValidTimeZoneName(timeZoneName) is false, throw a RangeError exception.
-            if (!is_valid_time_zone_name(*time_zone_name))
+        // f. If IsTimeZoneOffsetString(timeZoneName) is false, then
+        if (!is_time_zone_offset_string(*time_zone_name)) {
+            // i. If IsAvailableTimeZoneName(timeZoneName) is false, throw a RangeError exception.
+            if (!is_available_time_zone_name(*time_zone_name))
                 return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidTimeZoneName, *time_zone_name);
 
             // ii. Set timeZoneName to ! CanonicalizeTimeZoneName(timeZoneName).
             time_zone_name = canonicalize_time_zone_name(*time_zone_name);
         }
 
-        // g. Let offsetString be result.[[TimeZoneOffsetString]].
-        offset_string = move(parsed_result.time_zone.offset_string);
+        // g. Let offsetString be result.[[TimeZone]].[[OffsetString]].
+        offset_string = move(result.time_zone.offset_string);
 
-        // h. If result.[[TimeZoneZ]] is true, then
-        if (parsed_result.time_zone.z) {
+        // h. If result.[[TimeZone]].[[Z]] is true, then
+        if (result.time_zone.z) {
             // i. Set offsetBehaviour to exact.
             offset_behavior = OffsetBehavior::Exact;
         }
@@ -229,16 +225,13 @@ ThrowCompletionOr<ZonedDateTime*> to_temporal_zoned_date_time(VM& vm, Value item
         time_zone = MUST(create_temporal_time_zone(vm, *time_zone_name));
 
         // k. Let calendar be ? ToTemporalCalendarWithISODefault(result.[[Calendar]]).
-        auto temporal_calendar_like = parsed_result.date_time.calendar.has_value()
-            ? js_string(vm, parsed_result.date_time.calendar.value())
+        auto temporal_calendar_like = result.calendar.has_value()
+            ? js_string(vm, result.calendar.value())
             : js_undefined();
         calendar = TRY(to_temporal_calendar_with_iso_default(vm, temporal_calendar_like));
 
         // l. Set matchBehaviour to match minutes.
         match_behavior = MatchBehavior::MatchMinutes;
-
-        // See NOTE above about why this is done.
-        result = move(parsed_result.date_time);
     }
 
     // 7. Let offsetNanoseconds be 0.
@@ -246,8 +239,12 @@ ThrowCompletionOr<ZonedDateTime*> to_temporal_zoned_date_time(VM& vm, Value item
 
     // 8. If offsetBehaviour is option, then
     if (offset_behavior == OffsetBehavior::Option) {
+        // a. If IsTimeZoneOffsetString(offsetString) is false, throw a RangeError exception.
+        if (!is_time_zone_offset_string(*offset_string))
+            return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidTimeZoneName, *offset_string);
+
         // a. Set offsetNanoseconds to ? ParseTimeZoneOffsetString(offsetString).
-        offset_nanoseconds = TRY(parse_time_zone_offset_string(vm, *offset_string));
+        offset_nanoseconds = parse_time_zone_offset_string(*offset_string);
     }
 
     // 9. Let disambiguation be ? ToTemporalDisambiguation(options).
@@ -456,7 +453,7 @@ ThrowCompletionOr<NanosecondsToDaysResult> nanoseconds_to_days(VM& vm, Crypto::S
 
     // 4. If Type(relativeTo) is not Object or relativeTo does not have an [[InitializedTemporalZonedDateTime]] internal slot, then
     if (!relative_to_value.is_object() || !is<ZonedDateTime>(relative_to_value.as_object())) {
-        // a. Return the Record { [[Days]]: RoundTowardsZero(nanoseconds / dayLengthNs), [[Nanoseconds]]: (abs(nanoseconds) modulo dayLengthNs) × sign, [[DayLength]]: dayLengthNs }.
+        // a. Return the Record { [[Days]]: truncate(nanoseconds / dayLengthNs), [[Nanoseconds]]: (abs(nanoseconds) modulo dayLengthNs) × sign, [[DayLength]]: dayLengthNs }.
         return NanosecondsToDaysResult {
             .days = nanoseconds.divided_by(day_length_ns).quotient.to_double(),
             .nanoseconds = Crypto::SignedBigInteger { nanoseconds.unsigned_value() }.divided_by(day_length_ns).remainder.multiplied_by(Crypto::SignedBigInteger { sign }),
@@ -541,7 +538,28 @@ ThrowCompletionOr<NanosecondsToDaysResult> nanoseconds_to_days(VM& vm, Crypto::S
         }
     }
 
-    // 19. Return the Record { [[Days]]: days, [[Nanoseconds]]: nanoseconds, [[DayLength]]: abs(dayLengthNs) }.
+    // 19. If days < 0 and sign = 1, throw a RangeError exception.
+    if (days < 0 && sign == 1)
+        return vm.throw_completion<RangeError>(ErrorType::TemporalNanosecondsConvertedToDaysWithOppositeSign);
+
+    // 20. If days > 0 and sign = -1, throw a RangeError exception.
+    if (days > 0 && sign == -1)
+        return vm.throw_completion<RangeError>(ErrorType::TemporalNanosecondsConvertedToDaysWithOppositeSign);
+
+    // 21. If nanoseconds < 0 and sign = 1, throw a RangeError exception.
+    if (nanoseconds.is_negative() && sign == 1)
+        return vm.throw_completion<RangeError>(ErrorType::TemporalNanosecondsConvertedToRemainderOfNanosecondsWithOppositeSign);
+
+    // 22. If nanoseconds > 0 and sign = -1, throw a RangeError exception.
+    if (nanoseconds.is_positive() && sign == -1)
+        return vm.throw_completion<RangeError>(ErrorType::TemporalNanosecondsConvertedToRemainderOfNanosecondsWithOppositeSign);
+
+    // 23. If abs(nanoseconds) ≥ abs(dayLengthNs), throw a RangeError exception.
+    auto compare_result = nanoseconds.unsigned_value().compare_to_double(fabs(day_length_ns.to_double()));
+    if (compare_result == Crypto::UnsignedBigInteger::CompareResult::DoubleLessThanBigInt || compare_result == Crypto::UnsignedBigInteger::CompareResult::DoubleEqualsBigInt)
+        return vm.throw_completion<RangeError>(ErrorType::TemporalNanosecondsConvertedToRemainderOfNanosecondsLongerThanDayLength);
+
+    // 24. Return the Record { [[Days]]: days, [[Nanoseconds]]: nanoseconds, [[DayLength]]: abs(dayLengthNs) }.
     return NanosecondsToDaysResult { .days = days, .nanoseconds = move(nanoseconds), .day_length = fabs(day_length_ns.to_double()) };
 }
 

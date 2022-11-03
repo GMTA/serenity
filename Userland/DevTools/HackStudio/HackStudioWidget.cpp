@@ -311,6 +311,17 @@ bool HackStudioWidget::open_file(String const& full_filename, size_t line, size_
     if (Core::File::is_directory(filename) || !Core::File::exists(filename))
         return false;
 
+    auto editor_wrapper_or_none = m_all_editor_wrappers.first_matching([&](auto& wrapper) {
+        return wrapper->filename() == filename;
+    });
+
+    if (editor_wrapper_or_none.has_value()) {
+        set_current_editor_wrapper(editor_wrapper_or_none.release_value());
+        return true;
+    } else {
+        add_new_editor(*m_current_editor_tab_widget);
+    }
+
     if (!active_file().is_empty()) {
         // Since the file is previously open, it should always be in m_open_files.
         VERIFY(m_open_files.find(active_file()) != m_open_files.end());
@@ -470,7 +481,6 @@ NonnullRefPtr<GUI::Menu> HackStudioWidget::create_project_tree_view_context_menu
     m_new_plain_file_action = create_new_file_action("Plain &File", "/res/icons/16x16/new.png", "");
 
     m_open_selected_action = create_open_selected_action();
-    m_open_selected_in_new_tab_action = create_open_selected_in_new_tab_action();
     m_show_in_file_manager_action = create_show_in_file_manager_action();
     m_copy_relative_path_action = create_copy_relative_path_action();
     m_copy_full_path_action = create_copy_full_path_action();
@@ -492,7 +502,6 @@ NonnullRefPtr<GUI::Menu> HackStudioWidget::create_project_tree_view_context_menu
     new_file_submenu.add_action(*m_new_directory_action);
 
     project_tree_view_context_menu->add_action(*m_open_selected_action);
-    project_tree_view_context_menu->add_action(*m_open_selected_in_new_tab_action);
     project_tree_view_context_menu->add_action(*m_show_in_file_manager_action);
     project_tree_view_context_menu->add_action(*m_copy_relative_path_action);
     project_tree_view_context_menu->add_action(*m_copy_full_path_action);
@@ -587,26 +596,12 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_open_selected_action()
     return open_selected_action;
 }
 
-NonnullRefPtr<GUI::Action> HackStudioWidget::create_open_selected_in_new_tab_action()
-{
-    auto open_selected_in_new_tab_action = GUI::Action::create("Open in New &Tab", [this](const GUI::Action&) {
-        auto files = selected_file_paths();
-        for (auto& file : files) {
-            add_new_editor(*m_current_editor_tab_widget);
-            open_file(file);
-        }
-    });
-    open_selected_in_new_tab_action->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/open.png"sv).release_value_but_fixme_should_propagate_errors());
-    open_selected_in_new_tab_action->set_enabled(true);
-    return open_selected_in_new_tab_action;
-}
-
 NonnullRefPtr<GUI::Action> HackStudioWidget::create_show_in_file_manager_action()
 {
     auto show_in_file_manager_action = GUI::Action::create("Show in File &Manager", [this](const GUI::Action&) {
         auto files = selected_file_paths();
         for (auto& file : files)
-            Desktop::Launcher::open(URL::create_with_file_protocol(m_project->root_path(), file));
+            Desktop::Launcher::open(URL::create_with_file_scheme(m_project->root_path(), file));
     });
     show_in_file_manager_action->set_enabled(true);
     show_in_file_manager_action->set_icon(GUI::Icon::default_icon("app-file-manager"sv).bitmap_for_size(16));
@@ -799,15 +794,11 @@ void HackStudioWidget::add_new_editor(GUI::TabWidget& parent)
             set_current_editor_wrapper(tab);
             parent.remove_tab(tab);
             m_all_editor_wrappers.remove_first_matching([&tab](auto& entry) { return entry == &tab; });
-            if (parent.children().is_empty()) {
+            if (parent.children().is_empty() && m_all_editor_tab_widgets.size() > 1) {
                 m_switch_to_next_editor_tab_widget->activate();
                 m_editors_splitter->remove_child(parent);
                 m_all_editor_tab_widgets.remove_first_matching([&parent](auto& entry) { return entry == &parent; });
-                if (m_current_editor_tab_widget->children().size() == 1)
-                    m_current_editor_tab_widget->set_close_button_enabled(false);
             }
-            if (parent.children().size() == 1 && m_all_editor_tab_widgets.size() <= 1)
-                parent.set_close_button_enabled(false);
             update_actions();
         });
     };
@@ -1006,7 +997,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_debug_action()
 
         m_terminal_wrapper->clear_including_history();
 
-        // The debugger calls wait() on the debugee, so the TerminalWrapper can't do that.
+        // The debugger calls wait() on the debuggee, so the TerminalWrapper can't do that.
         auto ptm_res = m_terminal_wrapper->setup_master_pseudoterminal(TerminalWrapper::WaitForChildOnExit::No);
         if (ptm_res.is_error()) {
             perror("setup_master_pseudoterminal");
@@ -1175,6 +1166,7 @@ void HackStudioWidget::set_current_editor_wrapper(RefPtr<EditorWrapper> editor_w
     update_current_editor_title();
     update_tree_view();
     set_current_editor_tab_widget(static_cast<GUI::TabWidget*>(m_current_editor_wrapper->parent()));
+    m_current_editor_tab_widget->set_active_widget(editor_wrapper);
     update_statusbar();
 }
 
@@ -1265,12 +1257,12 @@ void HackStudioWidget::create_toolbar(GUI::Widget& parent)
     toolbar.add_action(*m_delete_action);
     toolbar.add_separator();
 
-    toolbar.add_action(GUI::CommonActions::make_cut_action([this](auto&) { current_editor().cut_action().activate(); }));
-    toolbar.add_action(GUI::CommonActions::make_copy_action([this](auto&) { current_editor().copy_action().activate(); }));
-    toolbar.add_action(GUI::CommonActions::make_paste_action([this](auto&) { current_editor().paste_action().activate(); }));
+    toolbar.add_action(GUI::CommonActions::make_cut_action([this](auto&) { current_editor().cut_action().activate(); }, m_editors_splitter));
+    toolbar.add_action(GUI::CommonActions::make_copy_action([this](auto&) { current_editor().copy_action().activate(); }, m_editors_splitter));
+    toolbar.add_action(GUI::CommonActions::make_paste_action([this](auto&) { current_editor().paste_action().activate(); }, m_editors_splitter));
     toolbar.add_separator();
-    toolbar.add_action(GUI::CommonActions::make_undo_action([this](auto&) { current_editor().undo_action().activate(); }));
-    toolbar.add_action(GUI::CommonActions::make_redo_action([this](auto&) { current_editor().redo_action().activate(); }));
+    toolbar.add_action(GUI::CommonActions::make_undo_action([this](auto&) { current_editor().undo_action().activate(); }, m_editors_splitter));
+    toolbar.add_action(GUI::CommonActions::make_redo_action([this](auto&) { current_editor().redo_action().activate(); }, m_editors_splitter));
     toolbar.add_separator();
 
     toolbar.add_action(*m_build_action);
@@ -1532,6 +1524,7 @@ void HackStudioWidget::create_view_menu(GUI::Window& window)
 void HackStudioWidget::create_help_menu(GUI::Window& window)
 {
     auto& help_menu = window.add_menu("&Help");
+    help_menu.add_action(GUI::CommonActions::make_command_palette_action(&window));
     help_menu.add_action(GUI::CommonActions::make_about_action("Hack Studio", GUI::Icon::default_icon("app-hack-studio"sv), &window));
 }
 

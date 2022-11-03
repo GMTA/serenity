@@ -26,8 +26,8 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     TRY(Core::System::pledge("stdio recvfd sendfd rpath"));
     TRY(Core::System::unveil("/res", "r"));
-    TRY(Core::System::unveil("/proc/all", "r"));
-    // FIXME: For some reason, this is needed in the /proc/all shenanigans.
+    TRY(Core::System::unveil("/sys/kernel/processes", "r"));
+    // FIXME: For some reason, this is needed in the /sys/kernel/processes shenanigans.
     TRY(Core::System::unveil("/etc/passwd", "r"));
     TRY(Core::System::unveil(nullptr, nullptr));
 
@@ -50,6 +50,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     TRY(context_menu->try_add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); })));
 
     window->show();
+    window->set_always_on_top();
     catdog_widget->start_timer(250, Core::TimerShouldFireWhenNotVisible::Yes);
     catdog_widget->start_the_timer(); // timer for "mouse sleep detection"
 
@@ -74,6 +75,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         catdog_widget->set_roaming(false);
         advice_window->move_to(window->x() - advice_window->width() / 2, window->y() - advice_window->height());
         advice_window->show();
+        advice_window->set_always_on_top();
     };
     advice_timer->start();
 

@@ -120,6 +120,9 @@ static TitleAndText build_cpu_registers(const ELF::Core::ThreadInfo& thread_info
     builder.appendff(" r8={:p}  r9={:p} r10={:p} r11={:p}\n", regs.r8, regs.r9, regs.r10, regs.r11);
     builder.appendff("r12={:p} r13={:p} r14={:p} r15={:p}\n", regs.r12, regs.r13, regs.r14, regs.r15);
     builder.appendff("rip={:p} rflags={:p}", regs.rip, regs.rflags);
+#elif ARCH(AARCH64)
+    (void)regs;
+    TODO_AARCH64();
 #else
 #    error Unknown architecture
 #endif
@@ -200,14 +203,14 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     executable_link_label.set_text(LexicalPath::canonicalized_path(executable_path));
     executable_link_label.on_click = [&] {
         LexicalPath path { executable_path };
-        Desktop::Launcher::open(URL::create_with_file_protocol(path.dirname(), path.basename()));
+        Desktop::Launcher::open(URL::create_with_file_scheme(path.dirname(), path.basename()));
     };
 
     auto& coredump_link_label = *widget->find_descendant_of_type_named<GUI::LinkLabel>("coredump_link");
     coredump_link_label.set_text(LexicalPath::canonicalized_path(coredump_path));
     coredump_link_label.on_click = [&] {
         LexicalPath path { coredump_path };
-        Desktop::Launcher::open(URL::create_with_file_protocol(path.dirname(), path.basename()));
+        Desktop::Launcher::open(URL::create_with_file_scheme(path.dirname(), path.basename()));
     };
 
     auto& arguments_label = *widget->find_descendant_of_type_named<GUI::Label>("arguments_label");

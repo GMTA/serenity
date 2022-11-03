@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -30,10 +31,12 @@ public:
     void set_viewport_rect(Gfx::IntRect const&);
     void set_screen_rects(Vector<Gfx::IntRect, 4> const& rects, size_t main_screen_index) { m_screen_rect = rects[main_screen_index]; };
     void set_preferred_color_scheme(Web::CSS::PreferredColorScheme);
-
     void set_should_show_line_box_borders(bool b) { m_should_show_line_box_borders = b; }
     void set_has_focus(bool);
     void set_is_scripting_enabled(bool);
+    void set_is_webdriver_active(bool);
+    void set_window_position(Gfx::IntPoint const&);
+    void set_window_size(Gfx::IntSize const&);
 
 private:
     // ^PageClient
@@ -57,6 +60,7 @@ private:
     virtual void page_did_request_context_menu(Gfx::IntPoint const&) override;
     virtual void page_did_request_link_context_menu(Gfx::IntPoint const&, const URL&, String const& target, unsigned modifiers) override;
     virtual void page_did_start_loading(const URL&) override;
+    virtual void page_did_create_main_document() override;
     virtual void page_did_finish_loading(const URL&) override;
     virtual void page_did_request_alert(String const&) override;
     virtual bool page_did_request_confirm(String const&) override;
@@ -80,7 +84,7 @@ private:
     bool m_should_show_line_box_borders { false };
     bool m_has_focus { false };
 
-    RefPtr<Core::Timer> m_invalidation_coalescing_timer;
+    RefPtr<Web::Platform::Timer> m_invalidation_coalescing_timer;
     Gfx::IntRect m_invalidation_rect;
     Web::CSS::PreferredColorScheme m_preferred_color_scheme { Web::CSS::PreferredColorScheme::Auto };
 };

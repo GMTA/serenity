@@ -9,7 +9,6 @@
 #pragma once
 
 #include <AK/URL.h>
-#include <LibJS/Heap/Handle.h>
 #include <LibWeb/CSS/CSSRule.h>
 #include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/DOM/DocumentLoadEventDelayer.h>
@@ -59,5 +58,3 @@ template<>
 inline bool CSSRule::fast_is<CSSImportRule>() const { return type() == CSSRule::Type::Import; }
 
 }
-
-WRAPPER_HACK(CSSImportRule, Web::CSS)

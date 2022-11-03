@@ -11,9 +11,12 @@ set(SOURCES
     ConnectionFromClient.cpp
     main.cpp
     NotificationWindow.cpp
+)
+
+set(GENERATED_SOURCES
     NotificationServerEndpoint.h
     NotificationClientEndpoint.h
 )
 
 serenity_bin(NotificationServer)
-target_link_libraries(NotificationServer LibGUI LibIPC LibMain)
+target_link_libraries(NotificationServer PRIVATE LibCore LibGfx LibGUI LibIPC LibMain)

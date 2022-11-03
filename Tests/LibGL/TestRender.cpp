@@ -14,7 +14,7 @@
 #include <LibGfx/QOIWriter.h>
 #include <LibTest/TestCase.h>
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 #    define REFERENCE_IMAGE_DIR "/usr/Tests/LibGL/reference-images"
 #else
 #    define REFERENCE_IMAGE_DIR "reference-images"
@@ -24,17 +24,8 @@
 static NonnullOwnPtr<GL::GLContext> create_testing_context(int width, int height)
 {
     auto bitmap = MUST(Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRx8888, { width, height }));
-    auto context = GL::create_context(*bitmap);
+    auto context = MUST(GL::create_context(*bitmap));
     GL::make_context_current(context);
-
-    // Assume some defaults for our testing contexts
-    glFrontFace(GL_CCW);
-    glCullFace(GL_BACK);
-    glEnable(GL_CULL_FACE);
-
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
     return context;
 }
 
@@ -251,4 +242,30 @@ TEST_CASE(0008_test_pop_matrix_regression)
 
     context->present();
     expect_bitmap_equals_reference(context->frontbuffer(), "0008_test_pop_matrix_regression"sv);
+}
+
+TEST_CASE(0009_test_draw_elements_in_display_list)
+{
+    auto context = create_testing_context(64, 64);
+
+    glColor3f(0.f, 0.f, 1.f);
+    glEnableClientState(GL_VERTEX_ARRAY);
+
+    auto const list_index = glGenLists(1);
+    glNewList(list_index, GL_COMPILE);
+    float vertices[] = { 0.f, .5f, -.5f, -.5f, .5f, -.5f };
+    glVertexPointer(2, GL_FLOAT, 0, &vertices);
+    u8 indices[] = { 0, 1, 2 };
+    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_BYTE, &indices);
+    glEndList();
+
+    // Modifying an index here should not have an effect
+    indices[0] = 2;
+
+    glCallList(list_index);
+
+    EXPECT_EQ(glGetError(), 0u);
+
+    context->present();
+    expect_bitmap_equals_reference(context->frontbuffer(), "0009_test_draw_elements_in_display_list"sv);
 }

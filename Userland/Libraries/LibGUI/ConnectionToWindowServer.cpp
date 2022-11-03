@@ -102,6 +102,12 @@ void ConnectionToWindowServer::window_resized(i32 window_id, Gfx::IntRect const&
     }
 }
 
+void ConnectionToWindowServer::window_moved(i32 window_id, Gfx::IntRect const& new_rect)
+{
+    if (auto* window = Window::from_window_id(window_id))
+        Core::EventLoop::current().post_event(*window, make<MoveEvent>(new_rect.location()));
+}
+
 void ConnectionToWindowServer::window_activated(i32 window_id)
 {
     if (auto* window = Window::from_window_id(window_id))
@@ -199,24 +205,6 @@ void ConnectionToWindowServer::key_down(i32 window_id, u32 code_point, u32 key, 
             return;
 
         window->focused_widget()->on_emoji_input(emoji_input_dialog->selected_emoji_text());
-        return;
-    }
-
-    bool accepts_command_palette = !window->blocks_command_palette();
-    if (accepts_command_palette && window->focused_widget())
-        accepts_command_palette = window->focused_widget()->accepts_command_palette();
-
-    // FIXME: This shortcut should be configurable.
-    if (accepts_command_palette && !m_in_command_palette && modifiers == (Mod_Ctrl | Mod_Shift) && key == Key_A) {
-        auto command_palette = CommandPalette::construct(*window);
-        command_palette->set_window_mode(GUI::WindowMode::CaptureInput);
-        TemporaryChange change { m_in_command_palette, true };
-        if (command_palette->exec() != GUI::Dialog::ExecResult::OK)
-            return;
-        auto* action = command_palette->selected_action();
-        VERIFY(action);
-        action->flash_menubar_menu(*window);
-        action->activate();
         return;
     }
 

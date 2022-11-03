@@ -36,11 +36,11 @@ public:
 
     virtual Optional<StyleProperty> property(PropertyID) const = 0;
 
-    virtual DOM::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority = ""sv) = 0;
-    virtual DOM::ExceptionOr<String> remove_property(PropertyID) = 0;
+    virtual WebIDL::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority = ""sv) = 0;
+    virtual WebIDL::ExceptionOr<String> remove_property(PropertyID) = 0;
 
-    DOM::ExceptionOr<void> set_property(StringView property_name, StringView css_text, StringView priority);
-    DOM::ExceptionOr<String> remove_property(StringView property_name);
+    WebIDL::ExceptionOr<void> set_property(StringView property_name, StringView css_text, StringView priority);
+    WebIDL::ExceptionOr<String> remove_property(StringView property_name);
 
     String get_property_value(StringView property) const;
     String get_property_priority(StringView property) const;
@@ -55,7 +55,7 @@ public:
     virtual JS::ThrowCompletionOr<bool> internal_set(JS::PropertyKey const&, JS::Value value, JS::Value receiver) override;
 
 protected:
-    explicit CSSStyleDeclaration(HTML::Window&);
+    explicit CSSStyleDeclaration(JS::Realm&);
 };
 
 class PropertyOwningCSSStyleDeclaration : public CSSStyleDeclaration {
@@ -63,7 +63,7 @@ class PropertyOwningCSSStyleDeclaration : public CSSStyleDeclaration {
     friend class ElementInlineCSSStyleDeclaration;
 
 public:
-    static PropertyOwningCSSStyleDeclaration* create(HTML::Window&, Vector<StyleProperty>, HashMap<String, StyleProperty> custom_properties);
+    static PropertyOwningCSSStyleDeclaration* create(JS::Realm&, Vector<StyleProperty>, HashMap<String, StyleProperty> custom_properties);
 
     virtual ~PropertyOwningCSSStyleDeclaration() override = default;
 
@@ -72,8 +72,8 @@ public:
 
     virtual Optional<StyleProperty> property(PropertyID) const override;
 
-    virtual DOM::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority) override;
-    virtual DOM::ExceptionOr<String> remove_property(PropertyID) override;
+    virtual WebIDL::ExceptionOr<void> set_property(PropertyID, StringView css_text, StringView priority) override;
+    virtual WebIDL::ExceptionOr<String> remove_property(PropertyID) override;
 
     Vector<StyleProperty> const& properties() const { return m_properties; }
     HashMap<String, StyleProperty> const& custom_properties() const { return m_custom_properties; }
@@ -83,7 +83,7 @@ public:
     virtual String serialized() const final override;
 
 protected:
-    PropertyOwningCSSStyleDeclaration(HTML::Window&, Vector<StyleProperty>, HashMap<String, StyleProperty>);
+    PropertyOwningCSSStyleDeclaration(JS::Realm&, Vector<StyleProperty>, HashMap<String, StyleProperty>);
 
     virtual void update_style_attribute() { }
 
@@ -108,7 +108,7 @@ public:
     bool is_updating() const { return m_updating; }
 
 private:
-    explicit ElementInlineCSSStyleDeclaration(DOM::Element&, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties);
+    ElementInlineCSSStyleDeclaration(DOM::Element&, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties);
 
     virtual void visit_edges(Cell::Visitor&) override;
 
@@ -121,5 +121,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(CSSStyleDeclaration, Web::CSS)

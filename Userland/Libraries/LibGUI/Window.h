@@ -14,6 +14,7 @@
 #include <LibCore/Object.h>
 #include <LibGUI/FocusSource.h>
 #include <LibGUI/Forward.h>
+#include <LibGUI/ResizeDirection.h>
 #include <LibGUI/WindowMode.h>
 #include <LibGUI/WindowType.h>
 #include <LibGfx/Forward.h>
@@ -43,6 +44,9 @@ public:
 
     bool is_maximized() const { return m_maximized; }
     void set_maximized(bool);
+
+    bool is_minimized() const { return m_minimized; }
+    void set_minimized(bool);
 
     bool is_frameless() const { return m_frameless; }
     void set_frameless(bool);
@@ -131,7 +135,7 @@ public:
     virtual void close();
     void move_to_front();
 
-    void start_interactive_resize();
+    void start_interactive_resize(ResizeDirection resize_direction);
 
     Widget* main_widget() { return m_main_widget; }
     Widget const* main_widget() const { return m_main_widget; }
@@ -225,11 +229,10 @@ public:
     Menubar& menubar() { return *m_menubar; }
     Menubar const& menubar() const { return *m_menubar; }
 
-    void set_blocks_command_palette(bool b) { m_blocks_command_palette = b; }
-    bool blocks_command_palette() const { return m_blocks_command_palette; }
-
     void set_blocks_emoji_input(bool b) { m_blocks_emoji_input = b; }
     bool blocks_emoji_input() const { return m_blocks_emoji_input; }
+
+    void set_always_on_top(bool always_on_top = true);
 
 protected:
     Window(Core::Object* parent = nullptr);
@@ -306,6 +309,7 @@ private:
     bool m_minimizable { true };
     bool m_closeable { true };
     bool m_maximized { false };
+    bool m_minimized { false };
     bool m_fullscreen { false };
     bool m_frameless { false };
     bool m_forced_shadow { false };
@@ -313,7 +317,6 @@ private:
     bool m_visible_for_timer_purposes { true };
     bool m_visible { false };
     bool m_moved_by_client { false };
-    bool m_blocks_command_palette { false };
     bool m_blocks_emoji_input { false };
 };
 

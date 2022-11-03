@@ -58,8 +58,17 @@ set(CMAKE_CXX_FLAGS ${compiler_flags} CACHE STRING "")
 set(LIBCXX_USE_COMPILER_RT ON CACHE BOOL "")
 set(LIBCXX_ENABLE_STATIC_ABI_LIBRARY ON CACHE BOOL "")
 set(LIBCXX_INCLUDE_BENCHMARKS OFF CACHE BOOL "")
-if (NOT "${SERENITY_TOOLCHAIN_ARCH}" STREQUAL "aarch64")
-    set(LIBCXX_HAS_M_LIB ON CACHE BOOL "")
-endif()
 set(LIBCXXABI_USE_COMPILER_RT ON CACHE BOOL "")
 set(LIBUNWIND_USE_COMPILER_RT ON CACHE BOOL "")
+
+# Hardcode autodetection results for libm, libdl, and libpthread.
+# This keeps us from accidentially detecting those libraries as being present
+# if we build the toolchain with a populated sysroot (which features the
+# compability linker scripts).
+# TODO: Figure out if we can always build against the Stubs directory instead.
+set(LIBCXXABI_HAS_DL_LIB OFF CACHE BOOL "")
+set(LIBCXXABI_HAS_PTHREAD_LIB OFF CACHE BOOL "")
+set(LIBCXX_HAS_M_LIB OFF CACHE BOOL "")
+set(LIBCXX_HAS_PTHREAD_LIB OFF CACHE BOOL "")
+set(LIBUNWIND_HAS_DL_LIB OFF CACHE BOOL "")
+set(LIBUNWIND_HAS_PTHREAD_LIB OFF CACHE BOOL "")

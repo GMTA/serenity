@@ -21,12 +21,11 @@ namespace Web::CSS {
 
 ResolvedCSSStyleDeclaration* ResolvedCSSStyleDeclaration::create(DOM::Element& element)
 {
-    auto& window_object = element.document().window();
-    return window_object.heap().allocate<ResolvedCSSStyleDeclaration>(window_object.realm(), element);
+    return element.realm().heap().allocate<ResolvedCSSStyleDeclaration>(element.realm(), element);
 }
 
 ResolvedCSSStyleDeclaration::ResolvedCSSStyleDeclaration(DOM::Element& element)
-    : CSSStyleDeclaration(element.document().window())
+    : CSSStyleDeclaration(element.realm())
     , m_element(element)
 {
 }
@@ -136,6 +135,24 @@ static NonnullRefPtr<StyleValue> style_value_for_length_percentage(LengthPercent
     if (length_percentage.is_length())
         return LengthStyleValue::create(length_percentage.length());
     return length_percentage.calculated();
+}
+
+static NonnullRefPtr<StyleValue> style_value_for_size(CSS::Size const& size)
+{
+    if (size.is_none())
+        return IdentifierStyleValue::create(ValueID::None);
+    if (size.is_percentage())
+        return PercentageStyleValue::create(size.percentage());
+    if (size.is_length())
+        return LengthStyleValue::create(size.length());
+    if (size.is_auto())
+        return IdentifierStyleValue::create(ValueID::Auto);
+    if (size.is_min_content())
+        return IdentifierStyleValue::create(ValueID::MinContent);
+    if (size.is_max_content())
+        return IdentifierStyleValue::create(ValueID::MaxContent);
+    // FIXME: Support fit-content(<length>)
+    TODO();
 }
 
 RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout::NodeWithStyle const& layout_node, PropertyID property_id) const
@@ -285,7 +302,7 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
     case CSS::PropertyID::Cursor:
         return IdentifierStyleValue::create(to_value_id(layout_node.computed_values().cursor()));
     case CSS::PropertyID::Display:
-        return style_value_for_display(layout_node.computed_values().display());
+        return style_value_for_display(layout_node.display());
     case CSS::PropertyID::FlexBasis: {
         switch (layout_node.computed_values().flex_basis().type) {
         case FlexBasis::Content:
@@ -349,7 +366,7 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
     case CSS::PropertyID::GridTemplateRows:
         return GridTrackSizeStyleValue::create(layout_node.computed_values().grid_template_rows());
     case CSS::PropertyID::Height:
-        return style_value_for_length_percentage(layout_node.computed_values().height());
+        return style_value_for_size(layout_node.computed_values().height());
     case CSS::PropertyID::ImageRendering:
         return IdentifierStyleValue::create(to_value_id(layout_node.computed_values().image_rendering()));
     case CSS::PropertyID::JustifyContent:
@@ -359,28 +376,28 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
     case CSS::PropertyID::Margin: {
         auto margin = layout_node.computed_values().margin();
         auto values = NonnullRefPtrVector<StyleValue> {};
-        values.append(style_value_for_length_percentage(margin.top));
-        values.append(style_value_for_length_percentage(margin.right));
-        values.append(style_value_for_length_percentage(margin.bottom));
-        values.append(style_value_for_length_percentage(margin.left));
+        values.append(style_value_for_length_percentage(margin.top()));
+        values.append(style_value_for_length_percentage(margin.right()));
+        values.append(style_value_for_length_percentage(margin.bottom()));
+        values.append(style_value_for_length_percentage(margin.left()));
         return StyleValueList::create(move(values), StyleValueList::Separator::Space);
     }
     case CSS::PropertyID::MarginBottom:
-        return style_value_for_length_percentage(layout_node.computed_values().margin().bottom);
+        return style_value_for_length_percentage(layout_node.computed_values().margin().bottom());
     case CSS::PropertyID::MarginLeft:
-        return style_value_for_length_percentage(layout_node.computed_values().margin().left);
+        return style_value_for_length_percentage(layout_node.computed_values().margin().left());
     case CSS::PropertyID::MarginRight:
-        return style_value_for_length_percentage(layout_node.computed_values().margin().right);
+        return style_value_for_length_percentage(layout_node.computed_values().margin().right());
     case CSS::PropertyID::MarginTop:
-        return style_value_for_length_percentage(layout_node.computed_values().margin().top);
+        return style_value_for_length_percentage(layout_node.computed_values().margin().top());
     case CSS::PropertyID::MaxHeight:
-        return style_value_for_length_percentage(layout_node.computed_values().max_height());
+        return style_value_for_size(layout_node.computed_values().max_height());
     case CSS::PropertyID::MaxWidth:
-        return style_value_for_length_percentage(layout_node.computed_values().max_width());
+        return style_value_for_size(layout_node.computed_values().max_width());
     case CSS::PropertyID::MinHeight:
-        return style_value_for_length_percentage(layout_node.computed_values().min_height());
+        return style_value_for_size(layout_node.computed_values().min_height());
     case CSS::PropertyID::MinWidth:
-        return style_value_for_length_percentage(layout_node.computed_values().min_width());
+        return style_value_for_size(layout_node.computed_values().min_width());
     case CSS::PropertyID::Opacity:
         return NumericStyleValue::create_float(layout_node.computed_values().opacity());
     case CSS::PropertyID::Order:
@@ -392,20 +409,20 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
     case CSS::PropertyID::Padding: {
         auto padding = layout_node.computed_values().padding();
         auto values = NonnullRefPtrVector<StyleValue> {};
-        values.append(style_value_for_length_percentage(padding.top));
-        values.append(style_value_for_length_percentage(padding.right));
-        values.append(style_value_for_length_percentage(padding.bottom));
-        values.append(style_value_for_length_percentage(padding.left));
+        values.append(style_value_for_length_percentage(padding.top()));
+        values.append(style_value_for_length_percentage(padding.right()));
+        values.append(style_value_for_length_percentage(padding.bottom()));
+        values.append(style_value_for_length_percentage(padding.left()));
         return StyleValueList::create(move(values), StyleValueList::Separator::Space);
     }
     case CSS::PropertyID::PaddingBottom:
     case CSS::PropertyID::PaddingLeft:
-        return style_value_for_length_percentage(layout_node.computed_values().padding().left);
-        return style_value_for_length_percentage(layout_node.computed_values().padding().bottom);
+        return style_value_for_length_percentage(layout_node.computed_values().padding().left());
+        return style_value_for_length_percentage(layout_node.computed_values().padding().bottom());
     case CSS::PropertyID::PaddingRight:
-        return style_value_for_length_percentage(layout_node.computed_values().padding().right);
+        return style_value_for_length_percentage(layout_node.computed_values().padding().right());
     case CSS::PropertyID::PaddingTop:
-        return style_value_for_length_percentage(layout_node.computed_values().padding().top);
+        return style_value_for_length_percentage(layout_node.computed_values().padding().top());
     case CSS::PropertyID::Position:
         return IdentifierStyleValue::create(to_value_id(layout_node.computed_values().position()));
     case CSS::PropertyID::TextAlign:
@@ -440,6 +457,9 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
         VERIFY(layout_node.paintable());
         auto const& paintable_box = verify_cast<Painting::PaintableBox const>(layout_node.paintable());
         VERIFY(paintable_box->stacking_context());
+
+        // FIXME: This needs to serialize to matrix3d if the transformation matrix is a 3D matrix.
+        //        https://w3c.github.io/csswg-drafts/css-transforms-2/#serialization-of-the-computed-value
         auto affine_matrix = paintable_box->stacking_context()->affine_transform_matrix();
 
         NonnullRefPtrVector<StyleValue> parameters;
@@ -470,7 +490,7 @@ RefPtr<StyleValue> ResolvedCSSStyleDeclaration::style_value_for_property(Layout:
     case CSS::PropertyID::WhiteSpace:
         return IdentifierStyleValue::create(to_value_id(layout_node.computed_values().white_space()));
     case CSS::PropertyID::Width:
-        return style_value_for_length_percentage(layout_node.computed_values().width());
+        return style_value_for_size(layout_node.computed_values().width());
     case CSS::PropertyID::ZIndex: {
         auto maybe_z_index = layout_node.computed_values().z_index();
         if (!maybe_z_index.has_value())
@@ -500,9 +520,15 @@ Optional<StyleProperty> ResolvedCSSStyleDeclaration::property(PropertyID propert
 
     if (!m_element->layout_node()) {
         auto style = m_element->document().style_computer().compute_style(const_cast<DOM::Element&>(*m_element));
+        // FIXME: This is a stopgap until we implement shorthand -> longhand conversion.
+        auto value = style->maybe_null_property(property_id);
+        if (!value) {
+            dbgln("FIXME: ResolvedCSSStyleDeclaration::property(property_id=0x{:x}) No value for property ID in newly computed style case.", to_underlying(property_id));
+            return {};
+        }
         return StyleProperty {
             .property_id = property_id,
-            .value = style->property(property_id),
+            .value = value.release_nonnull(),
         };
     }
 
@@ -517,17 +543,17 @@ Optional<StyleProperty> ResolvedCSSStyleDeclaration::property(PropertyID propert
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-setproperty
-DOM::ExceptionOr<void> ResolvedCSSStyleDeclaration::set_property(PropertyID, StringView, StringView)
+WebIDL::ExceptionOr<void> ResolvedCSSStyleDeclaration::set_property(PropertyID, StringView, StringView)
 {
     // 1. If the computed flag is set, then throw a NoModificationAllowedError exception.
-    return DOM::NoModificationAllowedError::create(global_object(), "Cannot modify properties in result of getComputedStyle()");
+    return WebIDL::NoModificationAllowedError::create(realm(), "Cannot modify properties in result of getComputedStyle()");
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-removeproperty
-DOM::ExceptionOr<String> ResolvedCSSStyleDeclaration::remove_property(PropertyID)
+WebIDL::ExceptionOr<String> ResolvedCSSStyleDeclaration::remove_property(PropertyID)
 {
     // 1. If the computed flag is set, then throw a NoModificationAllowedError exception.
-    return DOM::NoModificationAllowedError::create(global_object(), "Cannot remove properties from result of getComputedStyle()");
+    return WebIDL::NoModificationAllowedError::create(realm(), "Cannot remove properties from result of getComputedStyle()");
 }
 
 String ResolvedCSSStyleDeclaration::serialized() const

@@ -22,6 +22,7 @@ public:
         Name,
         Value,
         ExpiryTime,
+        SameSite,
         __Count,
     };
 
@@ -33,6 +34,9 @@ public:
     virtual GUI::ModelIndex index(int row, int column = 0, GUI::ModelIndex const& = GUI::ModelIndex()) const override;
     virtual GUI::Variant data(GUI::ModelIndex const& index, GUI::ModelRole role = GUI::ModelRole::Display) const override;
     virtual TriState data_matches(GUI::ModelIndex const& index, GUI::Variant const& term) const override;
+
+    Web::Cookie::Cookie take_cookie(GUI::ModelIndex const&);
+    AK::Vector<Web::Cookie::Cookie> take_all_cookies();
 
 private:
     AK::Vector<Web::Cookie::Cookie> m_cookies;

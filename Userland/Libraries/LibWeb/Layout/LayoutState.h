@@ -20,6 +20,9 @@ enum class SizeConstraint {
     MaxContent,
 };
 
+class AvailableSize;
+class AvailableSpace;
+
 struct LayoutState {
     LayoutState()
         : m_root(*this)
@@ -50,10 +53,22 @@ struct LayoutState {
         void set_content_width(float);
         void set_content_height(float);
 
+        // NOTE: These are used by FlexFormattingContext to assign a temporary main size to items
+        //       early on, so that descendants have something to resolve percentages against.
+        void set_temporary_content_width(float);
+        void set_temporary_content_height(float);
+
         bool has_definite_width() const { return m_has_definite_width && width_constraint == SizeConstraint::None; }
         bool has_definite_height() const { return m_has_definite_height && height_constraint == SizeConstraint::None; }
-        void set_has_definite_width(bool value) { m_has_definite_width = value; }
-        void set_has_definite_height(bool value) { m_has_definite_height = value; }
+
+        // Returns the available space for content inside this layout box.
+        // If the space in an axis is indefinite, and the outer space is an intrinsic sizing constraint,
+        // the constraint is used in that axis instead.
+        AvailableSpace available_inner_space_or_constraints_from(AvailableSpace const& outer_space) const;
+
+        void set_content_offset(Gfx::FloatPoint);
+        void set_content_x(float);
+        void set_content_y(float);
 
         Gfx::FloatPoint offset;
 
@@ -109,7 +124,13 @@ struct LayoutState {
 
         Optional<LineBoxFragmentCoordinate> containing_line_box_fragment;
 
+        void add_floating_descendant(Box const& box) { m_floating_descendants.set(&box); }
+        auto const& floating_descendants() const { return m_floating_descendants; }
+
     private:
+        AvailableSize available_width_inside() const;
+        AvailableSize available_height_inside() const;
+
         Layout::NodeWithStyleAndBoxModelMetrics* m_node { nullptr };
 
         float m_content_width { 0 };
@@ -117,7 +138,12 @@ struct LayoutState {
 
         bool m_has_definite_width { false };
         bool m_has_definite_height { false };
+
+        HashTable<Box const*> m_floating_descendants;
     };
+
+    float resolved_definite_width(Box const&) const;
+    float resolved_definite_height(Box const&) const;
 
     void commit();
 
@@ -134,13 +160,18 @@ struct LayoutState {
     struct IntrinsicSizes {
         Optional<float> min_content_width;
         Optional<float> max_content_width;
-        Optional<float> min_content_height;
-        Optional<float> max_content_height;
+
+        // NOTE: Since intrinsic heights depend on the amount of available width, we have to cache
+        //       three separate kinds of results, depending on the available width at the time of calculation.
+        HashMap<float, Optional<float>> min_content_height_with_definite_available_width;
+        HashMap<float, Optional<float>> max_content_height_with_definite_available_width;
+        Optional<float> min_content_height_with_min_content_available_width;
+        Optional<float> max_content_height_with_min_content_available_width;
+        Optional<float> min_content_height_with_max_content_available_width;
+        Optional<float> max_content_height_with_max_content_available_width;
     };
 
     HashMap<NodeWithStyleAndBoxModelMetrics const*, NonnullOwnPtr<IntrinsicSizes>> mutable intrinsic_sizes;
-
-    HashMap<Box const*, float> mutable flex_item_size_cache;
 
     LayoutState const* m_parent { nullptr };
     LayoutState const& m_root;

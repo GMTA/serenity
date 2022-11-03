@@ -9,6 +9,7 @@
 #include <LibWeb/Painting/BorderPainting.h>
 #include <LibWeb/Painting/BorderRadiusCornerClipper.h>
 #include <LibWeb/Painting/Paintable.h>
+#include <LibWeb/Painting/ShadowPainting.h>
 
 namespace Web::Painting {
 
@@ -68,6 +69,8 @@ public:
         return rect;
     }
 
+    Gfx::FloatRect absolute_paint_rect() const;
+
     float border_box_width() const
     {
         auto border_box = box_model().border_box();
@@ -107,21 +110,25 @@ public:
     DOM::Document const& document() const { return layout_box().document(); }
     DOM::Document& document() { return layout_box().document(); }
 
-    virtual void before_children_paint(PaintContext&, PaintPhase) const override;
-    virtual void after_children_paint(PaintContext&, PaintPhase) const override;
+    virtual void before_children_paint(PaintContext&, PaintPhase, ShouldClipOverflow) const override;
+    virtual void after_children_paint(PaintContext&, PaintPhase, ShouldClipOverflow) const override;
 
     virtual Optional<HitTestResult> hit_test(Gfx::FloatPoint const&, HitTestType) const override;
 
     void invalidate_stacking_context();
 
+    bool is_out_of_view(PaintContext&) const;
+
 protected:
     explicit PaintableBox(Layout::Box const&);
 
     virtual void paint_border(PaintContext&) const;
+    virtual void paint_backdrop_filter(PaintContext&) const;
     virtual void paint_background(PaintContext&) const;
     virtual void paint_box_shadow(PaintContext&) const;
 
     virtual Gfx::FloatRect compute_absolute_rect() const;
+    virtual Gfx::FloatRect compute_absolute_paint_rect() const;
 
     enum class ShrinkRadiiForBorders {
         Yes,
@@ -129,6 +136,8 @@ protected:
     };
 
     Painting::BorderRadiiData normalized_border_radii_data(ShrinkRadiiForBorders shrink = ShrinkRadiiForBorders::No) const;
+
+    Vector<ShadowData> resolve_box_shadow_data() const;
 
 private:
     Optional<OverflowData> m_overflow_data;
@@ -142,6 +151,7 @@ private:
     OwnPtr<Painting::StackingContext> m_stacking_context;
 
     Optional<Gfx::FloatRect> mutable m_absolute_rect;
+    Optional<Gfx::FloatRect> mutable m_absolute_paint_rect;
 
     mutable bool m_clipping_overflow { false };
     Optional<BorderRadiusCornerClipper> mutable m_overflow_corner_radius_clipper;

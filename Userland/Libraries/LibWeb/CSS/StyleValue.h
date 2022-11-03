@@ -74,19 +74,65 @@ enum class SideOrCorner {
     BottomRight
 };
 
-struct GradientColorStop {
-    Color color;
-    Optional<LengthPercentage> position;
-    Optional<LengthPercentage> second_position = {};
-};
-
-struct GradientColorHint {
-    LengthPercentage value;
-};
-
+template<typename TPosition>
 struct ColorStopListElement {
-    Optional<GradientColorHint> transition_hint;
-    GradientColorStop color_stop;
+    using PositionType = TPosition;
+    struct ColorHint {
+        TPosition value;
+        inline bool operator==(ColorHint const&) const = default;
+    };
+
+    Optional<ColorHint> transition_hint;
+    struct ColorStop {
+        Color color;
+        Optional<TPosition> position;
+        Optional<TPosition> second_position = {};
+        inline bool operator==(ColorStop const&) const = default;
+    } color_stop;
+
+    inline bool operator==(ColorStopListElement const&) const = default;
+};
+
+using LinearColorStopListElement = ColorStopListElement<LengthPercentage>;
+using AngularColorStopListElement = ColorStopListElement<AnglePercentage>;
+
+// FIXME: Named PositionValue to avoid conflicts with enums, but this represents a <position>
+struct PositionValue {
+    enum class HorizontalPreset {
+        Left,
+        Center,
+        Right
+    };
+
+    enum class VerticalPreset {
+        Top,
+        Center,
+        Bottom
+    };
+
+    enum class HorizontalEdge {
+        Left,
+        Right
+    };
+
+    enum class VerticalEdge {
+        Top,
+        Bottom
+    };
+
+    inline static PositionValue center()
+    {
+        return PositionValue { HorizontalPreset::Center, VerticalPreset::Center };
+    }
+
+    Variant<HorizontalPreset, LengthPercentage> horizontal_position { HorizontalPreset::Left };
+    Variant<VerticalPreset, LengthPercentage> vertical_position { VerticalPreset::Top };
+    HorizontalEdge x_relative_to { HorizontalEdge::Left };
+    VerticalEdge y_relative_to { VerticalEdge::Top };
+
+    Gfx::FloatPoint resolved(Layout::Node const&, Gfx::FloatRect const&) const;
+    void serialize(StringBuilder&) const;
+    bool operator==(PositionValue const&) const;
 };
 
 struct EdgeRect {
@@ -96,6 +142,52 @@ struct EdgeRect {
     Length left_edge;
     Gfx::FloatRect resolved(Layout::Node const&, Gfx::FloatRect) const;
 };
+
+namespace Filter {
+
+struct Blur {
+    Optional<Length> radius {};
+    float resolved_radius(Layout::Node const&) const;
+};
+
+struct DropShadow {
+    Length offset_x;
+    Length offset_y;
+    Optional<Length> radius {};
+    Optional<Color> color {};
+    struct Resolved {
+        float offset_x;
+        float offset_y;
+        float radius;
+        Color color;
+    };
+    Resolved resolved(Layout::Node const&) const;
+};
+
+struct HueRotate {
+    struct Zero { };
+    using AngleOrZero = Variant<Angle, Zero>;
+    Optional<AngleOrZero> angle {};
+    float angle_degrees() const;
+};
+
+struct Color {
+    enum class Operation {
+        Brightness,
+        Contrast,
+        Grayscale,
+        Invert,
+        Opacity,
+        Saturate,
+        Sepia
+    } operation;
+    Optional<NumberPercentage> amount {};
+    float resolved_amount() const;
+};
+
+};
+
+using FilterFunction = Variant<Filter::Blur, Filter::DropShadow, Filter::HueRotate, Filter::Color>;
 
 // FIXME: Find a better place for this helper.
 inline Gfx::Painter::ScalingMode to_gfx_scaling_mode(CSS::ImageRendering css_value)
@@ -127,14 +219,16 @@ public:
         BorderRadiusShorthand,
         Calculated,
         Color,
+        ConicGradient,
         Content,
+        FilterValueList,
         Flex,
         FlexFlow,
         Font,
         Frequency,
         GridTrackPlacement,
         GridTrackPlacementShorthand,
-        GridTrackSize,
+        GridTrackSizeList,
         Identifier,
         Image,
         Inherit,
@@ -161,7 +255,7 @@ public:
 
     Type type() const { return m_type; }
 
-    bool is_abstract_image() const { return AK::first_is_one_of(type(), Type::Image, Type::LinearGradient); }
+    bool is_abstract_image() const { return AK::first_is_one_of(type(), Type::Image, Type::LinearGradient, Type::ConicGradient); }
     bool is_angle() const { return type() == Type::Angle; }
     bool is_background() const { return type() == Type::Background; }
     bool is_background_repeat() const { return type() == Type::BackgroundRepeat; }
@@ -171,14 +265,16 @@ public:
     bool is_border_radius_shorthand() const { return type() == Type::BorderRadiusShorthand; }
     bool is_calculated() const { return type() == Type::Calculated; }
     bool is_color() const { return type() == Type::Color; }
+    bool is_conic_gradient() const { return type() == Type::ConicGradient; }
     bool is_content() const { return type() == Type::Content; }
+    bool is_filter_value_list() const { return type() == Type::FilterValueList; }
     bool is_flex() const { return type() == Type::Flex; }
     bool is_flex_flow() const { return type() == Type::FlexFlow; }
     bool is_font() const { return type() == Type::Font; }
     bool is_frequency() const { return type() == Type::Frequency; }
     bool is_grid_track_placement() const { return type() == Type::GridTrackPlacement; }
     bool is_grid_track_placement_shorthand() const { return type() == Type::GridTrackPlacementShorthand; }
-    bool is_grid_track_size() const { return type() == Type::GridTrackSize; }
+    bool is_grid_track_size_list() const { return type() == Type::GridTrackSizeList; }
     bool is_identifier() const { return type() == Type::Identifier; }
     bool is_image() const { return type() == Type::Image; }
     bool is_inherit() const { return type() == Type::Inherit; }
@@ -213,14 +309,16 @@ public:
     BorderStyleValue const& as_border() const;
     CalculatedStyleValue const& as_calculated() const;
     ColorStyleValue const& as_color() const;
+    ConicGradientStyleValue const& as_conic_gradient() const;
     ContentStyleValue const& as_content() const;
+    FilterValueListStyleValue const& as_filter_value_list() const;
     FlexFlowStyleValue const& as_flex_flow() const;
     FlexStyleValue const& as_flex() const;
     FontStyleValue const& as_font() const;
     FrequencyStyleValue const& as_frequency() const;
     GridTrackPlacementShorthandStyleValue const& as_grid_track_placement_shorthand() const;
     GridTrackPlacementStyleValue const& as_grid_track_placement() const;
-    GridTrackSizeStyleValue const& as_grid_track_size() const;
+    GridTrackSizeStyleValue const& as_grid_track_size_list() const;
     IdentifierStyleValue const& as_identifier() const;
     ImageStyleValue const& as_image() const;
     InheritStyleValue const& as_inherit() const;
@@ -253,14 +351,16 @@ public:
     BorderStyleValue& as_border() { return const_cast<BorderStyleValue&>(const_cast<StyleValue const&>(*this).as_border()); }
     CalculatedStyleValue& as_calculated() { return const_cast<CalculatedStyleValue&>(const_cast<StyleValue const&>(*this).as_calculated()); }
     ColorStyleValue& as_color() { return const_cast<ColorStyleValue&>(const_cast<StyleValue const&>(*this).as_color()); }
+    ConicGradientStyleValue& as_conic_gradient() { return const_cast<ConicGradientStyleValue&>(const_cast<StyleValue const&>(*this).as_conic_gradient()); }
     ContentStyleValue& as_content() { return const_cast<ContentStyleValue&>(const_cast<StyleValue const&>(*this).as_content()); }
+    FilterValueListStyleValue& as_filter_value_list() { return const_cast<FilterValueListStyleValue&>(const_cast<StyleValue const&>(*this).as_filter_value_list()); }
     FlexFlowStyleValue& as_flex_flow() { return const_cast<FlexFlowStyleValue&>(const_cast<StyleValue const&>(*this).as_flex_flow()); }
     FlexStyleValue& as_flex() { return const_cast<FlexStyleValue&>(const_cast<StyleValue const&>(*this).as_flex()); }
     FontStyleValue& as_font() { return const_cast<FontStyleValue&>(const_cast<StyleValue const&>(*this).as_font()); }
     FrequencyStyleValue& as_frequency() { return const_cast<FrequencyStyleValue&>(const_cast<StyleValue const&>(*this).as_frequency()); }
     GridTrackPlacementShorthandStyleValue& as_grid_track_placement_shorthand() { return const_cast<GridTrackPlacementShorthandStyleValue&>(const_cast<StyleValue const&>(*this).as_grid_track_placement_shorthand()); }
     GridTrackPlacementStyleValue& as_grid_track_placement() { return const_cast<GridTrackPlacementStyleValue&>(const_cast<StyleValue const&>(*this).as_grid_track_placement()); }
-    GridTrackSizeStyleValue& as_grid_track_size() { return const_cast<GridTrackSizeStyleValue&>(const_cast<StyleValue const&>(*this).as_grid_track_size()); }
+    GridTrackSizeStyleValue& as_grid_track_size_list() { return const_cast<GridTrackSizeStyleValue&>(const_cast<StyleValue const&>(*this).as_grid_track_size_list()); }
     IdentifierStyleValue& as_identifier() { return const_cast<IdentifierStyleValue&>(const_cast<StyleValue const&>(*this).as_identifier()); }
     ImageStyleValue& as_image() { return const_cast<ImageStyleValue&>(const_cast<StyleValue const&>(*this).as_image()); }
     InheritStyleValue& as_inherit() { return const_cast<InheritStyleValue&>(const_cast<StyleValue const&>(*this).as_inherit()); }
@@ -609,6 +709,7 @@ public:
         String to_string() const;
         Optional<ResolvedType> resolved_type() const;
         CalculationResult resolve(Layout::Node const*, PercentageBasis const& percentage_basis) const;
+        bool contains_percentage() const;
     };
 
     // This represents that: https://www.w3.org/TR/css-values-3/#calc-syntax
@@ -623,6 +724,8 @@ public:
         String to_string() const;
         Optional<ResolvedType> resolved_type() const;
         CalculationResult resolve(Layout::Node const*, PercentageBasis const& percentage_basis) const;
+
+        bool contains_percentage() const;
     };
 
     struct CalcNumberSum {
@@ -645,6 +748,7 @@ public:
         String to_string() const;
         Optional<ResolvedType> resolved_type() const;
         CalculationResult resolve(Layout::Node const*, PercentageBasis const& percentage_basis) const;
+        bool contains_percentage() const;
     };
 
     struct CalcSumPartWithOperator {
@@ -658,6 +762,7 @@ public:
         String to_string() const;
         Optional<ResolvedType> resolved_type() const;
         CalculationResult resolve(Layout::Node const*, PercentageBasis const& percentage_basis) const;
+        bool contains_percentage() const;
     };
 
     struct CalcProductPartWithOperator {
@@ -667,6 +772,8 @@ public:
         String to_string() const;
         Optional<ResolvedType> resolved_type() const;
         CalculationResult resolve(Layout::Node const*, PercentageBasis const& percentage_basis) const;
+
+        bool contains_percentage() const;
     };
 
     struct CalcNumberProduct {
@@ -734,6 +841,8 @@ public:
     Optional<float> resolve_number();
     Optional<i64> resolve_integer();
 
+    bool contains_percentage() const;
+
 private:
     explicit CalculatedStyleValue(NonnullOwnPtr<CalcSum> calc_sum, ResolvedType resolved_type)
         : StyleValue(Type::Calculated)
@@ -792,6 +901,33 @@ private:
 
     NonnullRefPtr<StyleValueList> m_content;
     RefPtr<StyleValueList> m_alt_text;
+};
+
+class FilterValueListStyleValue final : public StyleValue {
+public:
+    static NonnullRefPtr<FilterValueListStyleValue> create(
+        Vector<FilterFunction> filter_value_list)
+    {
+        VERIFY(filter_value_list.size() >= 1);
+        return adopt_ref(*new FilterValueListStyleValue(move(filter_value_list)));
+    }
+
+    Vector<FilterFunction> const& filter_value_list() const { return m_filter_value_list; }
+
+    virtual String to_string() const override;
+    virtual bool equals(StyleValue const& other) const override;
+
+    virtual ~FilterValueListStyleValue() override = default;
+
+private:
+    FilterValueListStyleValue(Vector<FilterFunction> filter_value_list)
+        : StyleValue(Type::FilterValueList)
+        , m_filter_value_list(move(filter_value_list))
+    {
+    }
+
+    // FIXME: No support for SVG filters yet
+    Vector<FilterFunction> m_filter_value_list;
 };
 
 class FlexStyleValue final : public StyleValue {
@@ -962,21 +1098,24 @@ private:
 
 class GridTrackSizeStyleValue final : public StyleValue {
 public:
-    static NonnullRefPtr<GridTrackSizeStyleValue> create(Vector<CSS::GridTrackSize> grid_track_size);
+    static NonnullRefPtr<GridTrackSizeStyleValue> create(CSS::GridTrackSizeList grid_track_size_list);
     virtual ~GridTrackSizeStyleValue() override = default;
 
-    Vector<CSS::GridTrackSize> grid_track_size() const { return m_grid_track; }
+    static NonnullRefPtr<GridTrackSizeStyleValue> make_auto();
+
+    CSS::GridTrackSizeList grid_track_size_list() const { return m_grid_track_size_list; }
+
     virtual String to_string() const override;
     virtual bool equals(StyleValue const& other) const override;
 
 private:
-    explicit GridTrackSizeStyleValue(Vector<CSS::GridTrackSize> grid_track_size)
-        : StyleValue(Type::GridTrackSize)
-        , m_grid_track(grid_track_size)
+    explicit GridTrackSizeStyleValue(CSS::GridTrackSizeList grid_track_size_list)
+        : StyleValue(Type::GridTrackSizeList)
+        , m_grid_track_size_list(grid_track_size_list)
     {
     }
 
-    Vector<CSS::GridTrackSize> m_grid_track;
+    CSS::GridTrackSizeList m_grid_track_size_list;
 };
 
 class IdentifierStyleValue final : public StyleValue {
@@ -1052,6 +1191,57 @@ private:
     RefPtr<Gfx::Bitmap> m_bitmap;
 };
 
+class ConicGradientStyleValue final : public AbstractImageStyleValue {
+public:
+    static NonnullRefPtr<ConicGradientStyleValue> create(Angle from_angle, PositionValue position, Vector<AngularColorStopListElement> color_stop_list)
+    {
+        VERIFY(color_stop_list.size() >= 2);
+        return adopt_ref(*new ConicGradientStyleValue(from_angle, position, move(color_stop_list)));
+    }
+
+    virtual String to_string() const override;
+
+    void paint(PaintContext&, Gfx::IntRect const& dest_rect, CSS::ImageRendering) const override;
+
+    virtual bool equals(StyleValue const& other) const override;
+
+    Vector<AngularColorStopListElement> const& color_stop_list() const
+    {
+        return m_color_stop_list;
+    }
+
+    float angle_degrees() const;
+
+    bool is_paintable() const override { return true; }
+
+    void resolve_for_size(Layout::Node const&, Gfx::FloatSize const&) const override;
+
+    virtual ~ConicGradientStyleValue() override = default;
+
+    Gfx::FloatPoint resolve_position(Layout::Node const&, Gfx::FloatRect const&) const;
+
+private:
+    ConicGradientStyleValue(Angle from_angle, PositionValue position, Vector<AngularColorStopListElement> color_stop_list)
+        : AbstractImageStyleValue(Type::ConicGradient)
+        , m_from_angle(from_angle)
+        , m_position(position)
+        , m_color_stop_list(move(color_stop_list))
+    {
+    }
+
+    // FIXME: Support <color-interpolation-method>
+    Angle m_from_angle;
+    PositionValue m_position;
+    Vector<AngularColorStopListElement> m_color_stop_list;
+
+    struct ResolvedData {
+        Painting::ConicGradientData data;
+        Gfx::FloatPoint position;
+    };
+
+    mutable Optional<ResolvedData> m_resolved;
+};
+
 class LinearGradientStyleValue final : public AbstractImageStyleValue {
 public:
     using GradientDirection = Variant<Angle, SideOrCorner>;
@@ -1066,7 +1256,7 @@ public:
         No
     };
 
-    static NonnullRefPtr<LinearGradientStyleValue> create(GradientDirection direction, Vector<ColorStopListElement> color_stop_list, GradientType type, Repeating repeating)
+    static NonnullRefPtr<LinearGradientStyleValue> create(GradientDirection direction, Vector<LinearColorStopListElement> color_stop_list, GradientType type, Repeating repeating)
     {
         VERIFY(color_stop_list.size() >= 2);
         return adopt_ref(*new LinearGradientStyleValue(direction, move(color_stop_list), type, repeating));
@@ -1076,7 +1266,7 @@ public:
     virtual ~LinearGradientStyleValue() override = default;
     virtual bool equals(StyleValue const& other) const override;
 
-    Vector<ColorStopListElement> const& color_stop_list() const
+    Vector<LinearColorStopListElement> const& color_stop_list() const
     {
         return m_color_stop_list;
     }
@@ -1091,7 +1281,7 @@ public:
     void paint(PaintContext& context, Gfx::IntRect const& dest_rect, CSS::ImageRendering image_rendering) const override;
 
 private:
-    LinearGradientStyleValue(GradientDirection direction, Vector<ColorStopListElement> color_stop_list, GradientType type, Repeating repeating)
+    LinearGradientStyleValue(GradientDirection direction, Vector<LinearColorStopListElement> color_stop_list, GradientType type, Repeating repeating)
         : AbstractImageStyleValue(Type::LinearGradient)
         , m_direction(direction)
         , m_color_stop_list(move(color_stop_list))
@@ -1101,7 +1291,7 @@ private:
     }
 
     GradientDirection m_direction;
-    Vector<ColorStopListElement> m_color_stop_list;
+    Vector<LinearColorStopListElement> m_color_stop_list;
     GradientType m_gradient_type;
     Repeating m_repeating;
 

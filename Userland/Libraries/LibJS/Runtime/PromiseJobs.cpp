@@ -10,6 +10,7 @@
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/JobCallback.h>
 #include <LibJS/Runtime/Promise.h>
+#include <LibJS/Runtime/PromiseCapability.h>
 #include <LibJS/Runtime/PromiseJobs.h>
 #include <LibJS/Runtime/PromiseReaction.h>
 
@@ -19,7 +20,7 @@ namespace JS {
 static ThrowCompletionOr<Value> run_reaction_job(VM& vm, PromiseReaction& reaction, Value argument)
 {
     // a. Let promiseCapability be reaction.[[Capability]].
-    auto& promise_capability = reaction.capability();
+    auto promise_capability = reaction.capability();
 
     // b. Let type be reaction.[[Type]].
     auto type = reaction.type();
@@ -57,7 +58,7 @@ static ThrowCompletionOr<Value> run_reaction_job(VM& vm, PromiseReaction& reacti
     }
 
     // f. If promiseCapability is undefined, then
-    if (!promise_capability.has_value()) {
+    if (promise_capability == nullptr) {
         // i. Assert: handlerResult is not an abrupt completion.
         VERIFY(!handler_result.is_abrupt());
 
@@ -73,15 +74,15 @@ static ThrowCompletionOr<Value> run_reaction_job(VM& vm, PromiseReaction& reacti
     // h. If handlerResult is an abrupt completion, then
     if (handler_result.is_abrupt()) {
         // i. Return ? Call(promiseCapability.[[Reject]], undefined, « handlerResult.[[Value]] »).
-        auto* reject_function = promise_capability.value().reject;
-        dbgln_if(PROMISE_DEBUG, "run_reaction_job: Calling PromiseCapability's reject function @ {}", reject_function);
+        auto reject_function = promise_capability->reject();
+        dbgln_if(PROMISE_DEBUG, "run_reaction_job: Calling PromiseCapability's reject function @ {}", reject_function.ptr());
         return call(vm, *reject_function, js_undefined(), *handler_result.value());
     }
     // i. Else,
     else {
         // i. Return ? Call(promiseCapability.[[Resolve]], undefined, « handlerResult.[[Value]] »).
-        auto* resolve_function = promise_capability.value().resolve;
-        dbgln_if(PROMISE_DEBUG, "[PromiseReactionJob]: Calling PromiseCapability's resolve function @ {}", resolve_function);
+        auto resolve_function = promise_capability->resolve();
+        dbgln_if(PROMISE_DEBUG, "[PromiseReactionJob]: Calling PromiseCapability's resolve function @ {}", resolve_function.ptr());
         return call(vm, *resolve_function, js_undefined(), *handler_result.value());
     }
 }
@@ -164,9 +165,8 @@ PromiseJob create_promise_resolve_thenable_job(VM& vm, Promise& promise_to_resol
     VERIFY(then_realm);
 
     // 1. Let job be a new Job Abstract Closure with no parameters that captures promiseToResolve, thenable, and then and performs the following steps when called:
-    //    See PromiseResolveThenableJob::call() for "the following steps".
-    //    NOTE: This is done out of order, since `then` is moved into the lambda and `then` would be invalid if it was done at the start.
-    auto job = [&vm, promise_to_resolve = make_handle(&promise_to_resolve), thenable = make_handle(thenable), then = move(then)]() mutable {
+    //    See run_resolve_thenable_job() for "the following steps".
+    auto job = [&vm, promise_to_resolve = make_handle(promise_to_resolve), thenable = make_handle(thenable), then = move(then)]() mutable {
         return run_resolve_thenable_job(vm, *promise_to_resolve.cell(), thenable.value(), then);
     };
 

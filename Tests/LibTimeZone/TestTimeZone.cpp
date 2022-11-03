@@ -24,6 +24,26 @@ static void test_offset(StringView time_zone, i64 time, i64 expected_offset, Tim
 
 #    include <LibTimeZone/TimeZoneData.h>
 
+class TimeZoneGuard {
+public:
+    explicit TimeZoneGuard(char const* tz)
+        : m_tz(getenv("TZ"))
+    {
+        setenv("TZ", tz, 1);
+    }
+
+    ~TimeZoneGuard()
+    {
+        if (m_tz)
+            setenv("TZ", m_tz, 1);
+        else
+            unsetenv("TZ");
+    }
+
+private:
+    char const* m_tz { nullptr };
+};
+
 TEST_CASE(time_zone_from_string)
 {
     EXPECT_EQ(TimeZone::time_zone_from_string("America/New_York"sv), TimeZone::TimeZone::America_New_York);
@@ -95,6 +115,12 @@ TEST_CASE(canonicalize_time_zone)
     EXPECT(!TimeZone::canonicalize_time_zone("I don't exist"sv).has_value());
 }
 
+TEST_CASE(invalid_time_zone)
+{
+    TimeZoneGuard guard { "ladybird" };
+    EXPECT_EQ(TimeZone::current_time_zone(), "UTC"sv);
+}
+
 static i64 offset(i64 sign, i64 hours, i64 minutes, i64 seconds)
 {
     return sign * ((hours * 3600) + (minutes * 60) + seconds);
@@ -102,8 +128,8 @@ static i64 offset(i64 sign, i64 hours, i64 minutes, i64 seconds)
 
 TEST_CASE(get_time_zone_offset)
 {
-    test_offset("America/Chicago"sv, -2717668237, offset(-1, 5, 50, 36), No); // Sunday, November 18, 1883 12:09:23 PM
-    test_offset("America/Chicago"sv, -2717668236, offset(-1, 6, 00, 00), No); // Sunday, November 18, 1883 12:09:24 PM
+    test_offset("America/Chicago"sv, -2717647201, offset(-1, 5, 50, 36), No); // Sunday, November 18, 1883 5:59:59 PM
+    test_offset("America/Chicago"sv, -2717647200, offset(-1, 6, 00, 00), No); // Sunday, November 18, 1883 6:00:00 PM
     test_offset("America/Chicago"sv, -1067810460, offset(-1, 6, 00, 00), No); // Sunday, March 1, 1936 1:59:00 AM
     test_offset("America/Chicago"sv, -1067810400, offset(-1, 5, 00, 00), No); // Sunday, March 1, 1936 2:00:00 AM
     test_offset("America/Chicago"sv, -1045432860, offset(-1, 5, 00, 00), No); // Sunday, November 15, 1936 1:59:00 AM
@@ -177,6 +203,10 @@ TEST_CASE(get_named_time_zone_offsets)
     test_named_offsets("Europe/Moscow"sv, -1609459200, offset(+1, 2, 31, 19), offset(+1, 3, 31, 19), "MSK"sv, "MSD"sv);  // Wednesday, January 1, 1919 12:00:00 AM
     test_named_offsets("Europe/Moscow"sv, -1596412800, offset(+1, 2, 31, 19), offset(+1, 4, 31, 19), "MSK"sv, "MDST"sv); // Sunday, June 1, 1919 12:00:00 AM
     test_named_offsets("Europe/Moscow"sv, -1589068800, offset(+1, 3, 00, 00), offset(+1, 4, 00, 00), "MSK"sv, "MSD"sv);  // Monday, August 25, 1919 12:00:00 AM
+
+    // Shanghai's DST rules end in 1991.
+    test_named_offsets("Asia/Shanghai"sv, 694223999, offset(+1, 8, 00, 00), offset(+1, 9, 00, 00), "CST"sv, "CDT"sv); // Tuesday, December 31, 1991 11:59:59 PM
+    test_named_offsets("Asia/Shanghai"sv, 694224000, offset(+1, 8, 00, 00), offset(+1, 8, 00, 00), "CST"sv, "CST"sv); // Wednesday, January 1, 1992 12:00:00 AM
 }
 
 #else

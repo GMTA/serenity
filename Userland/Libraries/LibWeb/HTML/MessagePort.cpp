@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/EventDispatcher.h>
 #include <LibWeb/HTML/EventHandler.h>
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
@@ -13,15 +14,15 @@
 
 namespace Web::HTML {
 
-JS::NonnullGCPtr<MessagePort> MessagePort::create(HTML::Window& window)
+JS::NonnullGCPtr<MessagePort> MessagePort::create(JS::Realm& realm)
 {
-    return *window.heap().allocate<MessagePort>(window.realm(), window);
+    return *realm.heap().allocate<MessagePort>(realm, realm);
 }
 
-MessagePort::MessagePort(HTML::Window& window)
-    : DOM::EventTarget(window.realm())
+MessagePort::MessagePort(JS::Realm& realm)
+    : DOM::EventTarget(realm)
 {
-    set_prototype(&window.cached_web_prototype("MessagePort"));
+    set_prototype(&Bindings::cached_web_prototype(realm, "MessagePort"));
 }
 
 MessagePort::~MessagePort() = default;
@@ -87,11 +88,11 @@ void MessagePort::post_message(JS::Value message)
 
     // FIXME: This is an ad-hoc hack implementation instead, since we don't currently
     //        have serialization and deserialization of messages.
-    main_thread_event_loop().task_queue().add(HTML::Task::create(HTML::Task::Source::PostedMessage, nullptr, [strong_port = JS::make_handle(*target_port), message]() mutable {
+    main_thread_event_loop().task_queue().add(HTML::Task::create(HTML::Task::Source::PostedMessage, nullptr, [target_port, message]() mutable {
         MessageEventInit event_init {};
         event_init.data = message;
         event_init.origin = "<origin>";
-        strong_port->dispatch_event(*MessageEvent::create(verify_cast<HTML::Window>(strong_port->realm().global_object()), HTML::EventNames::message, event_init));
+        target_port->dispatch_event(*MessageEvent::create(target_port->realm(), HTML::EventNames::message, event_init));
     }));
 }
 
@@ -112,14 +113,14 @@ void MessagePort::close()
 }
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)                           \
-    void MessagePort::set_##attribute_name(Bindings::CallbackType* value) \
-    {                                                                     \
-        set_event_handler_attribute(event_name, value);                   \
-    }                                                                     \
-    Bindings::CallbackType* MessagePort::attribute_name()                 \
-    {                                                                     \
-        return event_handler_attribute(event_name);                       \
+#define __ENUMERATE(attribute_name, event_name)                         \
+    void MessagePort::set_##attribute_name(WebIDL::CallbackType* value) \
+    {                                                                   \
+        set_event_handler_attribute(event_name, value);                 \
+    }                                                                   \
+    WebIDL::CallbackType* MessagePort::attribute_name()                 \
+    {                                                                   \
+        return event_handler_attribute(event_name);                     \
     }
 ENUMERATE_MESSAGE_PORT_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE

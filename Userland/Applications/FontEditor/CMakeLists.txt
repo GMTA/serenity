@@ -12,15 +12,17 @@ compile_gml(NewFontDialogPage2.gml NewFontDialogPage2GML.h new_font_dialog_page_
 
 set(SOURCES
     MainWidget.cpp
-    FontEditorWindowGML.h
-    FontPreviewWindowGML.h
     GlyphEditorWidget.cpp
     main.cpp
     NewFontDialog.cpp
+)
+
+set(GENERATED_SOURCES
+    FontEditorWindowGML.h
+    FontPreviewWindowGML.h
     NewFontDialogPage1GML.h
     NewFontDialogPage2GML.h
-    UndoSelection.h
 )
 
 serenity_app(FontEditor ICON app-font-editor)
-target_link_libraries(FontEditor LibGUI LibDesktop LibGfx LibMain LibUnicode)
+target_link_libraries(FontEditor PRIVATE LibConfig LibCore LibGUI LibDesktop LibGfx LibMain LibUnicode)

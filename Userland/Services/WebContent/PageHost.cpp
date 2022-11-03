@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -13,6 +14,7 @@
 #include <LibWeb/HTML/BrowsingContext.h>
 #include <LibWeb/Layout/InitialContainingBlock.h>
 #include <LibWeb/Painting/PaintableBox.h>
+#include <LibWeb/Platform/Timer.h>
 #include <WebContent/WebContentClientEndpoint.h>
 
 namespace WebContent {
@@ -22,7 +24,7 @@ PageHost::PageHost(ConnectionFromClient& client)
     , m_page(make<Web::Page>(*this))
 {
     setup_palette();
-    m_invalidation_coalescing_timer = Core::Timer::create_single_shot(0, [this] {
+    m_invalidation_coalescing_timer = Web::Platform::Timer::create_single_shot(0, [this] {
         m_client.async_did_invalidate_content_rect(m_invalidation_rect);
         m_invalidation_rect = {};
     });
@@ -67,6 +69,21 @@ void PageHost::set_preferred_color_scheme(Web::CSS::PreferredColorScheme color_s
 void PageHost::set_is_scripting_enabled(bool is_scripting_enabled)
 {
     page().set_is_scripting_enabled(is_scripting_enabled);
+}
+
+void PageHost::set_is_webdriver_active(bool is_webdriver_active)
+{
+    page().set_is_webdriver_active(is_webdriver_active);
+}
+
+void PageHost::set_window_position(Gfx::IntPoint const& position)
+{
+    page().set_window_position(position);
+}
+
+void PageHost::set_window_size(Gfx::IntSize const& size)
+{
+    page().set_window_size(size);
 }
 
 Web::Layout::InitialContainingBlock* PageHost::layout_root()
@@ -187,11 +204,13 @@ void PageHost::page_did_start_loading(const URL& url)
     m_client.async_did_start_loading(url);
 }
 
+void PageHost::page_did_create_main_document()
+{
+    m_client.initialize_js_console({});
+}
+
 void PageHost::page_did_finish_loading(const URL& url)
 {
-    // FIXME: This is called after the page has finished loading, which means any log messages
-    //        that happen *while* it is loading (such as inline <script>s) will be lost.
-    m_client.initialize_js_console({});
     m_client.async_did_finish_loading(url);
 }
 

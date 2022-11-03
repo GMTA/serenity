@@ -10,13 +10,14 @@ compile_gml(TimeZoneSettingsWidget.gml TimeZoneSettingsWidgetGML.h time_zone_set
 set(SOURCES
     main.cpp
     ClockSettingsWidget.cpp
-    ClockSettingsWidget.h
-    ClockSettingsWidgetGML.h
     TimeZoneSettingsWidget.cpp
-    TimeZoneSettingsWidget.h
+)
+
+set(GENERATED_SOURCES
+    ClockSettingsWidgetGML.h
     TimeZoneSettingsWidgetGML.h
 )
 
 serenity_app(ClockSettings ICON app-analog-clock) # FIXME: Create a ClockSettings icon.
-target_link_libraries(ClockSettings LibGUI LibMain LibLocale)
+target_link_libraries(ClockSettings PRIVATE LibConfig LibCore LibGfx LibGUI LibMain LibLocale)
 link_with_locale_data(ClockSettings)

@@ -2,6 +2,7 @@
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021-2022, Mustafa Quraish <mustafa@serenityos.org>
  * Copyright (c) 2021-2022, Tobias Christiansen <tobyase@serenityos.org>
+ * Copyright (c) 2022, Timothy Slater <tslater2006@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -364,6 +365,12 @@ void MainWidget::initialize_menubar(GUI::Window& window)
             VERIFY(editor);
             editor->image().selection().clear();
         }));
+    m_edit_menu->add_action(GUI::Action::create(
+        "&Invert Selection", g_icon_bag.invert_selection, [&](auto&) {
+            auto* editor = current_image_editor();
+            VERIFY(editor);
+            editor->image().selection().invert();
+        }));
 
     m_edit_menu->add_separator();
     m_edit_menu->add_action(GUI::Action::create(
@@ -502,6 +509,17 @@ void MainWidget::initialize_menubar(GUI::Window& window)
     m_show_active_layer_boundary_action->set_checked(Config::read_bool("PixelPaint"sv, "ImageEditor"sv, "ShowActiveLayerBoundary"sv, true));
     m_view_menu->add_action(*m_show_active_layer_boundary_action);
 
+    m_view_menu->add_separator();
+    auto& scopes_menu = m_view_menu->add_submenu("&Scopes");
+
+    scopes_menu.add_action(GUI::Action::create_checkable("&Histogram", [&](auto& action) {
+        m_histogram_widget->parent_widget()->set_visible(action.is_checked());
+    }));
+
+    scopes_menu.add_action(GUI::Action::create_checkable("&Vectorscope", [&](auto& action) {
+        m_vectorscope_widget->parent_widget()->set_visible(action.is_checked());
+    }));
+
     m_tool_menu = window.add_menu("&Tool");
     m_toolbox->for_each_tool([&](auto& tool) {
         if (tool.action())
@@ -579,6 +597,17 @@ void MainWidget::initialize_menubar(GUI::Window& window)
         }));
 
     m_layer_menu = window.add_menu("&Layer");
+
+    m_layer_menu->on_visibility_change = [this](bool visible) {
+        if (!visible)
+            return;
+
+        bool image_has_selection = !current_image_editor()->active_layer()->image().selection().is_empty();
+
+        m_layer_via_copy->set_enabled(image_has_selection);
+        m_layer_via_cut->set_enabled(image_has_selection);
+    };
+
     m_layer_menu->add_action(GUI::Action::create(
         "New &Layer...", { Mod_Ctrl | Mod_Shift, Key_N }, g_icon_bag.new_layer, [&](auto&) {
             auto* editor = current_image_editor();
@@ -596,6 +625,31 @@ void MainWidget::initialize_menubar(GUI::Window& window)
                 m_layer_list_widget->select_top_layer();
             }
         }));
+
+    m_layer_via_copy = GUI::Action::create(
+        "Layer via Copy", { Mod_Ctrl | Mod_Shift, Key_C }, g_icon_bag.new_layer, [&](auto&) {
+            auto add_layer_success = current_image_editor()->add_new_layer_from_selection();
+            if (add_layer_success.is_error()) {
+                GUI::MessageBox::show_error(&window, add_layer_success.release_error().string_literal());
+                return;
+            }
+            current_image_editor()->did_complete_action("New Layer via Copy"sv);
+            m_layer_list_widget->select_top_layer();
+        });
+    m_layer_menu->add_action(*m_layer_via_copy);
+
+    m_layer_via_cut = GUI::Action::create(
+        "Layer via Cut", { Mod_Ctrl | Mod_Shift, Key_X }, g_icon_bag.new_layer, [&](auto&) {
+            auto add_layer_success = current_image_editor()->add_new_layer_from_selection();
+            if (add_layer_success.is_error()) {
+                GUI::MessageBox::show_error(&window, add_layer_success.release_error().string_literal());
+                return;
+            }
+            current_image_editor()->active_layer()->erase_selection(current_image_editor()->image().selection());
+            current_image_editor()->did_complete_action("New Layer via Cut"sv);
+            m_layer_list_widget->select_top_layer();
+        });
+    m_layer_menu->add_action(*m_layer_via_cut);
 
     m_layer_menu->add_separator();
     m_layer_menu->add_action(GUI::Action::create(
@@ -778,6 +832,37 @@ void MainWidget::initialize_menubar(GUI::Window& window)
             editor->did_complete_action("Rotate Layer Clockwise"sv);
         }));
 
+    m_layer_menu->add_separator();
+    m_layer_menu->add_action(GUI::Action::create(
+        "&Crop Layer to Selection", g_icon_bag.crop, [&](auto&) {
+            auto* editor = current_image_editor();
+            VERIFY(editor);
+            // FIXME: disable this action if there is no selection
+            auto active_layer = editor->active_layer();
+            if (!active_layer || editor->image().selection().is_empty())
+                return;
+            auto intersection = editor->image().rect().intersected(editor->image().selection().bounding_rect());
+            auto crop_rect = intersection.translated(-active_layer->location());
+            active_layer->crop(crop_rect);
+            active_layer->set_location(intersection.location());
+            editor->image().selection().clear();
+            editor->did_complete_action("Crop Layer to Selection"sv);
+        }));
+    m_layer_menu->add_action(GUI::Action::create(
+        "&Crop Layer to Content", g_icon_bag.crop, [&](auto&) {
+            auto* editor = current_image_editor();
+            VERIFY(editor);
+            auto active_layer = editor->active_layer();
+            if (!active_layer)
+                return;
+            auto content_bounding_rect = active_layer->nonempty_content_bounding_rect();
+            if (!content_bounding_rect.has_value())
+                return;
+            active_layer->crop(content_bounding_rect.value());
+            active_layer->set_location(content_bounding_rect->location());
+            editor->did_complete_action("Crop Layer to Content"sv);
+        }));
+
     m_filter_menu = window.add_menu("&Filter");
 
     m_filter_menu->add_action(GUI::Action::create("Filter &Gallery", g_icon_bag.filter, [&](auto&) {
@@ -803,6 +888,7 @@ void MainWidget::initialize_menubar(GUI::Window& window)
     }));
 
     auto& help_menu = window.add_menu("&Help");
+    help_menu.add_action(GUI::CommonActions::make_command_palette_action(&window));
     help_menu.add_action(GUI::CommonActions::make_about_action("Pixel Paint", GUI::Icon::default_icon("app-pixel-paint"sv), &window));
 
     m_levels_dialog_action = GUI::Action::create(
@@ -1058,7 +1144,7 @@ void MainWidget::drop_event(GUI::DropEvent& event)
         return;
 
     for (auto& url : event.mime_data().urls()) {
-        if (url.protocol() != "file")
+        if (url.scheme() != "file")
             continue;
 
         auto response = FileSystemAccessClient::Client::the().try_request_file(window(), url.path(), Core::OpenMode::ReadOnly);

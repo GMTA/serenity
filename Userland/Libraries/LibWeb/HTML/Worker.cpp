@@ -8,10 +8,10 @@
 #include <LibJS/Runtime/ConsoleObject.h>
 #include <LibJS/Runtime/Realm.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Worker.h>
 #include <LibWeb/HTML/WorkerDebugConsoleClient.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::HTML {
 
@@ -25,9 +25,9 @@ Worker::Worker(FlyString const& script_url, WorkerOptions const options, DOM::Do
     , m_worker_vm(JS::VM::create(adopt_own(m_custom_data)))
     , m_interpreter(JS::Interpreter::create<JS::GlobalObject>(m_worker_vm))
     , m_interpreter_scope(*m_interpreter)
-    , m_implicit_port(MessagePort::create(document.window()))
+    , m_implicit_port(MessagePort::create(document.realm()))
 {
-    set_prototype(&document.window().cached_web_prototype("Worker"));
+    set_prototype(&Bindings::cached_web_prototype(document.realm(), "Worker"));
 }
 
 void Worker::visit_edges(Cell::Visitor& visitor)
@@ -39,7 +39,7 @@ void Worker::visit_edges(Cell::Visitor& visitor)
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#dom-worker
-DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> Worker::create(FlyString const& script_url, WorkerOptions const options, DOM::Document& document)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Worker>> Worker::create(FlyString const& script_url, WorkerOptions const options, DOM::Document& document)
 {
     dbgln_if(WEB_WORKER_DEBUG, "WebWorker: Creating worker with script_url = {}", script_url);
 
@@ -63,7 +63,7 @@ DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> Worker::create(FlyString const& scrip
     // 4. If this fails, throw a "SyntaxError" DOMException.
     if (!url.is_valid()) {
         dbgln_if(WEB_WORKER_DEBUG, "WebWorker: Invalid URL loaded '{}'.", script_url);
-        return DOM::SyntaxError::create(document.global_object(), "url is not valid");
+        return WebIDL::SyntaxError::create(document.realm(), "url is not valid");
     }
 
     // 5. Let worker URL be the resulting URL record.
@@ -72,7 +72,7 @@ DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> Worker::create(FlyString const& scrip
     auto worker = document.heap().allocate<Worker>(document.realm(), script_url, options, document);
 
     // 7. Let outside port be a new MessagePort in outside settings's Realm.
-    auto outside_port = MessagePort::create(verify_cast<HTML::Window>(outside_settings.realm().global_object()));
+    auto outside_port = MessagePort::create(outside_settings.realm());
 
     // 8. Associate the outside port with worker
     worker->m_outside_port = outside_port;
@@ -86,7 +86,7 @@ DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> Worker::create(FlyString const& scrip
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#run-a-worker
-void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_settings, MessagePort& outside_port, WorkerOptions const options)
+void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_settings, MessagePort& outside_port, WorkerOptions const& options)
 {
     // 1. Let is shared be true if worker is a SharedWorker object, and false otherwise.
     // FIXME: SharedWorker support
@@ -128,10 +128,6 @@ void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_setti
     auto& console_object = *realm_execution_context->realm->intrinsics().console_object();
     m_worker_realm = realm_execution_context->realm;
 
-    // FIXME: Remove this once we don't need a hack Window (for prototypes and constructors) in workers anymore.
-    m_worker_window = HTML::Window::create(*m_worker_realm);
-    m_worker_realm->set_global_object(m_worker_scope, nullptr);
-
     m_console = adopt_ref(*new WorkerDebugConsoleClient(console_object.console()));
     console_object.console().set_client(*m_console);
 
@@ -162,7 +158,7 @@ void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_setti
                 MessageEventInit event_init {};
                 event_init.data = message;
                 event_init.origin = "<origin>";
-                dispatch_event(*MessageEvent::create(*m_worker_window, HTML::EventNames::message, event_init));
+                dispatch_event(*MessageEvent::create(*m_worker_realm, HTML::EventNames::message, event_init));
             }));
 
             return JS::js_undefined();
@@ -259,7 +255,7 @@ void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_setti
             // FIXME: Global scope association
 
             // 16. Let inside port be a new MessagePort object in inside settings's Realm.
-            auto inside_port = MessagePort::create(*m_worker_window);
+            auto inside_port = MessagePort::create(m_inner_settings->realm());
 
             // 17. Associate inside port with worker global scope.
             // FIXME: Global scope association
@@ -312,7 +308,7 @@ void Worker::run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_setti
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#dom-worker-terminate
-DOM::ExceptionOr<void> Worker::terminate()
+WebIDL::ExceptionOr<void> Worker::terminate()
 {
     dbgln_if(WEB_WORKER_DEBUG, "WebWorker: Terminate");
 
@@ -333,14 +329,14 @@ void Worker::post_message(JS::Value message, JS::Value)
 }
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)                      \
-    void Worker::set_##attribute_name(Bindings::CallbackType* value) \
-    {                                                                \
-        set_event_handler_attribute(event_name, move(value));        \
-    }                                                                \
-    Bindings::CallbackType* Worker::attribute_name()                 \
-    {                                                                \
-        return event_handler_attribute(event_name);                  \
+#define __ENUMERATE(attribute_name, event_name)                    \
+    void Worker::set_##attribute_name(WebIDL::CallbackType* value) \
+    {                                                              \
+        set_event_handler_attribute(event_name, move(value));      \
+    }                                                              \
+    WebIDL::CallbackType* Worker::attribute_name()                 \
+    {                                                              \
+        return event_handler_attribute(event_name);                \
     }
 ENUMERATE_WORKER_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE

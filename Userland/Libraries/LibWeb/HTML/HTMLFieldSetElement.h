@@ -26,6 +26,8 @@ public:
         return fieldset;
     }
 
+    bool is_disabled() const;
+
     // ^FormAssociatedElement
     // https://html.spec.whatwg.org/multipage/forms.html#category-listed
     virtual bool is_listed() const override { return true; }
@@ -38,5 +40,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(HTMLFieldSetElement, Web::HTML)

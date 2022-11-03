@@ -12,7 +12,7 @@ namespace Web::HTML {
 HTMLBaseElement::HTMLBaseElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLBaseElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLBaseElement"));
 }
 
 HTMLBaseElement::~HTMLBaseElement() = default;
@@ -91,7 +91,7 @@ String HTMLBaseElement::href() const
 void HTMLBaseElement::set_href(String const& href)
 {
     // The href IDL attribute, on setting, must set the href content attribute to the given new value.
-    set_attribute(AttributeNames::href, href);
+    MUST(set_attribute(AttributeNames::href, href));
 }
 
 }

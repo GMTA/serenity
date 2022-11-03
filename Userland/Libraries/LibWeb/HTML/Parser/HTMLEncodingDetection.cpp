@@ -9,9 +9,10 @@
 #include <AK/StringView.h>
 #include <AK/Utf8View.h>
 #include <LibTextCodec/Decoder.h>
-#include <LibWeb/DOM/Attribute.h>
+#include <LibWeb/DOM/Attr.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/HTML/Parser/HTMLEncodingDetection.h>
+#include <LibWeb/Infra/CharacterTypes.h>
 #include <ctype.h>
 
 namespace Web::HTML {
@@ -50,8 +51,7 @@ Optional<StringView> extract_character_encoding_from_meta_element(String const& 
         lexer.ignore(charset_index.value() + 7);
 
         lexer.ignore_while([](char c) {
-            // FIXME: Not the exact same ASCII whitespace. The spec does not include vertical tab (\v).
-            return is_ascii_space(c);
+            return Infra::is_ascii_whitespace(c);
         });
 
         if (lexer.peek() != '=')
@@ -64,8 +64,7 @@ Optional<StringView> extract_character_encoding_from_meta_element(String const& 
     lexer.ignore();
 
     lexer.ignore_while([](char c) {
-        // FIXME: Not the exact same ASCII whitespace. The spec does not include vertical tab (\v).
-        return is_ascii_space(c);
+        return Infra::is_ascii_whitespace(c);
     });
 
     if (lexer.is_eof())
@@ -90,13 +89,12 @@ Optional<StringView> extract_character_encoding_from_meta_element(String const& 
     }
 
     auto encoding = lexer.consume_until([](char c) {
-        // FIXME: Not the exact same ASCII whitespace. The spec does not include vertical tab (\v).
-        return is_ascii_space(c) || c == ';';
+        return Infra::is_ascii_whitespace(c) || c == ';';
     });
     return TextCodec::get_standardized_encoding(encoding);
 }
 
-JS::GCPtr<DOM::Attribute> prescan_get_attribute(DOM::Document& document, ByteBuffer const& input, size_t& position)
+JS::GCPtr<DOM::Attr> prescan_get_attribute(DOM::Document& document, ByteBuffer const& input, size_t& position)
 {
     if (!prescan_skip_whitespace_and_slashes(input, position))
         return {};
@@ -111,7 +109,7 @@ JS::GCPtr<DOM::Attribute> prescan_get_attribute(DOM::Document& document, ByteBuf
         } else if (input[position] == '\t' || input[position] == '\n' || input[position] == '\f' || input[position] == '\r' || input[position] == ' ')
             goto spaces;
         else if (input[position] == '/' || input[position] == '>')
-            return *DOM::Attribute::create(document, attribute_name.to_string(), "");
+            return *DOM::Attr::create(document, attribute_name.to_string(), "");
         else
             attribute_name.append_as_lowercase(input[position]);
         ++position;
@@ -123,7 +121,7 @@ spaces:
     if (!prescan_skip_whitespace_and_slashes(input, position))
         return {};
     if (input[position] != '=')
-        return DOM::Attribute::create(document, attribute_name.to_string(), "");
+        return DOM::Attr::create(document, attribute_name.to_string(), "");
     ++position;
 
 value:
@@ -136,13 +134,13 @@ value:
         ++position;
         for (; !prescan_should_abort(input, position); ++position) {
             if (input[position] == quote_character)
-                return DOM::Attribute::create(document, attribute_name.to_string(), attribute_value.to_string());
+                return DOM::Attr::create(document, attribute_name.to_string(), attribute_value.to_string());
             else
                 attribute_value.append_as_lowercase(input[position]);
         }
         return {};
     } else if (input[position] == '>')
-        return DOM::Attribute::create(document, attribute_name.to_string(), "");
+        return DOM::Attr::create(document, attribute_name.to_string(), "");
     else
         attribute_value.append_as_lowercase(input[position]);
 
@@ -152,7 +150,7 @@ value:
 
     for (; !prescan_should_abort(input, position); ++position) {
         if (input[position] == '\t' || input[position] == '\n' || input[position] == '\f' || input[position] == '\r' || input[position] == ' ' || input[position] == '>')
-            return DOM::Attribute::create(document, attribute_name.to_string(), attribute_value.to_string());
+            return DOM::Attr::create(document, attribute_name.to_string(), attribute_value.to_string());
         else
             attribute_value.append_as_lowercase(input[position]);
     }

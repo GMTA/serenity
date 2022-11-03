@@ -338,6 +338,17 @@ TEST_CASE(is_whitespace)
     EXPECT(!AK::StringUtils::is_whitespace("a\t"sv));
 }
 
+TEST_CASE(trim)
+{
+    EXPECT_EQ(AK::StringUtils::trim("aaa.a."sv, "."sv, TrimMode::Right), "aaa.a"sv);
+    EXPECT_EQ(AK::StringUtils::trim("...aaa"sv, "."sv, TrimMode::Left), "aaa"sv);
+    EXPECT_EQ(AK::StringUtils::trim("...aaa.a..."sv, "."sv, TrimMode::Both), "aaa.a"sv);
+    EXPECT_EQ(AK::StringUtils::trim("."sv, "."sv, TrimMode::Right), ""sv);
+    EXPECT_EQ(AK::StringUtils::trim("."sv, "."sv, TrimMode::Left), ""sv);
+    EXPECT_EQ(AK::StringUtils::trim("."sv, "."sv, TrimMode::Both), ""sv);
+    EXPECT_EQ(AK::StringUtils::trim("..."sv, "."sv, TrimMode::Both), ""sv);
+}
+
 TEST_CASE(find)
 {
     String test_string = "1234567";
@@ -376,4 +387,6 @@ TEST_CASE(to_titlecase)
     EXPECT_EQ(AK::StringUtils::to_titlecase("foo  bar"sv), "Foo  Bar"sv);
     EXPECT_EQ(AK::StringUtils::to_titlecase("foo   bar"sv), "Foo   Bar"sv);
     EXPECT_EQ(AK::StringUtils::to_titlecase("   foo   bar   "sv), "   Foo   Bar   "sv);
+    EXPECT_EQ(AK::StringUtils::to_titlecase("\xc3\xa7"sv), "\xc3\xa7"sv);         // U+00E7 LATIN SMALL LETTER C WITH CEDILLA
+    EXPECT_EQ(AK::StringUtils::to_titlecase("\xe1\x80\x80"sv), "\xe1\x80\x80"sv); // U+1000 MYANMAR LETTER KA
 }

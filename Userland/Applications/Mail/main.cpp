@@ -24,14 +24,15 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     Config::pledge_domain("Mail");
 
+    TRY(Core::System::unveil("/sys/kernel/processes", "r"));
     TRY(Core::System::unveil("/res", "r"));
     TRY(Core::System::unveil("/etc", "r"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/webcontent", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/webcontent", "rw"));
     TRY(Core::System::unveil("/tmp/portal/lookup", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/launch", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/launch", "rw"));
     TRY(Core::System::unveil(nullptr, nullptr));
 
-    TRY(Desktop::Launcher::add_allowed_url(URL::create_with_file_protocol("/bin/MailSettings")));
+    TRY(Desktop::Launcher::add_allowed_url(URL::create_with_file_scheme("/bin/MailSettings")));
     TRY(Desktop::Launcher::add_allowed_handler_with_any_url("/bin/MailSettings"));
     TRY(Desktop::Launcher::seal_allowlist());
 
@@ -53,6 +54,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     }));
 
     auto& help_menu = window->add_menu("&Help");
+    help_menu.add_action(GUI::CommonActions::make_command_palette_action(window));
     help_menu.add_action(GUI::CommonActions::make_about_action("Mail", app_icon, window));
 
     window->on_close_request = [&] {

@@ -34,7 +34,7 @@ void InterruptManagement::initialize()
 void InterruptManagement::find_controllers()
 {
     // TODO: Once device tree support is in place, find interrupt controllers using that.
-    m_interrupt_controllers.append(new RPi::InterruptController);
+    m_interrupt_controllers.append(adopt_lock_ref(*new (nothrow) RPi::InterruptController));
 }
 
 u8 InterruptManagement::acquire_mapped_interrupt_number(u8 interrupt_number)
@@ -42,16 +42,21 @@ u8 InterruptManagement::acquire_mapped_interrupt_number(u8 interrupt_number)
     return interrupt_number;
 }
 
-Vector<LockRefPtr<IRQController>> const& InterruptManagement::controllers()
+Vector<NonnullLockRefPtr<IRQController>> const& InterruptManagement::controllers()
 {
     return m_interrupt_controllers;
 }
 
-LockRefPtr<IRQController> InterruptManagement::get_responsible_irq_controller(u8)
+NonnullLockRefPtr<IRQController> InterruptManagement::get_responsible_irq_controller(u8)
 {
     // TODO: Support more interrupt controllers
     VERIFY(m_interrupt_controllers.size() == 1);
     return m_interrupt_controllers[0];
+}
+
+void InterruptManagement::enumerate_interrupt_handlers(Function<void(GenericInterruptHandler&)>)
+{
+    TODO_AARCH64();
 }
 
 }

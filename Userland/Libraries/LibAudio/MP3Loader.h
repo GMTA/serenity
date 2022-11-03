@@ -10,7 +10,9 @@
 #include "MP3Types.h"
 #include <AK/MemoryStream.h>
 #include <AK/Tuple.h>
-#include <LibCore/FileStream.h>
+#include <LibCore/InputBitStream.h>
+#include <LibCore/MemoryStream.h>
+#include <LibCore/Stream.h>
 #include <LibDSP/MDCT.h>
 
 namespace Audio {
@@ -22,7 +24,8 @@ struct ScaleFactorBand;
 class MP3LoaderPlugin : public LoaderPlugin {
 public:
     explicit MP3LoaderPlugin(StringView path);
-    ~MP3LoaderPlugin();
+    explicit MP3LoaderPlugin(Bytes buffer);
+    virtual ~MP3LoaderPlugin() = default;
 
     virtual MaybeLoaderError initialize() override;
     virtual LoaderSamples get_more_samples(size_t max_bytes_to_read_from_input = 128 * KiB) override;
@@ -35,7 +38,6 @@ public:
     virtual u32 sample_rate() override { return m_sample_rate; }
     virtual u16 num_channels() override { return m_num_channels; }
     virtual PcmSampleFormat pcm_format() override { return m_sample_format; }
-    virtual RefPtr<Core::File> file() override { return m_file; }
     virtual String format_name() override { return "MP3 (.mp3)"; }
 
 private:
@@ -64,18 +66,14 @@ private:
     u32 m_sample_rate { 0 };
     u8 m_num_channels { 0 };
     PcmSampleFormat m_sample_format { PcmSampleFormat::Int16 };
-    size_t m_file_size { 0 };
     int m_total_samples { 0 };
     size_t m_loaded_samples { 0 };
     bool m_is_first_frame { true };
 
     AK::Optional<MP3::MP3Frame> m_current_frame;
     u32 m_current_frame_read;
-    RefPtr<Core::File> m_file;
-    OwnPtr<Core::InputFileStream> m_input_stream;
-    OwnPtr<InputBitStream> m_bitstream;
+    OwnPtr<Core::Stream::BigEndianInputBitStream> m_bitstream;
     DuplexMemoryStream m_bit_reservoir;
-    Optional<LoaderError> m_error {};
 };
 
 }

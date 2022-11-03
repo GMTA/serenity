@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <Kernel/Arch/InterruptDisabler.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/Process.h>
 #include <Kernel/TTY/TTY.h>
 
@@ -13,7 +13,7 @@ namespace Kernel {
 ErrorOr<FlatPtr> Process::sys$getsid(pid_t pid)
 {
     VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
-    TRY(require_promise(Pledge::proc));
+    TRY(require_promise(Pledge::stdio));
     if (pid == 0)
         return sid().value();
     auto process = Process::from_pid(pid);
@@ -49,7 +49,7 @@ ErrorOr<FlatPtr> Process::sys$setsid()
 ErrorOr<FlatPtr> Process::sys$getpgid(pid_t pid)
 {
     VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
-    TRY(require_promise(Pledge::proc));
+    TRY(require_promise(Pledge::stdio));
     if (pid == 0)
         return pgid().value();
     auto process = Process::from_pid(pid);

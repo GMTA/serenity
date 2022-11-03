@@ -18,10 +18,10 @@ public:
 
     Bindings::CanPlayTypeResult can_play_type(String const& type) const;
 
+    void load() const;
+
 protected:
     HTMLMediaElement(DOM::Document&, DOM::QualifiedName);
 };
 
 }
-
-WRAPPER_HACK(HTMLMediaElement, Web::HTML)

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <AK/Platform.h>
+
 namespace AK::Detail {
 
 template<class T, T v>
@@ -272,6 +274,12 @@ template<>
 struct __MakeUnsigned<bool> {
     using Type = bool;
 };
+#ifdef AK_ARCH_AARCH64
+template<>
+struct __MakeUnsigned<wchar_t> {
+    using Type = wchar_t;
+};
+#endif
 
 template<typename T>
 using MakeUnsigned = typename __MakeUnsigned<T>::Type;
@@ -324,6 +332,12 @@ template<>
 struct __MakeSigned<char> {
     using Type = char;
 };
+#ifdef AK_ARCH_AARCH64
+template<>
+struct __MakeSigned<wchar_t> {
+    using Type = void;
+};
+#endif
 
 template<typename T>
 using MakeSigned = typename __MakeSigned<T>::Type;
@@ -530,7 +544,7 @@ template<typename T>
 inline constexpr bool IsDestructible = requires { declval<T>().~T(); };
 
 template<typename T>
-#if defined(__clang__)
+#if defined(AK_COMPILER_CLANG)
 inline constexpr bool IsTriviallyDestructible = __is_trivially_destructible(T);
 #else
 inline constexpr bool IsTriviallyDestructible = __has_trivial_destructor(T) && IsDestructible<T>;
@@ -567,20 +581,20 @@ template<template<typename...> typename U, typename... Us>
 inline constexpr bool IsSpecializationOf<U<Us...>, U> = true;
 
 template<typename T>
-struct __decay {
+struct __Decay {
     typedef Detail::RemoveCVReference<T> type;
 };
 template<typename T>
-struct __decay<T[]> {
+struct __Decay<T[]> {
     typedef T* type;
 };
 template<typename T, decltype(sizeof(T)) N>
-struct __decay<T[N]> {
+struct __Decay<T[N]> {
     typedef T* type;
 };
 // FIXME: Function decay
 template<typename T>
-using Decay = typename __decay<T>::type;
+using Decay = typename __Decay<T>::type;
 
 template<typename T, typename U>
 inline constexpr bool IsPointerOfType = IsPointer<Decay<U>>&& IsSame<T, RemoveCV<RemovePointer<Decay<U>>>>;

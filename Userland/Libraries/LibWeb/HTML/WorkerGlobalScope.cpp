@@ -10,7 +10,6 @@
 #include <AK/Vector.h>
 #include <LibTextCodec/Decoder.h>
 #include <LibWeb/Bindings/WorkerGlobalScopePrototype.h>
-#include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/EventHandler.h>
 #include <LibWeb/HTML/EventNames.h>
@@ -18,6 +17,7 @@
 #include <LibWeb/HTML/WorkerGlobalScope.h>
 #include <LibWeb/HTML/WorkerLocation.h>
 #include <LibWeb/HTML/WorkerNavigator.h>
+#include <LibWeb/WebIDL/DOMException.h>
 
 namespace Web::HTML {
 
@@ -38,11 +38,12 @@ void WorkerGlobalScope::initialize(JS::Realm& realm)
 void WorkerGlobalScope::visit_edges(Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);
-    visitor.visit(m_location);
+    visitor.visit(m_location.ptr());
+    visitor.visit(m_navigator.ptr());
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#importing-scripts-and-libraries
-DOM::ExceptionOr<void> WorkerGlobalScope::import_scripts(Vector<String> urls)
+WebIDL::ExceptionOr<void> WorkerGlobalScope::import_scripts(Vector<String> urls)
 {
     // The algorithm may optionally be customized by supplying custom perform the fetch hooks,
     // which if provided will be used when invoking fetch a classic worker-imported script.
@@ -84,14 +85,14 @@ JS::NonnullGCPtr<WorkerNavigator> WorkerGlobalScope::navigator() const
 }
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)                                 \
-    void WorkerGlobalScope::set_##attribute_name(Bindings::CallbackType* value) \
-    {                                                                           \
-        set_event_handler_attribute(event_name, move(value));                   \
-    }                                                                           \
-    Bindings::CallbackType* WorkerGlobalScope::attribute_name()                 \
-    {                                                                           \
-        return event_handler_attribute(event_name);                             \
+#define __ENUMERATE(attribute_name, event_name)                               \
+    void WorkerGlobalScope::set_##attribute_name(WebIDL::CallbackType* value) \
+    {                                                                         \
+        set_event_handler_attribute(event_name, move(value));                 \
+    }                                                                         \
+    WebIDL::CallbackType* WorkerGlobalScope::attribute_name()                 \
+    {                                                                         \
+        return event_handler_attribute(event_name);                           \
     }
 ENUMERATE_WORKER_GLOBAL_SCOPE_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE
@@ -120,7 +121,7 @@ bool WorkerGlobalScope::cross_origin_isolated() const
 }
 
 // https://html.spec.whatwg.org/multipage/webappapis.html#dom-btoa
-DOM::ExceptionOr<String> WorkerGlobalScope::btoa(String const& data) const
+WebIDL::ExceptionOr<String> WorkerGlobalScope::btoa(String const& data) const
 {
     // FIXME: This is the same as the implementation in Bindings/WindowObject.cpp
     //     Find a way to share this implementation, since they come from the same mixin.
@@ -130,7 +131,7 @@ DOM::ExceptionOr<String> WorkerGlobalScope::btoa(String const& data) const
     byte_string.ensure_capacity(data.length());
     for (u32 code_point : Utf8View(data)) {
         if (code_point > 0xff)
-            return DOM::InvalidCharacterError::create(global_object(), "Data contains characters outside the range U+0000 and U+00FF");
+            return WebIDL::InvalidCharacterError::create(realm(), "Data contains characters outside the range U+0000 and U+00FF");
         byte_string.append(code_point);
     }
 
@@ -140,7 +141,7 @@ DOM::ExceptionOr<String> WorkerGlobalScope::btoa(String const& data) const
 }
 
 // https://html.spec.whatwg.org/multipage/webappapis.html#dom-atob
-DOM::ExceptionOr<String> WorkerGlobalScope::atob(String const& data) const
+WebIDL::ExceptionOr<String> WorkerGlobalScope::atob(String const& data) const
 {
     // FIXME: This is the same as the implementation in Bindings/WindowObject.cpp
     //     Find a way to share this implementation, since they come from the same mixin.
@@ -150,7 +151,7 @@ DOM::ExceptionOr<String> WorkerGlobalScope::atob(String const& data) const
 
     // 2. If decodedData is failure, then throw an "InvalidCharacterError" DOMException.
     if (decoded_data.is_error())
-        return DOM::InvalidCharacterError::create(global_object(), "Input string is not valid base64 data");
+        return WebIDL::InvalidCharacterError::create(realm(), "Input string is not valid base64 data");
 
     // 3. Return decodedData.
     // decode_base64() returns a byte string. LibJS uses UTF-8 for strings. Use Latin1Decoder to convert bytes 128-255 to UTF-8.

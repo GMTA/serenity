@@ -22,7 +22,7 @@ class MessagePort final : public DOM::EventTarget {
     WEB_PLATFORM_OBJECT(MessagePort, DOM::EventTarget);
 
 public:
-    static JS::NonnullGCPtr<MessagePort> create(HTML::Window&);
+    static JS::NonnullGCPtr<MessagePort> create(JS::Realm&);
 
     virtual ~MessagePort() override;
 
@@ -37,14 +37,14 @@ public:
     void close();
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)         \
-    void set_##attribute_name(Bindings::CallbackType*); \
-    Bindings::CallbackType* attribute_name();
+#define __ENUMERATE(attribute_name, event_name)       \
+    void set_##attribute_name(WebIDL::CallbackType*); \
+    WebIDL::CallbackType* attribute_name();
     ENUMERATE_MESSAGE_PORT_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE
 
 private:
-    explicit MessagePort(HTML::Window&);
+    explicit MessagePort(JS::Realm&);
 
     virtual void visit_edges(Cell::Visitor&) override;
 
@@ -62,5 +62,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(MessagePort, Web::HTML)

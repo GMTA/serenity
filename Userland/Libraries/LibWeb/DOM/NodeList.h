@@ -25,9 +25,7 @@ public:
     virtual bool is_supported_property_index(u32) const override;
 
 protected:
-    explicit NodeList(HTML::Window&);
+    explicit NodeList(JS::Realm&);
 };
 
 }
-
-WRAPPER_HACK(NodeList, Web::DOM)

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibJS/Runtime/Date.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/Temporal/TimeZone.h>
 #include <LibJS/Runtime/Temporal/TimeZoneConstructor.h>
@@ -12,7 +13,7 @@ namespace JS::Temporal {
 
 // 11.2 The Temporal.TimeZone Constructor, https://tc39.es/proposal-temporal/#sec-temporal-timezone-constructor
 TimeZoneConstructor::TimeZoneConstructor(Realm& realm)
-    : NativeFunction(vm().names.TimeZone.as_string(), *realm.intrinsics().function_prototype())
+    : NativeFunction(realm.vm().names.TimeZone.as_string(), *realm.intrinsics().function_prototype())
 {
 }
 
@@ -49,11 +50,10 @@ ThrowCompletionOr<Object*> TimeZoneConstructor::construct(FunctionObject& new_ta
     // 2. Set identifier to ? ToString(identifier).
     auto identifier = TRY(vm.argument(0).to_string(vm));
 
-    // 3. Let parseResult be ParseText(StringToCodePoints(identifier), TimeZoneNumericUTCOffset).
-    // 4. If parseResult is a List of errors, then
-    if (!is_valid_time_zone_numeric_utc_offset_syntax(identifier)) {
-        // a. If IsValidTimeZoneName(identifier) is false, then
-        if (!is_valid_time_zone_name(identifier)) {
+    // 3. If IsTimeZoneOffsetString(identifier) is false, then
+    if (!is_time_zone_offset_string(identifier)) {
+        // a. If IsAvailableTimeZoneName(identifier) is false, then
+        if (!is_available_time_zone_name(identifier)) {
             // i. Throw a RangeError exception.
             return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidTimeZoneName, identifier);
         }
@@ -62,7 +62,7 @@ ThrowCompletionOr<Object*> TimeZoneConstructor::construct(FunctionObject& new_ta
         identifier = canonicalize_time_zone_name(identifier);
     }
 
-    // 5. Return ? CreateTemporalTimeZone(identifier, NewTarget).
+    // 4. Return ? CreateTemporalTimeZone(identifier, NewTarget).
     return TRY(create_temporal_time_zone(vm, identifier, &new_target));
 }
 

@@ -18,7 +18,7 @@
 #include <LibAudio/LoaderError.h>
 #include <LibAudio/Sample.h>
 #include <LibAudio/SampleFormats.h>
-#include <LibCore/File.h>
+#include <LibCore/Stream.h>
 
 namespace Audio {
 
@@ -29,6 +29,8 @@ using MaybeLoaderError = Result<void, LoaderError>;
 
 class LoaderPlugin {
 public:
+    explicit LoaderPlugin(StringView path);
+    explicit LoaderPlugin(Bytes buffer);
     virtual ~LoaderPlugin() = default;
 
     virtual MaybeLoaderError initialize() = 0;
@@ -54,7 +56,12 @@ public:
     // Human-readable name of the file format, of the form <full abbreviation> (.<ending>)
     virtual String format_name() = 0;
     virtual PcmSampleFormat pcm_format() = 0;
-    virtual RefPtr<Core::File> file() = 0;
+
+protected:
+    StringView m_path;
+    OwnPtr<Core::Stream::SeekableStream> m_stream;
+    // The constructor might set this so that we can initialize the data stream later.
+    Optional<Bytes> m_backing_memory;
 };
 
 class Loader : public RefCounted<Loader> {
@@ -73,7 +80,6 @@ public:
     u16 num_channels() const { return m_plugin->num_channels(); }
     String format_name() const { return m_plugin->format_name(); }
     u16 bits_per_sample() const { return pcm_bits_per_sample(m_plugin->pcm_format()); }
-    RefPtr<Core::File> file() const { return m_plugin->file(); }
 
 private:
     static Result<NonnullOwnPtr<LoaderPlugin>, LoaderError> try_create(StringView path);

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Layout/AvailableSpace.h>
 #include <LibWeb/Layout/BlockContainer.h>
 #include <LibWeb/Layout/LayoutState.h>
 #include <LibWeb/Layout/TextNode.h>
@@ -121,15 +122,16 @@ Gfx::FloatRect border_box_rect(Box const& box, LayoutState const& state)
 Gfx::FloatRect border_box_rect_in_ancestor_coordinate_space(Box const& box, Box const& ancestor_box, LayoutState const& state)
 {
     auto rect = border_box_rect(box, state);
-    for (auto const* current = box.parent(); current; current = current->parent()) {
+    if (&box == &ancestor_box)
+        return rect;
+    for (auto const* current = box.containing_block(); current; current = current->containing_block()) {
         if (current == &ancestor_box)
-            break;
-        if (is<Box>(*current)) {
-            auto const& current_state = state.get(static_cast<Box const&>(*current));
-            rect.translate_by(current_state.offset);
-        }
+            return rect;
+        auto const& current_state = state.get(static_cast<Box const&>(*current));
+        rect.translate_by(current_state.offset);
     }
-    return rect;
+    // If we get here, ancestor_box was not a containing block ancestor of `box`!
+    VERIFY_NOT_REACHED();
 }
 
 Gfx::FloatRect content_box_rect(Box const& box, LayoutState const& state)
@@ -141,29 +143,31 @@ Gfx::FloatRect content_box_rect(Box const& box, LayoutState const& state)
 Gfx::FloatRect content_box_rect_in_ancestor_coordinate_space(Box const& box, Box const& ancestor_box, LayoutState const& state)
 {
     auto rect = content_box_rect(box, state);
-    for (auto const* current = box.parent(); current; current = current->parent()) {
+    if (&box == &ancestor_box)
+        return rect;
+    for (auto const* current = box.containing_block(); current; current = current->containing_block()) {
         if (current == &ancestor_box)
-            break;
-        if (is<Box>(*current)) {
-            auto const& current_state = state.get(static_cast<Box const&>(*current));
-            rect.translate_by(current_state.offset);
-        }
+            return rect;
+        auto const& current_state = state.get(static_cast<Box const&>(*current));
+        rect.translate_by(current_state.offset);
     }
-    return rect;
+    // If we get here, ancestor_box was not a containing block ancestor of `box`!
+    VERIFY_NOT_REACHED();
 }
 
 Gfx::FloatRect margin_box_rect_in_ancestor_coordinate_space(Box const& box, Box const& ancestor_box, LayoutState const& state)
 {
     auto rect = margin_box_rect(box, state);
-    for (auto const* current = box.parent(); current; current = current->parent()) {
+    if (&box == &ancestor_box)
+        return rect;
+    for (auto const* current = box.containing_block(); current; current = current->containing_block()) {
         if (current == &ancestor_box)
-            break;
-        if (is<Box>(*current)) {
-            auto const& current_state = state.get(static_cast<Box const&>(*current));
-            rect.translate_by(current_state.offset);
-        }
+            return rect;
+        auto const& current_state = state.get(static_cast<Box const&>(*current));
+        rect.translate_by(current_state.offset);
     }
-    return rect;
+    // If we get here, ancestor_box was not a containing block ancestor of `box`!
+    VERIFY_NOT_REACHED();
 }
 
 Gfx::FloatRect absolute_content_rect(Box const& box, LayoutState const& state)
@@ -179,9 +183,18 @@ void LayoutState::UsedValues::set_node(NodeWithStyleAndBoxModelMetrics& node, Us
 {
     m_node = &node;
 
+    // NOTE: In the code below, we decide if `node` has definite width and/or height.
+    //       This attempts to cover all the *general* cases where CSS considers sizes to be definite.
+    //       If `node` has definite values for min/max-width or min/max-height and a definite
+    //       preferred size in the same axis, we clamp the preferred size here as well.
+    //
+    //       There are additional cases where CSS considers values to be definite. We model all of
+    //       those by having our engine consider sizes to be definite *once they are assigned to
+    //       the UsedValues by calling set_content_width() or set_content_height().
+
     auto const& computed_values = node.computed_values();
 
-    auto is_definite_size = [&](CSS::LengthPercentage const& size, float& resolved_definite_size, bool width) {
+    auto is_definite_size = [&](CSS::Size const& size, float& resolved_definite_size, bool width) {
         // A size that can be determined without performing layout; that is,
         // a <length>,
         // a measure of text (without consideration of line-wrapping),
@@ -192,9 +205,22 @@ void LayoutState::UsedValues::set_node(NodeWithStyleAndBoxModelMetrics& node, Us
 
         if (size.is_auto()) {
             // NOTE: The width of a non-flex-item block is considered definite if it's auto and the containing block has definite width.
-            if (width && node.parent() && !node.parent()->computed_values().display().is_flex_inside()) {
+            if (width
+                && !node.is_floating()
+                && node.display().is_block_outside()
+                && node.parent()
+                && !node.parent()->is_floating()
+                && (node.parent()->display().is_flow_root_inside()
+                    || node.parent()->display().is_flow_inside())) {
                 if (containing_block_has_definite_size) {
-                    resolved_definite_size = width ? containing_block_used_values->content_width() : containing_block_used_values->content_height();
+                    float available_width = containing_block_used_values->content_width();
+                    resolved_definite_size = available_width
+                        - margin_left
+                        - margin_right
+                        - padding_left
+                        - padding_right
+                        - border_left
+                        - border_right;
                     return true;
                 }
                 return false;
@@ -202,7 +228,24 @@ void LayoutState::UsedValues::set_node(NodeWithStyleAndBoxModelMetrics& node, Us
             return false;
         }
 
+        if (size.is_length() && size.length().is_calculated()) {
+            if (size.length().calculated_style_value()->contains_percentage()) {
+                if (!containing_block_has_definite_size)
+                    return false;
+                auto& calc_value = *size.length().calculated_style_value();
+                auto containing_block_size_as_length = width
+                    ? CSS::Length::make_px(containing_block_used_values->content_width())
+                    : CSS::Length::make_px(containing_block_used_values->content_height());
+                resolved_definite_size = calc_value.resolve_length_percentage(node, containing_block_size_as_length).value_or(CSS::Length::make_auto()).to_px(node);
+                return true;
+            }
+            resolved_definite_size = size.length().to_px(node);
+            return true;
+        }
+
         if (size.is_length()) {
+            VERIFY(!size.is_auto());                // This should have been covered by the Size::is_auto() branch above.
+            VERIFY(!size.length().is_calculated()); // Covered above.
             resolved_definite_size = size.length().to_px(node);
             return true;
         }
@@ -218,18 +261,114 @@ void LayoutState::UsedValues::set_node(NodeWithStyleAndBoxModelMetrics& node, Us
         return false;
     };
 
+    float min_width = 0;
+    bool has_definite_min_width = is_definite_size(computed_values.min_width(), min_width, true);
+    float max_width = 0;
+    bool has_definite_max_width = is_definite_size(computed_values.max_width(), max_width, true);
+
+    float min_height = 0;
+    bool has_definite_min_height = is_definite_size(computed_values.min_height(), min_height, false);
+    float max_height = 0;
+    bool has_definite_max_height = is_definite_size(computed_values.max_height(), max_height, false);
+
     m_has_definite_width = is_definite_size(computed_values.width(), m_content_width, true);
     m_has_definite_height = is_definite_size(computed_values.height(), m_content_height, false);
+
+    if (m_has_definite_width) {
+        if (has_definite_min_width)
+            m_content_width = max(min_width, m_content_width);
+        if (has_definite_max_width)
+            m_content_width = min(max_width, m_content_width);
+    }
+
+    if (m_has_definite_height) {
+        if (has_definite_min_height)
+            m_content_height = max(min_height, m_content_height);
+        if (has_definite_max_height)
+            m_content_height = min(max_height, m_content_height);
+    }
 }
 
 void LayoutState::UsedValues::set_content_width(float width)
 {
     m_content_width = width;
+    m_has_definite_width = true;
 }
 
 void LayoutState::UsedValues::set_content_height(float height)
 {
     m_content_height = height;
+    m_has_definite_height = true;
+}
+
+void LayoutState::UsedValues::set_temporary_content_width(float width)
+{
+    m_content_width = width;
+}
+
+void LayoutState::UsedValues::set_temporary_content_height(float height)
+{
+    m_content_height = height;
+}
+
+float LayoutState::resolved_definite_width(Box const& box) const
+{
+    return get(box).content_width();
+}
+
+float LayoutState::resolved_definite_height(Box const& box) const
+{
+    return get(box).content_height();
+}
+
+AvailableSize LayoutState::UsedValues::available_width_inside() const
+{
+    if (width_constraint == SizeConstraint::MinContent)
+        return AvailableSize::make_min_content();
+    if (width_constraint == SizeConstraint::MaxContent)
+        return AvailableSize::make_max_content();
+    if (has_definite_width())
+        return AvailableSize::make_definite(m_content_width);
+    return AvailableSize::make_indefinite();
+}
+
+AvailableSize LayoutState::UsedValues::available_height_inside() const
+{
+    if (height_constraint == SizeConstraint::MinContent)
+        return AvailableSize::make_min_content();
+    if (height_constraint == SizeConstraint::MaxContent)
+        return AvailableSize::make_max_content();
+    if (has_definite_height())
+        return AvailableSize::make_definite(m_content_height);
+    return AvailableSize::make_indefinite();
+}
+
+AvailableSpace LayoutState::UsedValues::available_inner_space_or_constraints_from(AvailableSpace const& outer_space) const
+{
+    auto inner_width = available_width_inside();
+    auto inner_height = available_height_inside();
+
+    if (inner_width.is_indefinite() && outer_space.width.is_intrinsic_sizing_constraint())
+        inner_width = outer_space.width;
+    if (inner_height.is_indefinite() && outer_space.height.is_intrinsic_sizing_constraint())
+        inner_height = outer_space.height;
+    return AvailableSpace(inner_width, inner_height);
+}
+
+void LayoutState::UsedValues::set_content_offset(Gfx::FloatPoint offset)
+{
+    set_content_x(offset.x());
+    set_content_y(offset.y());
+}
+
+void LayoutState::UsedValues::set_content_x(float x)
+{
+    offset.set_x(x);
+}
+
+void LayoutState::UsedValues::set_content_y(float y)
+{
+    offset.set_y(y);
 }
 
 }

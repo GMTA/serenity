@@ -14,10 +14,10 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 #    include <serenity.h>
 #endif
-#ifdef __FreeBSD__
+#ifdef AK_OS_FREEBSD
 #    include <sys/ucred.h>
 #endif
 
@@ -52,29 +52,24 @@ ErrorOr<ByteBuffer> Stream::read_all(size_t block_size)
     return read_all_impl(block_size);
 }
 
-ErrorOr<ByteBuffer> Stream::read_all_impl(size_t block_size, size_t file_size)
+ErrorOr<ByteBuffer> Stream::read_all_impl(size_t block_size, size_t expected_file_size)
 {
     ByteBuffer data;
-    data.ensure_capacity(file_size);
+    data.ensure_capacity(expected_file_size);
 
-    size_t total_read {};
-    size_t next_reading_size { block_size };
-    for (Span<u8> chunk; !is_eof();) {
-        if (next_reading_size == block_size)
-            chunk = TRY(data.get_bytes_for_writing(next_reading_size));
-        auto const nread = TRY(read(chunk)).size();
+    size_t total_read = 0;
+    Bytes buffer;
+    while (!is_eof()) {
+        if (buffer.is_empty()) {
+            buffer = TRY(data.get_bytes_for_writing(block_size));
+        }
 
-        next_reading_size -= nread;
-
-        if (next_reading_size == 0)
-            next_reading_size = block_size;
-
+        auto nread = TRY(read(buffer)).size();
         total_read += nread;
-
-        if (nread < block_size)
-            data.resize(total_read);
+        buffer = buffer.slice(nread);
     }
 
+    data.resize(total_read);
     return data;
 }
 
@@ -132,7 +127,7 @@ ErrorOr<NonnullOwnPtr<File>> File::open(StringView filename, OpenMode mode, mode
     return file;
 }
 
-ErrorOr<NonnullOwnPtr<File>> File::adopt_fd(int fd, OpenMode mode)
+ErrorOr<NonnullOwnPtr<File>> File::adopt_fd(int fd, OpenMode mode, ShouldCloseFileDescriptor should_close_file_descriptor)
 {
     if (fd < 0) {
         return Error::from_errno(EBADF);
@@ -143,7 +138,7 @@ ErrorOr<NonnullOwnPtr<File>> File::adopt_fd(int fd, OpenMode mode)
         return Error::from_errno(EINVAL);
     }
 
-    auto file = TRY(adopt_nonnull_own_or_enomem(new (nothrow) File(mode)));
+    auto file = TRY(adopt_nonnull_own_or_enomem(new (nothrow) File(mode, should_close_file_descriptor)));
     file->m_fd = fd;
     return file;
 }
@@ -153,6 +148,19 @@ bool File::exists(StringView filename)
     return !Core::System::stat(filename).is_error();
 }
 
+ErrorOr<NonnullOwnPtr<File>> File::standard_input()
+{
+    return File::adopt_fd(STDIN_FILENO, OpenMode::Read, ShouldCloseFileDescriptor::No);
+}
+ErrorOr<NonnullOwnPtr<File>> File::standard_output()
+{
+    return File::adopt_fd(STDOUT_FILENO, OpenMode::Write, ShouldCloseFileDescriptor::No);
+}
+ErrorOr<NonnullOwnPtr<File>> File::standard_error()
+{
+    return File::adopt_fd(STDERR_FILENO, OpenMode::Write, ShouldCloseFileDescriptor::No);
+}
+
 ErrorOr<NonnullOwnPtr<File>> File::open_file_or_standard_stream(StringView filename, OpenMode mode)
 {
     if (!filename.is_empty() && filename != "-"sv)
@@ -160,9 +168,9 @@ ErrorOr<NonnullOwnPtr<File>> File::open_file_or_standard_stream(StringView filen
 
     switch (mode) {
     case OpenMode::Read:
-        return File::adopt_fd(STDIN_FILENO, mode);
+        return standard_input();
     case OpenMode::Write:
-        return File::adopt_fd(STDOUT_FILENO, mode);
+        return standard_output();
     default:
         VERIFY_NOT_REACHED();
     }
@@ -355,12 +363,17 @@ ErrorOr<IPv4Address> Socket::resolve_host(String const& host, SocketType type)
         return Error::from_string_view({ error_string, strlen(error_string) });
     }
 
-    auto* socket_address = bit_cast<struct sockaddr_in*>(results->ai_addr);
-    NetworkOrdered<u32> network_ordered_address { socket_address->sin_addr.s_addr };
+    ScopeGuard free_results = [results] { freeaddrinfo(results); };
 
-    freeaddrinfo(results);
+    for (auto* result = results; result != nullptr; result = result->ai_next) {
+        if (result->ai_family == AF_INET) {
+            auto* socket_address = bit_cast<struct sockaddr_in*>(result->ai_addr);
+            NetworkOrdered<u32> network_ordered_address { socket_address->sin_addr.s_addr };
+            return IPv4Address { network_ordered_address };
+        }
+    }
 
-    return IPv4Address { network_ordered_address };
+    return Error::from_string_literal("Could not resolve to IPv4 address");
 }
 
 ErrorOr<void> Socket::connect_local(int fd, String const& path)
@@ -566,8 +579,43 @@ ErrorOr<NonnullOwnPtr<LocalSocket>> LocalSocket::adopt_fd(int fd)
 
 ErrorOr<int> LocalSocket::receive_fd(int flags)
 {
-#ifdef __serenity__
+#if defined(AK_OS_SERENITY)
     return Core::System::recvfd(m_helper.fd(), flags);
+#elif defined(AK_OS_LINUX) || defined(AK_OS_MACOS)
+    union {
+        struct cmsghdr cmsghdr;
+        char control[CMSG_SPACE(sizeof(int))];
+    } cmsgu {};
+    char c = 0;
+    struct iovec iov {
+        .iov_base = &c,
+        .iov_len = 1,
+    };
+    struct msghdr msg {
+        .msg_name = NULL,
+        .msg_namelen = 0,
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+        .msg_control = cmsgu.control,
+        .msg_controllen = sizeof(cmsgu.control),
+        .msg_flags = 0,
+    };
+    TRY(Core::System::recvmsg(m_helper.fd(), &msg, 0));
+
+    struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+    if (!cmsg || cmsg->cmsg_len != CMSG_LEN(sizeof(int)))
+        return Error::from_string_literal("Malformed message when receiving file descriptor");
+
+    VERIFY(cmsg->cmsg_level == SOL_SOCKET);
+    VERIFY(cmsg->cmsg_type == SCM_RIGHTS);
+    int fd = *((int*)CMSG_DATA(cmsg));
+
+    if (flags & O_CLOEXEC) {
+        auto fd_flags = TRY(Core::System::fcntl(fd, F_GETFD));
+        TRY(Core::System::fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC));
+    }
+
+    return fd;
 #else
     (void)flags;
     return Error::from_string_literal("File descriptor passing not supported on this platform");
@@ -576,8 +624,39 @@ ErrorOr<int> LocalSocket::receive_fd(int flags)
 
 ErrorOr<void> LocalSocket::send_fd(int fd)
 {
-#ifdef __serenity__
+#if defined(AK_OS_SERENITY)
     return Core::System::sendfd(m_helper.fd(), fd);
+#elif defined(AK_OS_LINUX) || defined(AK_OS_MACOS)
+    char c = 'F';
+    struct iovec iov {
+        .iov_base = &c,
+        .iov_len = sizeof(c)
+    };
+
+    union {
+        struct cmsghdr cmsghdr;
+        char control[CMSG_SPACE(sizeof(int))];
+    } cmsgu {};
+
+    struct msghdr msg {
+        .msg_name = NULL,
+        .msg_namelen = 0,
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+        .msg_control = cmsgu.control,
+        .msg_controllen = sizeof(cmsgu.control),
+        .msg_flags = 0,
+    };
+
+    struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+
+    *((int*)CMSG_DATA(cmsg)) = fd;
+
+    TRY(Core::System::sendmsg(m_helper.fd(), &msg, 0));
+    return {};
 #else
     (void)fd;
     return Error::from_string_literal("File descriptor passing not supported on this platform");
@@ -589,10 +668,10 @@ ErrorOr<pid_t> LocalSocket::peer_pid() const
 #ifdef AK_OS_MACOS
     pid_t pid;
     socklen_t pid_size = sizeof(pid);
-#elif defined(__FreeBSD__)
+#elif defined(AK_OS_FREEBSD)
     struct xucred creds = {};
     socklen_t creds_size = sizeof(creds);
-#elif defined(__OpenBSD__)
+#elif defined(AK_OS_OPENBSD)
     struct sockpeercred creds = {};
     socklen_t creds_size = sizeof(creds);
 #else
@@ -603,7 +682,7 @@ ErrorOr<pid_t> LocalSocket::peer_pid() const
 #ifdef AK_OS_MACOS
     TRY(System::getsockopt(m_helper.fd(), SOL_LOCAL, LOCAL_PEERPID, &pid, &pid_size));
     return pid;
-#elif defined(__FreeBSD__)
+#elif defined(AK_OS_FREEBSD)
     TRY(System::getsockopt(m_helper.fd(), SOL_LOCAL, LOCAL_PEERCRED, &creds, &creds_size));
     return creds.cr_pid;
 #else
@@ -615,6 +694,13 @@ ErrorOr<pid_t> LocalSocket::peer_pid() const
 ErrorOr<Bytes> LocalSocket::read_without_waiting(Bytes buffer)
 {
     return m_helper.read(buffer, MSG_DONTWAIT);
+}
+
+Optional<int> LocalSocket::fd() const
+{
+    if (!is_open())
+        return {};
+    return m_helper.fd();
 }
 
 ErrorOr<int> LocalSocket::release_fd()

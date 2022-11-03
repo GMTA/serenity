@@ -98,11 +98,11 @@ static Vector<ModuleRequest> module_requests(Program& program, Vector<String> co
     return requested_modules_in_source_order;
 }
 
-SourceTextModule::SourceTextModule(Realm& realm, StringView filename, bool has_top_level_await, NonnullRefPtr<Program> body, Vector<ModuleRequest> requested_modules,
+SourceTextModule::SourceTextModule(Realm& realm, StringView filename, Script::HostDefined* host_defined, bool has_top_level_await, NonnullRefPtr<Program> body, Vector<ModuleRequest> requested_modules,
     Vector<ImportEntry> import_entries, Vector<ExportEntry> local_export_entries,
     Vector<ExportEntry> indirect_export_entries, Vector<ExportEntry> star_export_entries,
     RefPtr<ExportStatement> default_export)
-    : CyclicModule(realm, filename, has_top_level_await, move(requested_modules))
+    : CyclicModule(realm, filename, has_top_level_await, move(requested_modules), host_defined)
     , m_ecmascript_code(move(body))
     , m_execution_context(realm.heap())
     , m_import_entries(move(import_entries))
@@ -120,7 +120,7 @@ void SourceTextModule::visit_edges(Cell::Visitor& visitor)
 }
 
 // 16.2.1.6.1 ParseModule ( sourceText, realm, hostDefined ), https://tc39.es/ecma262/#sec-parsemodule
-Result<NonnullGCPtr<SourceTextModule>, Vector<Parser::Error>> SourceTextModule::parse(StringView source_text, Realm& realm, StringView filename)
+Result<NonnullGCPtr<SourceTextModule>, Vector<Parser::Error>> SourceTextModule::parse(StringView source_text, Realm& realm, StringView filename, Script::HostDefined* host_defined)
 {
     // 1. Let body be ParseText(sourceText, Module).
     auto parser = Parser(Lexer(source_text, filename), Program::Type::Module);
@@ -248,6 +248,7 @@ Result<NonnullGCPtr<SourceTextModule>, Vector<Parser::Error>> SourceTextModule::
     return NonnullGCPtr(*realm.heap().allocate_without_realm<SourceTextModule>(
         realm,
         filename,
+        host_defined,
         async,
         move(body),
         move(requested_modules),
@@ -646,9 +647,9 @@ ThrowCompletionOr<ResolvedBinding> SourceTextModule::resolve_export(VM& vm, FlyS
 }
 
 // 16.2.1.6.5 ExecuteModule ( [ capability ] ), https://tc39.es/ecma262/#sec-source-text-module-record-execute-module
-ThrowCompletionOr<void> SourceTextModule::execute_module(VM& vm, Optional<PromiseCapability> capability)
+ThrowCompletionOr<void> SourceTextModule::execute_module(VM& vm, GCPtr<PromiseCapability> capability)
 {
-    dbgln_if(JS_MODULE_DEBUG, "[JS MODULE] SourceTextModule::execute_module({}, capability has value: {})", filename(), capability.has_value());
+    dbgln_if(JS_MODULE_DEBUG, "[JS MODULE] SourceTextModule::execute_module({}, PromiseCapability @ {})", filename(), capability.ptr());
 
     // 1. Let moduleContext be a new ECMAScript code execution context.
     ExecutionContext module_context { vm.heap() };
@@ -679,7 +680,7 @@ ThrowCompletionOr<void> SourceTextModule::execute_module(VM& vm, Optional<Promis
     // 9. If module.[[HasTLA]] is false, then
     if (!m_has_top_level_await) {
         // a. Assert: capability is not present.
-        VERIFY(!capability.has_value());
+        VERIFY(capability == nullptr);
         // b. Push moduleContext onto the execution context stack; moduleContext is now the running execution context.
         TRY(vm.push_execution_context(module_context, {}));
 
@@ -701,10 +702,10 @@ ThrowCompletionOr<void> SourceTextModule::execute_module(VM& vm, Optional<Promis
     // 10. Else,
     else {
         // a. Assert: capability is a PromiseCapability Record.
-        VERIFY(capability.has_value());
+        VERIFY(capability != nullptr);
 
         // b. Perform AsyncBlockStart(capability, module.[[ECMAScriptCode]], moduleContext).
-        async_block_start(vm, m_ecmascript_code, capability.value(), module_context);
+        async_block_start(vm, m_ecmascript_code, *capability, module_context);
     }
 
     // 11. Return unused.

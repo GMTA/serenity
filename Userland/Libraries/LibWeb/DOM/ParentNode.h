@@ -23,17 +23,17 @@ public:
     JS::GCPtr<Element> last_element_child();
     u32 child_element_count() const;
 
-    ExceptionOr<JS::GCPtr<Element>> query_selector(StringView);
-    ExceptionOr<JS::NonnullGCPtr<NodeList>> query_selector_all(StringView);
+    WebIDL::ExceptionOr<JS::GCPtr<Element>> query_selector(StringView);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<NodeList>> query_selector_all(StringView);
 
     JS::NonnullGCPtr<HTMLCollection> children();
 
     JS::NonnullGCPtr<HTMLCollection> get_elements_by_tag_name(FlyString const&);
     JS::NonnullGCPtr<HTMLCollection> get_elements_by_tag_name_ns(FlyString const&, FlyString const&);
 
-    ExceptionOr<void> prepend(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
-    ExceptionOr<void> append(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
-    ExceptionOr<void> replace_children(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
+    WebIDL::ExceptionOr<void> prepend(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
+    WebIDL::ExceptionOr<void> append(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
+    WebIDL::ExceptionOr<void> replace_children(Vector<Variant<JS::Handle<Node>, String>> const& nodes);
 
 protected:
     ParentNode(JS::Realm& realm, Document& document, NodeType type)
@@ -45,6 +45,11 @@ protected:
         : Node(document, type)
     {
     }
+
+    virtual void visit_edges(Cell::Visitor&) override;
+
+private:
+    JS::GCPtr<HTMLCollection> m_children;
 };
 
 template<>
@@ -65,5 +70,3 @@ inline void ParentNode::for_each_child(Callback callback)
 }
 
 }
-
-WRAPPER_HACK(ParentNode, Web::DOM)

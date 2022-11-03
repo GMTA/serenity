@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, Hunter Salyer <thefalsehonesty@gmail.com>
+ * Copyright (c) 2022, Gregory Bertilson <zaggy1024@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -29,8 +30,17 @@ public:
             int m_value;
         };
 
-        TreeSelection(int const* values);
-        TreeSelection(int value);
+        constexpr TreeSelection(int const* values)
+            : m_is_single_value(false)
+            , m_value { .m_tree = values }
+        {
+        }
+
+        constexpr TreeSelection(int value)
+            : m_is_single_value(true)
+            , m_value { .m_value = value }
+        {
+        }
 
         bool is_single_value() const { return m_is_single_value; }
         int get_single_value() const { return m_value.m_value; }
@@ -43,7 +53,7 @@ public:
 
     /* (9.3.3) */
     template<typename T = int>
-    T parse_tree(SyntaxElementType type);
+    ErrorOr<T> parse_tree(SyntaxElementType type);
     /* (9.3.1) */
     TreeSelection select_tree(SyntaxElementType type);
     /* (9.3.2) */
@@ -57,19 +67,29 @@ public:
         m_idy = idy;
     }
 
-    void set_tokens_variables(u8 band, u32 c, u32 plane, TXSize tx_size, u32 pos)
-    {
-        m_band = band;
-        m_c = c;
-        m_plane = plane;
-        m_tx_size = tx_size;
-        m_pos = pos;
-    }
+    void set_tokens_variables(u8 band, u32 c, u32 plane, TXSize tx_size, u32 pos);
 
     void set_start_x_and_y(u32 start_x, u32 start_y)
     {
         m_start_x = start_x;
         m_start_y = start_y;
+    }
+
+    void set_mv_component(u8 component)
+    {
+        m_mv_component = component;
+    }
+
+    ErrorOr<bool> parse_mv_bit(u8 bit)
+    {
+        m_mv_bit = bit;
+        return parse_tree<bool>(SyntaxElementType::MVBit);
+    }
+
+    ErrorOr<u8> parse_mv_class0_fr(bool mv_class0_bit)
+    {
+        m_mv_class0_bit = mv_class0_bit;
+        return parse_tree<u8>(SyntaxElementType::MVClass0FR);
     }
 
 private:
@@ -108,6 +128,13 @@ private:
     u32 m_plane { 0 };
     TXSize m_tx_size;
     u32 m_pos { 0 };
+    u8 m_mv_component { 0 };
+    // 0xFF indicates the value has not been set.
+    // parse_mv_bit should be called to set this.
+    u8 m_mv_bit { 0xFF };
+    // 0xFF indicates the value has not been set.
+    // parse_mv_class0_fr should be called to set this.
+    u8 m_mv_class0_bit { 0xFF };
 };
 
 }

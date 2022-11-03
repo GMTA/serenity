@@ -10,19 +10,12 @@
 #include <LibWeb/Fetch/Infrastructure/HTTP/Responses.h>
 #include <LibWeb/HTML/CrossOrigin/CrossOriginOpenerPolicy.h>
 #include <LibWeb/HTML/CrossOrigin/CrossOriginOpenerPolicyEnforcementResult.h>
+#include <LibWeb/HTML/HistoryHandlingBehavior.h>
 #include <LibWeb/HTML/Origin.h>
 #include <LibWeb/HTML/PolicyContainers.h>
 #include <LibWeb/HTML/SandboxingFlagSet.h>
 
 namespace Web::HTML {
-
-// https://html.spec.whatwg.org/multipage/browsing-the-web.html#history-handling-behavior
-enum class HistoryHandlingBehavior {
-    Default,
-    EntryUpdate,
-    Reload,
-    Replace,
-};
 
 // https://html.spec.whatwg.org/multipage/browsing-the-web.html#navigation-params
 struct NavigationParams {
@@ -30,10 +23,10 @@ struct NavigationParams {
     String id;
 
     // null or a request that started the navigation
-    OwnPtr<Fetch::Infrastructure::Request> request;
+    JS::GCPtr<Fetch::Infrastructure::Request> request;
 
     // a response that ultimately was navigated to (potentially a network error)
-    NonnullOwnPtr<Fetch::Infrastructure::Response> response;
+    JS::NonnullGCPtr<Fetch::Infrastructure::Response> response;
 
     // an origin to use for the new Document
     Origin origin;
@@ -54,7 +47,7 @@ struct NavigationParams {
     Optional<Environment> reserved_environment;
 
     // the browsing context to be navigated (or discarded, if a browsing context group switch occurs)
-    NonnullRefPtr<HTML::BrowsingContext> browsing_context;
+    JS::Handle<HTML::BrowsingContext> browsing_context;
 
     // a history handling behavior
     HistoryHandlingBehavior history_handling { HistoryHandlingBehavior::Default };

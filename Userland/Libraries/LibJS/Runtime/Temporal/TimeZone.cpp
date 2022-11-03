@@ -27,12 +27,12 @@ TimeZone::TimeZone(Object& prototype)
 {
 }
 
-// 11.1.1 IsValidTimeZoneName ( timeZone ), https://tc39.es/proposal-temporal/#sec-isvalidtimezonename
-// 15.1.1 IsValidTimeZoneName ( timeZone ), https://tc39.es/proposal-temporal/#sup-isvalidtimezonename
-bool is_valid_time_zone_name(String const& time_zone)
+// 11.1.1 IsAvailableTimeZoneName ( timeZone ), https://tc39.es/proposal-temporal/#sec-isavailabletimezonename
+bool is_available_time_zone_name(StringView time_zone)
 {
-    // 1. If one of the Zone or Link names of the IANA Time Zone Database is an ASCII-case-insensitive match of timeZone as described in 6.1, return true.
-    // 2. If timeZone is an ASCII-case-insensitive match of "UTC", return true.
+    // 1. Let timeZones be AvailableTimeZones().
+    // 2. For each String candidate in timeZones, do
+    //     a. If timeZone is an ASCII-case-insensitive match for candidate, return true.
     // 3. Return false.
     // NOTE: When LibTimeZone is built without ENABLE_TIME_ZONE_DATA, this only recognizes 'UTC',
     // which matches the minimum requirements of the Temporal spec.
@@ -54,14 +54,6 @@ String canonicalize_time_zone_name(String const& time_zone)
     return *iana_time_zone;
 }
 
-// 11.1.3 DefaultTimeZone ( ), https://tc39.es/proposal-temporal/#sec-defaulttimezone
-// 15.1.3 DefaultTimeZone ( ), https://tc39.es/proposal-temporal/#sup-defaulttimezone
-String default_time_zone()
-{
-    // The DefaultTimeZone abstract operation returns a String value representing the valid (11.1.1) and canonicalized (11.1.2) time zone name for the host environment's current time zone.
-    return ::TimeZone::current_time_zone();
-}
-
 // 11.6.1 CreateTemporalTimeZone ( identifier [ , newTarget ] ), https://tc39.es/proposal-temporal/#sec-temporal-createtemporaltimezone
 ThrowCompletionOr<TimeZone*> create_temporal_time_zone(VM& vm, String const& identifier, FunctionObject const* new_target)
 {
@@ -74,11 +66,19 @@ ThrowCompletionOr<TimeZone*> create_temporal_time_zone(VM& vm, String const& ide
     // 2. Let object be ? OrdinaryCreateFromConstructor(newTarget, "%Temporal.TimeZone.prototype%", « [[InitializedTemporalTimeZone]], [[Identifier]], [[OffsetNanoseconds]] »).
     auto* object = TRY(ordinary_create_from_constructor<TimeZone>(vm, *new_target, &Intrinsics::temporal_time_zone_prototype));
 
-    // 3. Let offsetNanosecondsResult be Completion(ParseTimeZoneOffsetString(identifier)).
-    auto offset_nanoseconds_result = parse_time_zone_offset_string(vm, identifier);
+    // 3. If IsTimeZoneOffsetString(identifier) is true, then
+    if (is_time_zone_offset_string(identifier)) {
+        // a. Let offsetNanosecondsResult be ParseTimeZoneOffsetString(identifier).
+        auto offset_nanoseconds_result = parse_time_zone_offset_string(identifier);
 
-    // 4. If offsetNanosecondsResult is an abrupt completion, then
-    if (offset_nanoseconds_result.is_throw_completion()) {
+        // b. Set object.[[Identifier]] to ! FormatTimeZoneOffsetString(offsetNanosecondsResult).
+        object->set_identifier(format_time_zone_offset_string(offset_nanoseconds_result));
+
+        // c. Set object.[[OffsetNanoseconds]] to offsetNanosecondsResult.
+        object->set_offset_nanoseconds(offset_nanoseconds_result);
+    }
+    // 4. Else,
+    else {
         // a. Assert: ! CanonicalizeTimeZoneName(identifier) is identifier.
         VERIFY(canonicalize_time_zone_name(identifier) == identifier);
 
@@ -88,16 +88,8 @@ ThrowCompletionOr<TimeZone*> create_temporal_time_zone(VM& vm, String const& ide
         // c. Set object.[[OffsetNanoseconds]] to undefined.
         // NOTE: No-op.
     }
-    // 5. Else,
-    else {
-        // a. Set object.[[Identifier]] to ! FormatTimeZoneOffsetString(offsetNanosecondsResult.[[Value]]).
-        object->set_identifier(format_time_zone_offset_string(offset_nanoseconds_result.value()));
 
-        // b. Set object.[[OffsetNanoseconds]] to offsetNanosecondsResult.[[Value]].
-        object->set_offset_nanoseconds(offset_nanoseconds_result.value());
-    }
-
-    // 6. Return object.
+    // 5. Return object.
     return object;
 }
 
@@ -149,56 +141,10 @@ ISODateTime get_iso_parts_from_epoch(VM& vm, Crypto::SignedBigInteger const& epo
     return { .year = year, .month = month, .day = day, .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = static_cast<u16>(microsecond), .nanosecond = static_cast<u16>(nanosecond) };
 }
 
-// 11.6.3 GetIANATimeZoneEpochValue ( timeZoneIdentifier, year, month, day, hour, minute, second, millisecond, microsecond, nanosecond ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezoneepochvalue
-MarkedVector<BigInt*> get_iana_time_zone_epoch_value(VM& vm, [[maybe_unused]] StringView time_zone_identifier, i32 year, u8 month, u8 day, u8 hour, u8 minute, u8 second, u16 millisecond, u16 microsecond, u16 nanosecond)
+// 11.6.3 GetNamedTimeZoneNextTransition ( timeZoneIdentifier, epochNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezonenexttransition
+BigInt* get_named_time_zone_next_transition(VM&, [[maybe_unused]] StringView time_zone_identifier, [[maybe_unused]] BigInt const& epoch_nanoseconds)
 {
-    // The implementation-defined abstract operation GetIANATimeZoneEpochValue takes arguments timeZoneIdentifier (a String), year (an integer), month (an integer between 1 and 12 inclusive), day (an integer between 1 and 31 inclusive), hour (an integer between 0 and 23 inclusive), minute (an integer between 0 and 59 inclusive), second (an integer between 0 and 59 inclusive), millisecond (an integer between 0 and 999 inclusive), microsecond (an integer between 0 and 999 inclusive), and nanosecond (an integer between 0 and 999 inclusive) and returns a List of BigInts.
-    // Each value in the returned List represents a number of nanoseconds since the Unix epoch in UTC that corresponds to the given ISO 8601 calendar date and wall-clock time in the IANA time zone identified by timeZoneIdentifier.
-    // When the input represents a local time repeating multiple times at a negative time zone transition (e.g. when the daylight saving time ends or the time zone offset is decreased due to a time zone rule change), the returned List will have more than one element. The elements are sorted in numerical order. When the input represents a skipped local time at a positive time zone transition (e.g. when the daylight saving time starts or the time zone offset is increased due to a time zone rule change), the returned List will be empty. Otherwise, the returned List will have one element.
-    // It is an error to call GetIANATimeZoneEpochValue with arguments such that IsValidISODate(year, month, day) is false.
-
-    // FIXME: Implement this properly for non-UTC timezones.
-    auto list = MarkedVector<BigInt*> { vm.heap() };
-    list.append(get_epoch_from_iso_parts(vm, year, month, day, hour, minute, second, millisecond, microsecond, nanosecond));
-    return list;
-}
-
-// 11.6.4 GetIANATimeZoneOffsetNanoseconds ( epochNanoseconds, timeZoneIdentifier ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezoneoffsetnanoseconds
-i64 get_iana_time_zone_offset_nanoseconds(BigInt const& epoch_nanoseconds, String const& time_zone_identifier)
-{
-    // The implementation-defined abstract operation GetIANATimeZoneOffsetNanoseconds takes arguments epochNanoseconds (a BigInt) and timeZoneIdentifier (a String) and returns an integer.
-    // The returned integer represents the offset of the IANA time zone identified by timeZoneIdentifier from UTC, at the instant corresponding to epochNanoseconds.
-    // Given the same values of epochNanoseconds and timeZoneIdentifier, the result must be the same for the lifetime of the surrounding agent.
-
-    // Only called with validated TimeZone [[Identifier]] as argument.
-    auto time_zone = ::TimeZone::time_zone_from_string(time_zone_identifier);
-    VERIFY(time_zone.has_value());
-
-    // Since Time::from_seconds() and Time::from_nanoseconds() both take an i64, converting to
-    // seconds first gives us a greater range. The TZDB doesn't have sub-second offsets.
-    auto seconds = epoch_nanoseconds.big_integer().divided_by("1000000000"_bigint).quotient;
-
-    // The provided epoch (nano)seconds value is potentially out of range for AK::Time and subsequently
-    // get_time_zone_offset(). We can safely assume that the TZDB has no useful information that far
-    // into the past and future anyway, so clamp it to the i64 range.
-    Time time;
-    if (seconds < Crypto::SignedBigInteger { NumericLimits<i64>::min() })
-        time = Time::min();
-    else if (seconds > Crypto::SignedBigInteger { NumericLimits<i64>::max() })
-        time = Time::max();
-    else
-        time = Time::from_seconds(*seconds.to_base(10).to_int<i64>());
-
-    auto offset = ::TimeZone::get_time_zone_offset(*time_zone, time);
-    VERIFY(offset.has_value());
-
-    return offset->seconds * 1'000'000'000;
-}
-
-// 11.6.5 GetIANATimeZoneNextTransition ( epochNanoseconds, timeZoneIdentifier ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezonenexttransition
-BigInt* get_iana_time_zone_next_transition(VM&, [[maybe_unused]] BigInt const& epoch_nanoseconds, [[maybe_unused]] StringView time_zone_identifier)
-{
-    // The implementation-defined abstract operation GetIANATimeZoneNextTransition takes arguments epochNanoseconds (a BigInt) and timeZoneIdentifier (a String) and returns a BigInt or null.
+    // The implementation-defined abstract operation GetNamedTimeZoneNextTransition takes arguments timeZoneIdentifier (a String) and epochNanoseconds (a BigInt) and returns a BigInt or null.
     // The returned value t represents the number of nanoseconds since the Unix epoch in UTC that corresponds to the first time zone transition after epochNanoseconds in the IANA time zone identified by timeZoneIdentifier. The operation returns null if no such transition exists for which t ≤ ℤ(nsMaxInstant).
     // Given the same values of epochNanoseconds and timeZoneIdentifier, the result must be the same for the lifetime of the surrounding agent.
 
@@ -206,10 +152,10 @@ BigInt* get_iana_time_zone_next_transition(VM&, [[maybe_unused]] BigInt const& e
     return nullptr;
 }
 
-// 11.6.6 GetIANATimeZonePreviousTransition ( epochNanoseconds, timeZoneIdentifier ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezoneprevioustransition
-BigInt* get_iana_time_zone_previous_transition(VM&, [[maybe_unused]] BigInt const& epoch_nanoseconds, [[maybe_unused]] StringView time_zone_identifier)
+// 11.6.4 GetNamedTimeZonePreviousTransition ( timeZoneIdentifier, epochNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-getianatimezoneprevioustransition
+BigInt* get_named_time_zone_previous_transition(VM&, [[maybe_unused]] StringView time_zone_identifier, [[maybe_unused]] BigInt const& epoch_nanoseconds)
 {
-    // The implementation-defined abstract operation GetIANATimeZonePreviousTransition takes arguments epochNanoseconds (a BigInt) and timeZoneIdentifier (a String) and returns a BigInt or null.
+    // The implementation-defined abstract operation GetNamedTimeZonePreviousTransition takes arguments timeZoneIdentifier (a String) and epochNanoseconds (a BigInt) and returns a BigInt or null.
     // The returned value t represents the number of nanoseconds since the Unix epoch in UTC that corresponds to the last time zone transition before epochNanoseconds in the IANA time zone identified by timeZoneIdentifier. The operation returns null if no such transition exists for which t ≥ ℤ(nsMinInstant).
     // Given the same values of epochNanoseconds and timeZoneIdentifier, the result must be the same for the lifetime of the surrounding agent.
 
@@ -260,80 +206,7 @@ bool is_valid_time_zone_numeric_utc_offset_syntax(String const& offset_string)
     return parse_time_zone_numeric_utc_offset_syntax(offset_string, discarded, discarded, optionally_discarded, optionally_discarded, optionally_discarded);
 }
 
-// 11.6.7 ParseTimeZoneOffsetString ( offsetString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetimezoneoffsetstring
-ThrowCompletionOr<double> parse_time_zone_offset_string(VM& vm, String const& offset_string)
-{
-    // 1. Let parseResult be ParseText(StringToCodePoints(offsetString), TimeZoneNumericUTCOffset).
-    auto parse_result = parse_iso8601(Production::TimeZoneNumericUTCOffset, offset_string);
-
-    // 2. If parseResult is a List of errors, throw a RangeError exception.
-    if (!parse_result.has_value())
-        return vm.throw_completion<RangeError>(ErrorType::InvalidFormat, "TimeZone offset");
-
-    // 3. Let each of sign, hours, minutes, seconds, and fSeconds be the source text matched by the respective TimeZoneUTCOffsetSign, TimeZoneUTCOffsetHour, TimeZoneUTCOffsetMinute, TimeZoneUTCOffsetSecond, and TimeZoneUTCOffsetFraction Parse Node contained within parseResult, or an empty sequence of code points if not present.
-    auto sign = parse_result->time_zone_utc_offset_sign;
-    auto hours = parse_result->time_zone_utc_offset_hour;
-    auto minutes = parse_result->time_zone_utc_offset_minute;
-    auto seconds = parse_result->time_zone_utc_offset_second;
-    auto f_seconds = parse_result->time_zone_utc_offset_fraction;
-
-    // 4. Assert: sign is not empty.
-    VERIFY(sign.has_value());
-
-    i8 factor;
-
-    // 5. If sign contains the code point U+002D (HYPHEN-MINUS) or U+2212 (MINUS SIGN), then
-    if (sign->is_one_of("-", "\xE2\x88\x92")) {
-        // a. Let factor be -1.
-        factor = -1;
-    }
-    // 6. Else,
-    else {
-        // a. Let factor be 1.
-        factor = 1;
-    }
-
-    // 7. Assert: hours is not empty.
-    VERIFY(hours.has_value());
-
-    // 8. Let hoursMV be ! ToIntegerOrInfinity(CodePointsToString(hours)).
-    auto hours_mv = *hours->to_uint<u8>();
-
-    // 9. Let minutesMV be ! ToIntegerOrInfinity(CodePointsToString(minutes)).
-    auto minutes_mv = *minutes.value_or("0"sv).to_uint<u8>();
-
-    // 10. Let secondsMV be ! ToIntegerOrInfinity(CodePointsToString(seconds)).
-    auto seconds_mv = *seconds.value_or("0"sv).to_uint<u8>();
-
-    u32 nanoseconds_mv;
-
-    // 11. If fSeconds is not empty, then
-    if (f_seconds.has_value()) {
-        // a. Let fSecondsDigits be the substring of CodePointsToString(fSeconds) from 1.
-        auto f_seconds_digits = f_seconds->substring_view(1);
-
-        // b. Let fSecondsDigitsExtended be the string-concatenation of fSecondsDigits and "000000000".
-        auto f_seconds_digits_extended = String::formatted("{}000000000", f_seconds_digits);
-
-        // c. Let nanosecondsDigits be the substring of fSecondsDigitsExtended from 0 to 9.
-        auto nanoseconds_digits = f_seconds_digits_extended.substring_view(0, 9);
-
-        // d. Let nanosecondsMV be ! ToIntegerOrInfinity(nanosecondsDigits).
-        nanoseconds_mv = *nanoseconds_digits.to_uint<u32>();
-    }
-    // 12. Else,
-    else {
-        // a. Let nanosecondsMV be 0.
-        nanoseconds_mv = 0;
-    }
-
-    // 13. Return factor × (((hoursMV × 60 + minutesMV) × 60 + secondsMV) × 10^9 + nanosecondsMV).
-    // NOTE: Using scientific notation (1e9) ensures the result of this expression is a double,
-    //       which is important - otherwise it's all integers and the result overflows!
-    return factor * (((hours_mv * 60 + minutes_mv) * 60 + seconds_mv) * 1e9 + nanoseconds_mv);
-}
-
-// 11.6.8 FormatTimeZoneOffsetString ( offsetNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-formattimezoneoffsetstring
+// 11.6.5 FormatTimeZoneOffsetString ( offsetNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-formattimezoneoffsetstring
 String format_time_zone_offset_string(double offset_nanoseconds)
 {
     auto offset = static_cast<i64>(offset_nanoseconds);
@@ -387,7 +260,7 @@ String format_time_zone_offset_string(double offset_nanoseconds)
     return builder.to_string();
 }
 
-// 11.6.9 FormatISOTimeZoneOffsetString ( offsetNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-formatisotimezoneoffsetstring
+// 11.6.6 FormatISOTimeZoneOffsetString ( offsetNanoseconds ), https://tc39.es/proposal-temporal/#sec-temporal-formatisotimezoneoffsetstring
 String format_iso_time_zone_offset_string(double offset_nanoseconds)
 {
     // 1. Assert: offsetNanoseconds is an integer.
@@ -414,12 +287,18 @@ String format_iso_time_zone_offset_string(double offset_nanoseconds)
     return String::formatted("{}{:02}:{:02}", sign, (u32)hours, (u32)minutes);
 }
 
-// 11.6.10 ToTemporalTimeZone ( temporalTimeZoneLike ), https://tc39.es/proposal-temporal/#sec-temporal-totemporaltimezone
+// 11.6.7 ToTemporalTimeZone ( temporalTimeZoneLike ), https://tc39.es/proposal-temporal/#sec-temporal-totemporaltimezone
 ThrowCompletionOr<Object*> to_temporal_time_zone(VM& vm, Value temporal_time_zone_like)
 {
     // 1. If Type(temporalTimeZoneLike) is Object, then
     if (temporal_time_zone_like.is_object()) {
-        // a. If temporalTimeZoneLike has an [[InitializedTemporalZonedDateTime]] internal slot, then
+        // a. If temporalTimeZoneLike has an [[InitializedTemporalTimeZone]] internal slot, then
+        if (is<TimeZone>(temporal_time_zone_like.as_object())) {
+            // i. Return temporalTimeZoneLike.
+            return &temporal_time_zone_like.as_object();
+        }
+
+        // b. If temporalTimeZoneLike has an [[InitializedTemporalZonedDateTime]] internal slot, then
         if (is<ZonedDateTime>(temporal_time_zone_like.as_object())) {
             auto& zoned_date_time = static_cast<ZonedDateTime&>(temporal_time_zone_like.as_object());
 
@@ -427,14 +306,14 @@ ThrowCompletionOr<Object*> to_temporal_time_zone(VM& vm, Value temporal_time_zon
             return &zoned_date_time.time_zone();
         }
 
-        // b. If ? HasProperty(temporalTimeZoneLike, "timeZone") is false, return temporalTimeZoneLike.
+        // c. If ? HasProperty(temporalTimeZoneLike, "timeZone") is false, return temporalTimeZoneLike.
         if (!TRY(temporal_time_zone_like.as_object().has_property(vm.names.timeZone)))
             return &temporal_time_zone_like.as_object();
 
-        // c. Set temporalTimeZoneLike to ? Get(temporalTimeZoneLike, "timeZone").
+        // d. Set temporalTimeZoneLike to ? Get(temporalTimeZoneLike, "timeZone").
         temporal_time_zone_like = TRY(temporal_time_zone_like.as_object().get(vm.names.timeZone));
 
-        // d. If Type(temporalTimeZoneLike) is Object and ? HasProperty(temporalTimeZoneLike, "timeZone") is false, return temporalTimeZoneLike.
+        // e. If Type(temporalTimeZoneLike) is Object and ? HasProperty(temporalTimeZoneLike, "timeZone") is false, return temporalTimeZoneLike.
         if (temporal_time_zone_like.is_object() && !TRY(temporal_time_zone_like.as_object().has_property(vm.names.timeZone)))
             return &temporal_time_zone_like.as_object();
     }
@@ -450,10 +329,10 @@ ThrowCompletionOr<Object*> to_temporal_time_zone(VM& vm, Value temporal_time_zon
         // a. Let name be parseResult.[[Name]].
         auto name = parse_result.name.release_value();
 
-        // b. If ParseText(StringToCodePoints(name), TimeZoneNumericUTCOffset) is a List of errors, then
-        if (!is_valid_time_zone_numeric_utc_offset_syntax(name)) {
-            // i. If IsValidTimeZoneName(name) is false, throw a RangeError exception.
-            if (!is_valid_time_zone_name(name))
+        // b. If IsTimeZoneOffsetString(name) is false, then
+        if (!is_time_zone_offset_string(name)) {
+            // i. If IsAvailableTimeZoneName(name) is false, throw a RangeError exception.
+            if (!is_available_time_zone_name(name))
                 return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidTimeZoneName, name);
 
             // ii. Set name to ! CanonicalizeTimeZoneName(name).
@@ -472,7 +351,7 @@ ThrowCompletionOr<Object*> to_temporal_time_zone(VM& vm, Value temporal_time_zon
     return MUST(create_temporal_time_zone(vm, *parse_result.offset_string));
 }
 
-// 11.6.11 GetOffsetNanosecondsFor ( timeZone, instant ), https://tc39.es/proposal-temporal/#sec-temporal-getoffsetnanosecondsfor
+// 11.6.8 GetOffsetNanosecondsFor ( timeZone, instant ), https://tc39.es/proposal-temporal/#sec-temporal-getoffsetnanosecondsfor
 ThrowCompletionOr<double> get_offset_nanoseconds_for(VM& vm, Value time_zone, Instant& instant)
 {
     // 1. Let getOffsetNanosecondsFor be ? GetMethod(timeZone, "getOffsetNanosecondsFor").
@@ -492,15 +371,15 @@ ThrowCompletionOr<double> get_offset_nanoseconds_for(VM& vm, Value time_zone, In
     // 5. Set offsetNanoseconds to ℝ(offsetNanoseconds).
     auto offset_nanoseconds = offset_nanoseconds_value.as_double();
 
-    // 6. If abs(offsetNanoseconds) > nsPerDay, throw a RangeError exception.
-    if (fabs(offset_nanoseconds) > ns_per_day)
+    // 6. If abs(offsetNanoseconds) ≥ nsPerDay, throw a RangeError exception.
+    if (fabs(offset_nanoseconds) >= ns_per_day)
         return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidOffsetNanosecondsValue);
 
     // 7. Return offsetNanoseconds.
     return offset_nanoseconds;
 }
 
-// 11.6.12 BuiltinTimeZoneGetOffsetStringFor ( timeZone, instant ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetoffsetstringfor
+// 11.6.9 BuiltinTimeZoneGetOffsetStringFor ( timeZone, instant ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetoffsetstringfor
 ThrowCompletionOr<String> builtin_time_zone_get_offset_string_for(VM& vm, Value time_zone, Instant& instant)
 {
     // 1. Let offsetNanoseconds be ? GetOffsetNanosecondsFor(timeZone, instant).
@@ -510,7 +389,7 @@ ThrowCompletionOr<String> builtin_time_zone_get_offset_string_for(VM& vm, Value 
     return format_time_zone_offset_string(offset_nanoseconds);
 }
 
-// 11.6.13 BuiltinTimeZoneGetPlainDateTimeFor ( timeZone, instant, calendar ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetplaindatetimefor
+// 11.6.10 BuiltinTimeZoneGetPlainDateTimeFor ( timeZone, instant, calendar ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetplaindatetimefor
 ThrowCompletionOr<PlainDateTime*> builtin_time_zone_get_plain_date_time_for(VM& vm, Value time_zone, Instant& instant, Object& calendar)
 {
     // 1. Assert: instant has an [[InitializedTemporalInstant]] internal slot.
@@ -528,7 +407,7 @@ ThrowCompletionOr<PlainDateTime*> builtin_time_zone_get_plain_date_time_for(VM& 
     return create_temporal_date_time(vm, result.year, result.month, result.day, result.hour, result.minute, result.second, result.millisecond, result.microsecond, result.nanosecond, calendar);
 }
 
-// 11.6.14 BuiltinTimeZoneGetInstantFor ( timeZone, dateTime, disambiguation ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetinstantfor
+// 11.6.11 BuiltinTimeZoneGetInstantFor ( timeZone, dateTime, disambiguation ), https://tc39.es/proposal-temporal/#sec-temporal-builtintimezonegetinstantfor
 ThrowCompletionOr<Instant*> builtin_time_zone_get_instant_for(VM& vm, Value time_zone, PlainDateTime& date_time, StringView disambiguation)
 {
     // 1. Assert: dateTime has an [[InitializedTemporalDateTime]] internal slot.
@@ -540,7 +419,7 @@ ThrowCompletionOr<Instant*> builtin_time_zone_get_instant_for(VM& vm, Value time
     return disambiguate_possible_instants(vm, possible_instants, time_zone, date_time, disambiguation);
 }
 
-// 11.6.15 DisambiguatePossibleInstants ( possibleInstants, timeZone, dateTime, disambiguation ), https://tc39.es/proposal-temporal/#sec-temporal-disambiguatepossibleinstants
+// 11.6.12 DisambiguatePossibleInstants ( possibleInstants, timeZone, dateTime, disambiguation ), https://tc39.es/proposal-temporal/#sec-temporal-disambiguatepossibleinstants
 ThrowCompletionOr<Instant*> disambiguate_possible_instants(VM& vm, MarkedVector<Instant*> const& possible_instants, Value time_zone, PlainDateTime& date_time, StringView disambiguation)
 {
     // 1. Assert: dateTime has an [[InitializedTemporalDateTime]] internal slot.
@@ -584,11 +463,11 @@ ThrowCompletionOr<Instant*> disambiguate_possible_instants(VM& vm, MarkedVector<
         return vm.throw_completion<RangeError>(ErrorType::TemporalDisambiguatePossibleInstantsRejectZero);
     }
 
-    // 7. Let epochNanoseconds be GetEpochFromISOParts(dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
-    auto* epoch_nanoseconds = get_epoch_from_iso_parts(vm, date_time.iso_year(), date_time.iso_month(), date_time.iso_day(), date_time.iso_hour(), date_time.iso_minute(), date_time.iso_second(), date_time.iso_millisecond(), date_time.iso_microsecond(), date_time.iso_nanosecond());
+    // 7. Let epochNanoseconds be GetUTCEpochNanoseconds(dateTime.[[ISOYear]], dateTime.[[ISOMonth]], dateTime.[[ISODay]], dateTime.[[ISOHour]], dateTime.[[ISOMinute]], dateTime.[[ISOSecond]], dateTime.[[ISOMillisecond]], dateTime.[[ISOMicrosecond]], dateTime.[[ISONanosecond]]).
+    auto epoch_nanoseconds = get_utc_epoch_nanoseconds(date_time.iso_year(), date_time.iso_month(), date_time.iso_day(), date_time.iso_hour(), date_time.iso_minute(), date_time.iso_second(), date_time.iso_millisecond(), date_time.iso_microsecond(), date_time.iso_nanosecond());
 
     // 8. Let dayBeforeNs be epochNanoseconds - ℤ(nsPerDay).
-    auto* day_before_ns = js_bigint(vm, epoch_nanoseconds->big_integer().minus(ns_per_day_bigint));
+    auto* day_before_ns = js_bigint(vm, epoch_nanoseconds.minus(ns_per_day_bigint));
 
     // 9. If ! IsValidEpochNanoseconds(dayBeforeNs) is false, throw a RangeError exception.
     if (!is_valid_epoch_nanoseconds(*day_before_ns))
@@ -598,7 +477,7 @@ ThrowCompletionOr<Instant*> disambiguate_possible_instants(VM& vm, MarkedVector<
     auto* day_before = MUST(create_temporal_instant(vm, *day_before_ns));
 
     // 11. Let dayAfterNs be epochNanoseconds + ℤ(nsPerDay).
-    auto* day_after_ns = js_bigint(vm, epoch_nanoseconds->big_integer().plus(ns_per_day_bigint));
+    auto* day_after_ns = js_bigint(vm, epoch_nanoseconds.plus(ns_per_day_bigint));
 
     // 12. If ! IsValidEpochNanoseconds(dayAfterNs) is false, throw a RangeError exception.
     if (!is_valid_epoch_nanoseconds(*day_after_ns))
@@ -658,7 +537,7 @@ ThrowCompletionOr<Instant*> disambiguate_possible_instants(VM& vm, MarkedVector<
     return possible_instants_[n - 1];
 }
 
-// 11.6.16 GetPossibleInstantsFor ( timeZone, dateTime ), https://tc39.es/proposal-temporal/#sec-temporal-getpossibleinstantsfor
+// 11.6.13 GetPossibleInstantsFor ( timeZone, dateTime ), https://tc39.es/proposal-temporal/#sec-temporal-getpossibleinstantsfor
 ThrowCompletionOr<MarkedVector<Instant*>> get_possible_instants_for(VM& vm, Value time_zone, PlainDateTime& date_time)
 {
     // 1. Assert: dateTime has an [[InitializedTemporalDateTime]] internal slot.
@@ -703,7 +582,7 @@ ThrowCompletionOr<MarkedVector<Instant*>> get_possible_instants_for(VM& vm, Valu
     return { move(list) };
 }
 
-// 11.6.17 TimeZoneEquals ( one, two ), https://tc39.es/proposal-temporal/#sec-temporal-timezoneequals
+// 11.6.14 TimeZoneEquals ( one, two ), https://tc39.es/proposal-temporal/#sec-temporal-timezoneequals
 ThrowCompletionOr<bool> time_zone_equals(VM& vm, Object& one, Object& two)
 {
     // 1. If one and two are the same Object value, return true.

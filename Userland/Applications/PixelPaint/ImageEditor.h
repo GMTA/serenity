@@ -12,6 +12,7 @@
 #include "Image.h"
 #include "Selection.h"
 #include <AK/Variant.h>
+#include <LibCore/EventLoop.h>
 #include <LibGUI/AbstractZoomPanWidget.h>
 #include <LibGUI/Frame.h>
 #include <LibGUI/UndoStack.h>
@@ -37,6 +38,7 @@ public:
     Layer* active_layer() { return m_active_layer; }
     void set_active_layer(Layer*);
 
+    ErrorOr<void> add_new_layer_from_selection();
     Tool* active_tool() { return m_active_tool; }
     void set_active_tool(Tool*);
     void update_tool_cursor();
@@ -58,7 +60,7 @@ public:
     {
         m_guides.remove_first_matching([&](auto& entry) { return &guide == entry.ptr(); });
     }
-    void clear_guides() { m_guides.clear(); }
+    void clear_guides();
 
     void layers_did_change();
 
@@ -114,11 +116,16 @@ public:
     void draw_marching_ants(Gfx::Painter&, Gfx::IntRect const&) const;
     void draw_marching_ants(Gfx::Painter&, Mask const&) const;
 
+    Core::EventLoop& gui_event_loop() { return m_gui_event_loop; }
+
+    void set_editor_color_to_color_at_mouse_position(GUI::MouseEvent const& event, bool sample_all_layers);
+
 private:
     explicit ImageEditor(NonnullRefPtr<Image>);
 
     virtual void paint_event(GUI::PaintEvent&) override;
     virtual void second_paint_event(GUI::PaintEvent&) override;
+    virtual void doubleclick_event(GUI::MouseEvent&) override;
     virtual void mousedown_event(GUI::MouseEvent&) override;
     virtual void mousemove_event(GUI::MouseEvent&) override;
     virtual void mouseup_event(GUI::MouseEvent&) override;
@@ -179,6 +186,8 @@ private:
     int m_marching_ants_offset { 0 };
 
     void draw_marching_ants_pixel(Gfx::Painter&, int x, int y) const;
+
+    Core::EventLoop& m_gui_event_loop;
 };
 
 }

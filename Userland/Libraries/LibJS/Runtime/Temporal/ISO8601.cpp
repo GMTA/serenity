@@ -830,6 +830,7 @@ bool ISO8601Parser::parse_time_zone_bracketed_annotation()
         return false;
     if (!m_state.lexer.consume_specific(']'))
         return false;
+    m_state.parse_result.time_zone_bracketed_annotation = transaction.parsed_string_view();
     transaction.commit();
     return true;
 }
@@ -1399,25 +1400,6 @@ bool ISO8601Parser::parse_temporal_time_string()
         || parse_calendar_time();
 }
 
-// https://tc39.es/proposal-temporal/#prod-TemporalTimeZoneString
-bool ISO8601Parser::parse_temporal_time_zone_string()
-{
-    // TemporalTimeZoneString :
-    //     TimeZoneIdentifier
-    //     Date TimeSpecSeparator[opt] TimeZone Calendar[opt]
-    StateTransaction transaction { *this };
-    if (!parse_time_zone_identifier()) {
-        if (!parse_date())
-            return false;
-        (void)parse_time_spec_separator();
-        if (!parse_time_zone())
-            return false;
-        (void)parse_calendar();
-    }
-    transaction.commit();
-    return true;
-}
-
 // https://tc39.es/proposal-temporal/#prod-TemporalYearMonthString
 bool ISO8601Parser::parse_temporal_year_month_string()
 {
@@ -1446,24 +1428,6 @@ bool ISO8601Parser::parse_temporal_zoned_date_time_string()
     return true;
 }
 
-// https://tc39.es/proposal-temporal/#prod-TemporalCalendarString
-bool ISO8601Parser::parse_temporal_calendar_string()
-{
-    // TemporalCalendarString :
-    //     CalendarName
-    //     TemporalInstantString
-    //     CalendarDateTime
-    //     CalendarTime
-    //     DateSpecYearMonth
-    //     DateSpecMonthDay
-    return parse_calendar_name()
-        || parse_temporal_instant_string()
-        || parse_calendar_date_time()
-        || parse_date_spec_year_month()
-        || parse_date_spec_month_day()
-        || parse_calendar_time();
-}
-
 }
 
 #define JS_ENUMERATE_ISO8601_PRODUCTION_PARSERS                                        \
@@ -1472,11 +1436,12 @@ bool ISO8601Parser::parse_temporal_calendar_string()
     __JS_ENUMERATE(TemporalDurationString, parse_temporal_duration_string)             \
     __JS_ENUMERATE(TemporalMonthDayString, parse_temporal_month_day_string)            \
     __JS_ENUMERATE(TemporalTimeString, parse_temporal_time_string)                     \
-    __JS_ENUMERATE(TemporalTimeZoneString, parse_temporal_time_zone_string)            \
     __JS_ENUMERATE(TemporalYearMonthString, parse_temporal_year_month_string)          \
     __JS_ENUMERATE(TemporalZonedDateTimeString, parse_temporal_zoned_date_time_string) \
-    __JS_ENUMERATE(TemporalCalendarString, parse_temporal_calendar_string)             \
-    __JS_ENUMERATE(TimeZoneNumericUTCOffset, parse_time_zone_numeric_utc_offset)
+    __JS_ENUMERATE(TimeZoneIdentifier, parse_time_zone_identifier)                     \
+    __JS_ENUMERATE(TimeZoneNumericUTCOffset, parse_time_zone_numeric_utc_offset)       \
+    __JS_ENUMERATE(CalendarName, parse_calendar_name)                                  \
+    __JS_ENUMERATE(DateMonth, parse_date_month)
 
 Optional<ParseResult> parse_iso8601(Production production, StringView input)
 {

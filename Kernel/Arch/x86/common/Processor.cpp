@@ -12,22 +12,22 @@
 #include <AK/StringBuilder.h>
 #include <AK/Types.h>
 
-#include <Kernel/Interrupts/APIC.h>
+#include <Kernel/Arch/x86/common/Interrupts/APIC.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/Process.h>
 #include <Kernel/Scheduler.h>
 #include <Kernel/Sections.h>
 #include <Kernel/StdLib.h>
 #include <Kernel/Thread.h>
 
-#include <Kernel/Arch/InterruptDisabler.h>
 #include <Kernel/Arch/Interrupts.h>
 #include <Kernel/Arch/Processor.h>
 #include <Kernel/Arch/SafeMem.h>
 #include <Kernel/Arch/ScopedCritical.h>
+#include <Kernel/Arch/TrapFrame.h>
 #include <Kernel/Arch/x86/CPUID.h>
 #include <Kernel/Arch/x86/MSR.h>
 #include <Kernel/Arch/x86/ProcessorInfo.h>
-#include <Kernel/Arch/x86/TrapFrame.h>
 
 #include <Kernel/Memory/PageDirectory.h>
 #include <Kernel/Memory/ScopedAddressSpaceSwitcher.h>
@@ -928,7 +928,7 @@ void Processor::enter_trap(TrapFrame& trap, bool raise_irq)
         // The cs register of this trap tells us where we will return back to
         auto new_previous_mode = ((trap.regs->cs & 3) != 0) ? Thread::PreviousMode::UserMode : Thread::PreviousMode::KernelMode;
         if (current_thread->set_previous_mode(new_previous_mode) && trap.prev_irq_level == 0) {
-            current_thread->update_time_scheduled(Scheduler::current_time(), new_previous_mode == Thread::PreviousMode::KernelMode, false);
+            current_thread->update_time_scheduled(TimeManagement::scheduler_current_time(), new_previous_mode == Thread::PreviousMode::KernelMode, false);
         }
     } else {
         trap.next_trap = nullptr;
@@ -975,7 +975,7 @@ void Processor::exit_trap(TrapFrame& trap)
         }
 
         if (current_thread->set_previous_mode(new_previous_mode))
-            current_thread->update_time_scheduled(Scheduler::current_time(), true, false);
+            current_thread->update_time_scheduled(TimeManagement::scheduler_current_time(), true, false);
     }
 
     VERIFY_INTERRUPTS_DISABLED();

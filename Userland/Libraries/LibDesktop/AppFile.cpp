@@ -82,6 +82,11 @@ String AppFile::category() const
     return m_config->read_entry("App", "Category").trim_whitespace();
 }
 
+String AppFile::working_directory() const
+{
+    return m_config->read_entry("App", "WorkingDirectory").trim_whitespace();
+}
+
 String AppFile::icon_path() const
 {
     return m_config->read_entry("App", "IconPath").trim_whitespace();
@@ -100,6 +105,11 @@ GUI::Icon AppFile::icon() const
 bool AppFile::run_in_terminal() const
 {
     return m_config->read_bool_entry("App", "RunInTerminal", false);
+}
+
+bool AppFile::requires_root() const
+{
+    return m_config->read_bool_entry("App", "RequiresRoot", false);
 }
 
 Vector<String> AppFile::launcher_mime_types() const
@@ -140,7 +150,7 @@ bool AppFile::spawn() const
     if (!is_valid())
         return false;
 
-    auto pid = Core::Process::spawn(executable());
+    auto pid = Core::Process::spawn(executable(), Span<String const> {}, working_directory());
     if (pid.is_error())
         return false;
 

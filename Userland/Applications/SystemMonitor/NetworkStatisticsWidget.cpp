@@ -9,6 +9,8 @@
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/GroupBox.h>
 #include <LibGUI/JsonArrayModel.h>
+#include <LibGUI/Menu.h>
+#include <LibGUI/Process.h>
 #include <LibGUI/SortingProxyModel.h>
 #include <LibGUI/TableView.h>
 #include <LibGfx/Painter.h>
@@ -69,8 +71,27 @@ NetworkStatisticsWidget::NetworkStatisticsWidget()
         net_adapters_fields.empend("packets_out", "Pkt Out", Gfx::TextAlignment::CenterRight);
         net_adapters_fields.empend("bytes_in", "Bytes In", Gfx::TextAlignment::CenterRight);
         net_adapters_fields.empend("bytes_out", "Bytes Out", Gfx::TextAlignment::CenterRight);
-        m_adapter_model = GUI::JsonArrayModel::create("/proc/net/adapters", move(net_adapters_fields));
+        m_adapter_model = GUI::JsonArrayModel::create("/sys/kernel/net/adapters", move(net_adapters_fields));
         m_adapter_table_view->set_model(MUST(GUI::SortingProxyModel::create(*m_adapter_model)));
+        m_adapter_context_menu = MUST(GUI::Menu::try_create());
+        m_adapter_context_menu->add_action(GUI::Action::create(
+            "Open in Network Settings...", MUST(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/network.png"sv)), [this](GUI::Action&) {
+                m_adapter_table_view->selection().for_each_index([this](GUI::ModelIndex const& index) {
+                    auto adapter_name = index.sibling_at_column(1).data().as_string();
+                    GUI::Process::spawn_or_show_error(window(), "/bin/Escalator"sv, Array { "/bin/NetworkSettings", adapter_name.characters() });
+                });
+            },
+            this));
+        m_adapter_table_view->on_context_menu_request = [this](GUI::ModelIndex const& index, GUI::ContextMenuEvent const& event) {
+            if (!index.is_valid()) {
+                return;
+            }
+            auto adapter_name = index.sibling_at_column(1).data().as_string();
+            if (adapter_name == "loop") {
+                return;
+            }
+            m_adapter_context_menu->popup(event.screen_position());
+        };
 
         auto& tcp_sockets_group_box = add<GUI::GroupBox>("TCP Sockets"sv);
         tcp_sockets_group_box.set_layout<GUI::VerticalBoxLayout>();
@@ -90,7 +111,7 @@ NetworkStatisticsWidget::NetworkStatisticsWidget()
         net_tcp_fields.empend("packets_out", "Pkt Out", Gfx::TextAlignment::CenterRight);
         net_tcp_fields.empend("bytes_in", "Bytes In", Gfx::TextAlignment::CenterRight);
         net_tcp_fields.empend("bytes_out", "Bytes Out", Gfx::TextAlignment::CenterRight);
-        m_tcp_socket_model = GUI::JsonArrayModel::create("/proc/net/tcp", move(net_tcp_fields));
+        m_tcp_socket_model = GUI::JsonArrayModel::create("/sys/kernel/net/tcp", move(net_tcp_fields));
         m_tcp_socket_table_view->set_model(MUST(GUI::SortingProxyModel::create(*m_tcp_socket_model)));
 
         auto& udp_sockets_group_box = add<GUI::GroupBox>("UDP Sockets"sv);
@@ -104,7 +125,7 @@ NetworkStatisticsWidget::NetworkStatisticsWidget()
         net_udp_fields.empend("peer_port", "Port", Gfx::TextAlignment::CenterRight);
         net_udp_fields.empend("local_address", "Local", Gfx::TextAlignment::CenterLeft);
         net_udp_fields.empend("local_port", "Port", Gfx::TextAlignment::CenterRight);
-        m_udp_socket_model = GUI::JsonArrayModel::create("/proc/net/udp", move(net_udp_fields));
+        m_udp_socket_model = GUI::JsonArrayModel::create("/sys/kernel/net/udp", move(net_udp_fields));
         m_udp_socket_table_view->set_model(MUST(GUI::SortingProxyModel::create(*m_udp_socket_model)));
 
         m_update_timer = add<Core::Timer>(

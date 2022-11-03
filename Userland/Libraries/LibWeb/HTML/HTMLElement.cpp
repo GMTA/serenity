@@ -7,16 +7,18 @@
 #include <AK/StringBuilder.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Parser.h>
-#include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/DOM/Document.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/DOM/IDLEventListener.h>
+#include <LibWeb/DOM/ShadowRoot.h>
 #include <LibWeb/HTML/BrowsingContext.h>
 #include <LibWeb/HTML/BrowsingContextContainer.h>
+#include <LibWeb/HTML/DOMStringMap.h>
 #include <LibWeb/HTML/EventHandler.h>
 #include <LibWeb/HTML/HTMLAnchorElement.h>
+#include <LibWeb/HTML/HTMLAreaElement.h>
 #include <LibWeb/HTML/HTMLBodyElement.h>
 #include <LibWeb/HTML/HTMLElement.h>
+#include <LibWeb/HTML/VisibilityState.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Layout/Box.h>
 #include <LibWeb/Layout/BreakNode.h>
@@ -25,13 +27,15 @@
 #include <LibWeb/UIEvents/EventNames.h>
 #include <LibWeb/UIEvents/FocusEvent.h>
 #include <LibWeb/UIEvents/MouseEvent.h>
+#include <LibWeb/WebIDL/DOMException.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::HTML {
 
 HTMLElement::HTMLElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : Element(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLElement"));
 }
 
 HTMLElement::~HTMLElement() = default;
@@ -90,27 +94,27 @@ String HTMLElement::content_editable() const
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#contenteditable
-DOM::ExceptionOr<void> HTMLElement::set_content_editable(String const& content_editable)
+WebIDL::ExceptionOr<void> HTMLElement::set_content_editable(String const& content_editable)
 {
     if (content_editable.equals_ignoring_case("inherit"sv)) {
         remove_attribute(HTML::AttributeNames::contenteditable);
         return {};
     }
     if (content_editable.equals_ignoring_case("true"sv)) {
-        set_attribute(HTML::AttributeNames::contenteditable, "true");
+        MUST(set_attribute(HTML::AttributeNames::contenteditable, "true"));
         return {};
     }
     if (content_editable.equals_ignoring_case("false"sv)) {
-        set_attribute(HTML::AttributeNames::contenteditable, "false");
+        MUST(set_attribute(HTML::AttributeNames::contenteditable, "false"));
         return {};
     }
-    return DOM::SyntaxError::create(global_object(), "Invalid contentEditable value, must be 'true', 'false', or 'inherit'");
+    return WebIDL::SyntaxError::create(realm(), "Invalid contentEditable value, must be 'true', 'false', or 'inherit'");
 }
 
 void HTMLElement::set_inner_text(StringView text)
 {
     remove_all_children();
-    append_child(document().create_text_node(text));
+    MUST(append_child(document().create_text_node(text)));
 
     set_needs_style_update(true);
 }
@@ -141,6 +145,9 @@ String HTMLElement::inner_text()
 // // https://drafts.csswg.org/cssom-view/#dom-htmlelement-offsettop
 int HTMLElement::offset_top() const
 {
+    // NOTE: Ensure that layout is up-to-date before looking at metrics.
+    const_cast<DOM::Document&>(document()).update_layout();
+
     if (is<HTML::HTMLBodyElement>(this) || !layout_node() || !parent_element() || !parent_element()->layout_node())
         return 0;
     auto position = layout_node()->box_type_agnostic_position();
@@ -151,6 +158,9 @@ int HTMLElement::offset_top() const
 // https://drafts.csswg.org/cssom-view/#dom-htmlelement-offsetleft
 int HTMLElement::offset_left() const
 {
+    // NOTE: Ensure that layout is up-to-date before looking at metrics.
+    const_cast<DOM::Document&>(document()).update_layout();
+
     if (is<HTML::HTMLBodyElement>(this) || !layout_node() || !parent_element() || !parent_element()->layout_node())
         return 0;
     auto position = layout_node()->box_type_agnostic_position();
@@ -190,9 +200,16 @@ int HTMLElement::offset_height() const
     return paint_box()->border_box_height();
 }
 
+// https://html.spec.whatwg.org/multipage/links.html#cannot-navigate
 bool HTMLElement::cannot_navigate() const
 {
-    // FIXME: Return true if element's node document is not fully active
+    // An element element cannot navigate if one of the following is true:
+
+    // - element's node document is not fully active
+    if (!document().is_fully_active())
+        return true;
+
+    // - element is not an a element and is not connected.
     return !is<HTML::HTMLAnchorElement>(this) && !is_connected();
 }
 
@@ -212,7 +229,7 @@ void HTMLElement::parse_attribute(FlyString const& name, String const& value)
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps
-static void run_focus_update_steps(Vector<JS::Handle<DOM::Node>> old_chain, Vector<JS::Handle<DOM::Node>> new_chain, DOM::Node& new_focus_target)
+static void run_focus_update_steps(Vector<JS::Handle<DOM::Node>> old_chain, Vector<JS::Handle<DOM::Node>> new_chain, DOM::Node* new_focus_target)
 {
     // 1. If the last entry in old chain and the last entry in new chain are the same,
     //    pop the last entry from old chain and the last entry from new chain and redo this step.
@@ -259,7 +276,7 @@ static void run_focus_update_steps(Vector<JS::Handle<DOM::Node>> old_chain, Vect
         //    with related blur target as the related target.
         if (blur_event_target) {
             // FIXME: Implement the "fire a focus event" spec operation.
-            auto blur_event = UIEvents::FocusEvent::create(blur_event_target->global_object(), HTML::EventNames::blur);
+            auto blur_event = UIEvents::FocusEvent::create(blur_event_target->realm(), HTML::EventNames::blur);
             blur_event->set_related_target(related_blur_target);
             blur_event_target->dispatch_event(*blur_event);
         }
@@ -302,7 +319,7 @@ static void run_focus_update_steps(Vector<JS::Handle<DOM::Node>> old_chain, Vect
         //    with related focus target as the related target.
         if (focus_event_target) {
             // FIXME: Implement the "fire a focus event" spec operation.
-            auto focus_event = UIEvents::FocusEvent::create(focus_event_target->global_object(), HTML::EventNames::focus);
+            auto focus_event = UIEvents::FocusEvent::create(focus_event_target->realm(), HTML::EventNames::focus);
             focus_event->set_related_target(related_focus_target);
             focus_event_target->dispatch_event(*focus_event);
         }
@@ -392,7 +409,83 @@ static void run_focusing_steps(DOM::Node* new_focus_target, DOM::Node* fallback_
     auto new_chain = focus_chain(new_focus_target);
 
     // 8. Run the focus update steps with old chain, new chain, and new focus target respectively.
-    run_focus_update_steps(old_chain, new_chain, *new_focus_target);
+    run_focus_update_steps(old_chain, new_chain, new_focus_target);
+}
+
+// https://html.spec.whatwg.org/multipage/interaction.html#unfocusing-steps
+static void run_unfocusing_steps(DOM::Node* old_focus_target)
+{
+    // NOTE: The unfocusing steps do not always result in the focus changing, even when applied to the currently focused
+    // area of a top-level browsing context. For example, if the currently focused area of a top-level browsing context
+    // is a viewport, then it will usually keep its focus regardless until another focusable area is explicitly focused
+    // with the focusing steps.
+
+    auto is_shadow_host = [](DOM::Node* node) {
+        return is<DOM::Element>(node) && static_cast<DOM::Element*>(node)->shadow_root() != nullptr;
+    };
+
+    // 1. If old focus target is a shadow host whose shadow root's delegates focus is true, and old focus target's
+    //    shadow root is a shadow-including inclusive ancestor of the currently focused area of a top-level browsing
+    //    context's DOM anchor, then set old focus target to that currently focused area of a top-level browsing
+    //    context.
+    if (is_shadow_host(old_focus_target)) {
+        auto* shadow_root = static_cast<DOM::Element*>(old_focus_target)->shadow_root();
+        if (shadow_root->delegates_focus()) {
+            auto& top_level_browsing_context = old_focus_target->document().browsing_context()->top_level_browsing_context();
+            if (auto currently_focused_area = top_level_browsing_context.currently_focused_area()) {
+                if (shadow_root->is_shadow_including_ancestor_of(*currently_focused_area)) {
+                    old_focus_target = currently_focused_area;
+                }
+            }
+        }
+    }
+
+    // FIXME: 2. If old focus target is inert, then return.
+
+    // FIXME: 3. If old focus target is an area element and one of its shapes is the currently focused area of a
+    //    top-level browsing context, or, if old focus target is an element with one or more scrollable regions, and one
+    //    of them is the currently focused area of a top-level browsing context, then let old focus target be that
+    //    currently focused area of a top-level browsing context.
+
+    // NOTE: HTMLAreaElement is currently missing the shapes property
+
+    auto& top_level_browsing_context = old_focus_target->document().browsing_context()->top_level_browsing_context();
+
+    // 4. Let old chain be the current focus chain of the top-level browsing context in which old focus target finds itself.
+    auto old_chain = focus_chain(top_level_browsing_context.currently_focused_area());
+
+    // 5. If old focus target is not one of the entries in old chain, then return.
+    for (auto& node : old_chain) {
+        if (old_focus_target != node) {
+            return;
+        }
+    }
+
+    // 6. If old focus target is not a focusable area, then return.
+    if (!old_focus_target->is_focusable())
+        return;
+
+    // 7. Let topDocument be old chain's last entry.
+    auto* top_document = verify_cast<DOM::Document>(old_chain.last().ptr());
+
+    // 8. If topDocument's browsing context has system focus, then run the focusing steps for topDocument's viewport.
+    if (top_document->browsing_context()->system_visibility_state() == VisibilityState::Visible) {
+        // FIXME: run the focusing steps for topDocument's viewport (??)
+    } else {
+        // FIXME: Otherwise, apply any relevant platform-specific conventions for removing system focus from
+        // topDocument's browsing context, and run the focus update steps with old chain, an empty list, and null
+        // respectively.
+
+        // What? It already doesn't have system focus, what possible platform-specific conventions are there?
+
+        run_focus_update_steps(old_chain, {}, nullptr);
+    }
+
+    // FIXME: When the currently focused area of a top-level browsing context is somehow unfocused without another
+    // element being explicitly focused in its stead, the user agent must immediately run the unfocusing steps for that
+    // object.
+
+    // What? How are we supposed to detect when something is "somehow unfocused without another element being explicitly focused"?
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#dom-focus
@@ -423,7 +516,7 @@ bool HTMLElement::fire_a_synthetic_pointer_event(FlyString const& type, DOM::Ele
     // 1. Let event be the result of creating an event using PointerEvent.
     // 2. Initialize event's type attribute to e.
     // FIXME: Actually create a PointerEvent!
-    auto event = UIEvents::MouseEvent::create(document().window(), type);
+    auto event = UIEvents::MouseEvent::create(realm(), type);
 
     // 3. Initialize event's bubbles and cancelable attributes to true.
     event->set_bubbles(true);
@@ -465,6 +558,15 @@ void HTMLElement::click()
 
     // 5. Unset this element's click in progress flag.
     m_click_in_progress = false;
+}
+
+// https://html.spec.whatwg.org/multipage/interaction.html#dom-blur
+void HTMLElement::blur()
+{
+    // The blur() method, when invoked, should run the unfocusing steps for the element on which the method was called.
+    run_unfocusing_steps(this);
+
+    // User agents may selectively or uniformly ignore calls to this method for usability reasons.
 }
 
 }

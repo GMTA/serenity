@@ -7,7 +7,6 @@
 #pragma once
 
 #include <LibWeb/DOM/Element.h>
-#include <LibWeb/HTML/DOMStringMap.h>
 #include <LibWeb/HTML/EventNames.h>
 #include <LibWeb/HTML/GlobalEventHandlers.h>
 
@@ -25,7 +24,7 @@ public:
 
     virtual bool is_editable() const final;
     String content_editable() const;
-    DOM::ExceptionOr<void> set_content_editable(String const&);
+    WebIDL::ExceptionOr<void> set_content_editable(String const&);
 
     String inner_text();
     void set_inner_text(StringView);
@@ -43,6 +42,8 @@ public:
     void focus();
 
     void click();
+
+    void blur();
 
     bool fire_a_synthetic_pointer_event(FlyString const& type, DOM::Element& target, bool not_trusted);
 
@@ -86,5 +87,3 @@ namespace Web::DOM {
 template<>
 inline bool Node::fast_is<HTML::HTMLElement>() const { return is_html_element(); }
 }
-
-WRAPPER_HACK(HTMLElement, Web::HTML)

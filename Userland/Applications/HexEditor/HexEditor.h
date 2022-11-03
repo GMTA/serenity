@@ -19,6 +19,7 @@
 #include <AK/StdLibExtras.h>
 #include <LibCore/Timer.h>
 #include <LibGUI/AbstractScrollableWidget.h>
+#include <LibGUI/UndoStack.h>
 #include <LibGfx/Font/Font.h>
 #include <LibGfx/TextAlignment.h>
 
@@ -40,6 +41,10 @@ public:
     bool save_as(NonnullRefPtr<Core::File>);
     bool save();
 
+    bool undo();
+    bool redo();
+    GUI::UndoStack& undo_stack();
+
     void select_all();
     bool has_selection() const { return m_selection_start < m_selection_end && m_document->size() > 0; }
     size_t selection_size();
@@ -59,7 +64,7 @@ public:
     Vector<Match> find_all(ByteBuffer& needle, size_t start = 0);
     Vector<Match> find_all_strings(size_t min_length = 4);
     Function<void(size_t, EditMode, size_t, size_t)> on_status_change; // position, edit mode, selection start, selection end
-    Function<void()> on_change;
+    Function<void(bool is_document_dirty)> on_change;
 
 protected:
     HexEditor();
@@ -83,6 +88,7 @@ private:
     NonnullRefPtr<Core::Timer> m_blink_timer;
     bool m_cursor_blink_active { false };
     NonnullOwnPtr<HexDocument> m_document;
+    GUI::UndoStack m_undo_stack;
 
     static constexpr int m_address_bar_width = 90;
     static constexpr int m_padding = 5;
@@ -101,6 +107,8 @@ private:
     void set_content_length(size_t); // I might make this public if I add fetching data on demand.
     void update_status();
     void did_change();
+    void did_complete_action(size_t position, u8 old_value, u8 new_value);
+    void did_complete_action(size_t position, ByteBuffer&& old_values, ByteBuffer&& new_values);
 
     void reset_cursor_blink_state();
 };

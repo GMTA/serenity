@@ -1,9 +1,11 @@
 /*
  * Copyright (c) 2022, Matthew Olsson <mattco@serenityos.org>
+ * Copyright (c) 2022, Julian Offenhäuser <offenhaeuser@protonmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibGfx/AntiAliasingPainter.h>
 #include <LibPDF/CommonNames.h>
 #include <LibPDF/Fonts/Type1Font.h>
 
@@ -44,9 +46,8 @@ PDFErrorOr<Type1Font::Data> Type1Font::parse_data(Document* document, NonnullRef
         if (is_standard_latin_font(base_font)) {
             // FIXME: The spec doesn't specify what the encoding should be in this case
             encoding = Encoding::standard_encoding();
-        } else {
-            TODO();
         }
+        // Otherwise, use the built-in encoding of the font program.
     }
 
     RefPtr<StreamObject> to_unicode;
@@ -61,14 +62,29 @@ PDFErrorOr<Type1Font::Data> Type1Font::parse_data(Document* document, NonnullRef
 
     HashMap<u16, u16> widths;
     for (size_t i = 0; i < widths_array->size(); i++)
-        widths.set(first_char + i, widths_array->at(i).get<int>());
+        widths.set(first_char + i, widths_array->at(i).to_int());
 
     u16 missing_width = 0;
     auto descriptor = MUST(dict->get_dict(document, CommonNames::FontDescriptor));
     if (descriptor->contains(CommonNames::MissingWidth))
-        missing_width = descriptor->get_value(CommonNames::MissingWidth).get<int>();
+        missing_width = descriptor->get_value(CommonNames::MissingWidth).to_int();
+    if (!descriptor->contains(CommonNames::FontFile))
+        return Type1Font::Data { {}, to_unicode, encoding.release_nonnull(), move(widths), missing_width, true };
 
-    return Type1Font::Data { to_unicode, encoding.release_nonnull(), move(widths), missing_width };
+    auto font_file_stream = TRY(descriptor->get_stream(document, CommonNames::FontFile));
+    auto font_file_dict = font_file_stream->dict();
+
+    if (!font_file_dict->contains(CommonNames::Length1, CommonNames::Length2))
+        return Error { Error::Type::Parse, "Embedded type 1 font is incomplete" };
+
+    auto length1 = font_file_dict->get_value(CommonNames::Length1).get<int>();
+    auto length2 = font_file_dict->get_value(CommonNames::Length2).get<int>();
+
+    auto font_program = adopt_ref(*new PS1FontProgram());
+    TRY(font_program->parse(font_file_stream->bytes(), length1, length2));
+    encoding = font_program->encoding();
+
+    return Type1Font::Data { font_program, to_unicode, encoding.release_nonnull(), move(widths), missing_width, false };
 }
 
 PDFErrorOr<NonnullRefPtr<Type1Font>> Type1Font::create(Document* document, NonnullRefPtr<DictObject> dict)
@@ -80,6 +96,7 @@ PDFErrorOr<NonnullRefPtr<Type1Font>> Type1Font::create(Document* document, Nonnu
 Type1Font::Type1Font(Data data)
     : m_data(move(data))
 {
+    m_is_standard_font = data.is_standard_font;
 }
 
 u32 Type1Font::char_code_to_code_point(u16 char_code) const
@@ -103,4 +120,13 @@ float Type1Font::get_char_width(u16 char_code, float) const
     return static_cast<float>(width) / 1000.0f;
 }
 
+void Type1Font::draw_glyph(Gfx::Painter& painter, Gfx::IntPoint const& point, float width, u32 code_point, Color color)
+{
+    // FIXME: Make a glyph cache
+    if (m_data.font_program) {
+        auto path = m_data.font_program->build_char(code_point, { point.x(), point.y() }, width);
+        Gfx::AntiAliasingPainter aa_painter(painter);
+        aa_painter.fill_path(path, color, Gfx::Painter::WindingRule::EvenOdd);
+    }
+}
 }

@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <Kernel/Arch/x86/IO.h>
+#include <Kernel/Arch/Delay.h>
 #include <Kernel/Bus/USB/USBClasses.h>
 #include <Kernel/Bus/USB/USBController.h>
 #include <Kernel/Bus/USB/USBHub.h>
 #include <Kernel/Bus/USB/USBRequest.h>
 #include <Kernel/FileSystem/SysFS/Subsystems/Bus/USB/BusDirectory.h>
+#include <Kernel/IOWindow.h>
 #include <Kernel/StdLib.h>
 
 namespace Kernel::USB {
@@ -17,25 +18,25 @@ namespace Kernel::USB {
 ErrorOr<NonnullLockRefPtr<Hub>> Hub::try_create_root_hub(NonnullLockRefPtr<USBController> controller, DeviceSpeed device_speed)
 {
     // NOTE: Enumeration does not happen here, as the controller must know what the device address is at all times during enumeration to intercept requests.
-    auto pipe = TRY(Pipe::try_create_pipe(controller, Pipe::Type::Control, Pipe::Direction::Bidirectional, 0, 8, 0));
+    auto pipe = TRY(ControlPipe::create(controller, 0, 8, 0));
     auto hub = TRY(adopt_nonnull_lock_ref_or_enomem(new (nothrow) Hub(controller, device_speed, move(pipe))));
     return hub;
 }
 
 ErrorOr<NonnullLockRefPtr<Hub>> Hub::try_create_from_device(Device const& device)
 {
-    auto pipe = TRY(Pipe::try_create_pipe(device.controller(), Pipe::Type::Control, Pipe::Direction::Bidirectional, 0, device.device_descriptor().max_packet_size, device.address()));
+    auto pipe = TRY(ControlPipe::create(device.controller(), 0, device.device_descriptor().max_packet_size, device.address()));
     auto hub = TRY(adopt_nonnull_lock_ref_or_enomem(new (nothrow) Hub(device, move(pipe))));
     TRY(hub->enumerate_and_power_on_hub());
     return hub;
 }
 
-Hub::Hub(NonnullLockRefPtr<USBController> controller, DeviceSpeed device_speed, NonnullOwnPtr<Pipe> default_pipe)
+Hub::Hub(NonnullLockRefPtr<USBController> controller, DeviceSpeed device_speed, NonnullOwnPtr<ControlPipe> default_pipe)
     : Device(move(controller), 1 /* Port 1 */, device_speed, move(default_pipe))
 {
 }
 
-Hub::Hub(Device const& device, NonnullOwnPtr<Pipe> default_pipe)
+Hub::Hub(Device const& device, NonnullOwnPtr<ControlPipe> default_pipe)
     : Device(device, move(default_pipe))
 {
 }
@@ -44,6 +45,8 @@ ErrorOr<void> Hub::enumerate_and_power_on_hub()
 {
     // USBDevice::enumerate_device must be called before this.
     VERIFY(m_address > 0);
+
+    m_sysfs_device_info_node = TRY(SysFSUSBDeviceInformation::create(*this));
 
     if (m_device_descriptor.device_class != USB_CLASS_HUB) {
         dbgln("USB Hub: Trying to enumerate and power on a device that says it isn't a hub.");
@@ -81,7 +84,7 @@ ErrorOr<void> Hub::enumerate_and_power_on_hub()
     }
 
     // Wait for the ports to power up. power_on_to_power_good_time is in units of 2 ms and we want in us, so multiply by 2000.
-    IO::delay(descriptor.power_on_to_power_good_time * 2000);
+    microseconds_delay(descriptor.power_on_to_power_good_time * 2000);
 
     memcpy(&m_hub_descriptor, &descriptor, sizeof(USBHubDescriptor));
 
@@ -169,7 +172,7 @@ void Hub::check_for_port_updates()
 
                 // FIXME: Timeout
                 while (debounce_timer < debounce_interval) {
-                    IO::delay(debounce_disconnect_check_interval);
+                    microseconds_delay(debounce_disconnect_check_interval);
                     debounce_timer += debounce_disconnect_check_interval;
 
                     if (auto result = get_port_status(port_number, port_status); result.is_error()) {
@@ -201,7 +204,7 @@ void Hub::check_for_port_updates()
                     // Wait at least 10 ms for the port to reset.
                     // This is T DRST in the USB 2.0 Specification Page 186 Table 7-13.
                     constexpr u16 reset_delay = 10 * 1000;
-                    IO::delay(reset_delay);
+                    microseconds_delay(reset_delay);
 
                     if (auto result = get_port_status(port_number, port_status); result.is_error()) {
                         dbgln("USB Hub: Error occurred when getting status while resetting port {}: {}.", port_number, result.error());
@@ -222,7 +225,7 @@ void Hub::check_for_port_updates()
                 // Wait 10 ms for the port to recover.
                 // This is T RSTRCY in the USB 2.0 Specification Page 188 Table 7-14.
                 constexpr u16 reset_recovery_delay = 10 * 1000;
-                IO::delay(reset_recovery_delay);
+                microseconds_delay(reset_recovery_delay);
 
                 dbgln_if(USB_DEBUG, "USB Hub: Reset complete!");
 

@@ -17,12 +17,12 @@
 #include <AK/Singleton.h>
 #include <AK/TemporaryChange.h>
 #include <AK/Time.h>
-#include <LibCore/Account.h>
 #include <LibCore/Event.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/LocalServer.h>
 #include <LibCore/Notifier.h>
 #include <LibCore/Object.h>
+#include <LibCore/SessionManagement.h>
 #include <LibThreading/Mutex.h>
 #include <LibThreading/MutexProtected.h>
 #include <errno.h>
@@ -36,7 +36,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
+#    include <LibCore/Account.h>
+
 extern bool s_global_initializers_ran;
 #endif
 
@@ -158,7 +160,7 @@ private:
             return allocator->allocate();
         }))
     {
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
         m_socket->on_ready_to_read = [this] {
             u32 length;
             auto maybe_bytes_read = m_socket->read({ (u8*)&length, sizeof(length) });
@@ -234,7 +236,7 @@ public:
             JsonObject response;
             response.set("type", type);
             response.set("pid", getpid());
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
             char buffer[1024];
             if (get_process_name(buffer, sizeof(buffer)) >= 0) {
                 response.set("process_name", buffer);
@@ -310,7 +312,7 @@ EventLoop::EventLoop([[maybe_unused]] MakeInspectable make_inspectable)
     : m_wake_pipe_fds(&s_wake_pipe_fds)
     , m_private(make<Private>())
 {
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
     if (!s_global_initializers_ran) {
         // NOTE: Trying to have an event loop as a global variable will lead to initialization-order fiascos,
         //       as the event loop constructor accesses and/or sets other global variables.
@@ -332,7 +334,7 @@ EventLoop::EventLoop([[maybe_unused]] MakeInspectable make_inspectable)
         s_pid = getpid();
         s_event_loop_stack->append(*this);
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
         if (getuid() != 0) {
             if (getenv("MAKE_INSPECTABLE") == "1"sv)
                 make_inspectable = Core::EventLoop::MakeInspectable::Yes;
@@ -359,8 +361,13 @@ EventLoop::~EventLoop()
 
 bool connect_to_inspector_server()
 {
-#ifdef __serenity__
-    auto inspector_server_path = Account::parse_path_with_uid("/tmp/user/%uid/portal/inspectables"sv);
+#ifdef AK_OS_SERENITY
+    auto maybe_path = SessionManagement::parse_path_with_sid("/tmp/session/%sid/portal/inspectables"sv);
+    if (maybe_path.is_error()) {
+        dbgln("connect_to_inspector_server: {}", maybe_path.error());
+        return false;
+    }
+    auto inspector_server_path = maybe_path.value();
     auto maybe_socket = Stream::LocalSocket::connect(inspector_server_path);
     if (maybe_socket.is_error()) {
         dbgln("connect_to_inspector_server: Failed to connect: {}", maybe_socket.error());

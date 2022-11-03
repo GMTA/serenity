@@ -60,6 +60,8 @@ extern "C" {
 #define MSG_DONTROUTE 0x10
 #define MSG_WAITALL 0x20
 #define MSG_DONTWAIT 0x40
+#define MSG_NOSIGNAL 0x80
+#define MSG_EOR 0x100
 
 typedef uint16_t sa_family_t;
 
@@ -116,6 +118,8 @@ enum {
     SO_ACCEPTCONN,
     SO_DONTROUTE,
     SO_OOBINLINE,
+    SO_SNDLOWAT,
+    SO_RCVLOWAT,
 };
 #define SO_RCVTIMEO SO_RCVTIMEO
 #define SO_SNDTIMEO SO_SNDTIMEO
@@ -134,6 +138,8 @@ enum {
 #define SO_ACCEPTCONN SO_ACCEPTCONN
 #define SO_DONTROUTE SO_DONTROUTE
 #define SO_OOBINLINE SO_OOBINLINE
+#define SO_SNDLOWAT SO_SNDLOWAT
+#define SO_RCVLOWAT SO_RCVLOWAT
 
 enum {
     SCM_TIMESTAMP,

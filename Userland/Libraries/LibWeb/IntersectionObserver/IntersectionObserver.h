@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <LibJS/Heap/Handle.h>
 #include <LibWeb/Bindings/PlatformObject.h>
 
 namespace Web::IntersectionObserver {
@@ -21,7 +22,7 @@ class IntersectionObserver : public Bindings::PlatformObject {
     WEB_PLATFORM_OBJECT(IntersectionObserver, Bindings::PlatformObject);
 
 public:
-    static JS::NonnullGCPtr<IntersectionObserver> create_with_global_object(HTML::Window&, Bindings::CallbackType* callback, IntersectionObserverInit const& options = {});
+    static JS::NonnullGCPtr<IntersectionObserver> construct_impl(JS::Realm&, WebIDL::CallbackType* callback, IntersectionObserverInit const& options = {});
 
     virtual ~IntersectionObserver() override;
 
@@ -30,9 +31,7 @@ public:
     void disconnect();
 
 private:
-    explicit IntersectionObserver(HTML::Window&);
+    explicit IntersectionObserver(JS::Realm&);
 };
 
 }
-
-WRAPPER_HACK(IntersectionObserver, Web::IntersectionObserver)

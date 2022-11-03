@@ -7,8 +7,8 @@
 #pragma once
 
 #include <AK/Variant.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/DOM/HTMLCollection.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::HTML {
 
@@ -22,12 +22,10 @@ public:
     static JS::NonnullGCPtr<HTMLOptionsCollection> create(DOM::ParentNode& root, Function<bool(DOM::Element const&)> filter);
     virtual ~HTMLOptionsCollection() override;
 
-    DOM::ExceptionOr<void> add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before = {});
+    WebIDL::ExceptionOr<void> add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before = {});
 
 private:
     HTMLOptionsCollection(DOM::ParentNode& root, Function<bool(DOM::Element const&)> filter);
 };
 
 }
-
-WRAPPER_HACK(HTMLOptionsCollection, Web::HTML)

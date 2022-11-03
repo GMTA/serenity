@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, Hunter Salyer <thefalsehonesty@gmail.com>
+ * Copyright (c) 2022, Gregory Bertilson <zaggy1024@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -11,7 +12,7 @@
 namespace Video::VP9 {
 
 template<typename T>
-T TreeParser::parse_tree(SyntaxElementType type)
+ErrorOr<T> TreeParser::parse_tree(SyntaxElementType type)
 {
     auto tree_selection = select_tree(type);
     int value;
@@ -21,7 +22,7 @@ T TreeParser::parse_tree(SyntaxElementType type)
         auto tree = tree_selection.get_tree_value();
         int n = 0;
         do {
-            n = tree[n + m_decoder.m_bit_stream->read_bool(select_tree_probability(type, n >> 1))];
+            n = tree[n + TRY(m_decoder.m_bit_stream->read_bool(select_tree_probability(type, n >> 1)))];
         } while (n > 0);
         value = -n;
     }
@@ -29,17 +30,17 @@ T TreeParser::parse_tree(SyntaxElementType type)
     return static_cast<T>(value);
 }
 
-template int TreeParser::parse_tree(SyntaxElementType);
-template bool TreeParser::parse_tree(SyntaxElementType);
-template u8 TreeParser::parse_tree(SyntaxElementType);
-template u32 TreeParser::parse_tree(SyntaxElementType);
-template IntraMode TreeParser::parse_tree(SyntaxElementType);
-template TXSize TreeParser::parse_tree(SyntaxElementType);
-template InterpolationFilter TreeParser::parse_tree(SyntaxElementType);
-template ReferenceMode TreeParser::parse_tree(SyntaxElementType);
-template Token TreeParser::parse_tree(SyntaxElementType);
-template MvClass TreeParser::parse_tree(SyntaxElementType);
-template MvJoint TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<int> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<bool> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<u8> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<u32> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<IntraMode> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<TXSize> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<InterpolationFilter> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<ReferenceMode> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<Token> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<MvClass> TreeParser::parse_tree(SyntaxElementType);
+template ErrorOr<MvJoint> TreeParser::parse_tree(SyntaxElementType);
 
 /*
  * Select a tree value based on the type of syntax element being parsed, as well as some parser state, as specified in section 9.3.1
@@ -138,11 +139,12 @@ u8 TreeParser::select_tree_probability(SyntaxElementType type, u8 node)
     case SyntaxElementType::SingleRefP2:
         return calculate_single_ref_p2_probability();
     case SyntaxElementType::MVSign:
-        break;
+        return m_decoder.m_probability_tables->mv_sign_prob()[m_mv_component];
     case SyntaxElementType::MVClass0Bit:
-        break;
+        return m_decoder.m_probability_tables->mv_class0_bit_prob()[m_mv_component];
     case SyntaxElementType::MVBit:
-        break;
+        VERIFY(m_mv_bit < MV_OFFSET_BITS);
+        return m_decoder.m_probability_tables->mv_bits_prob()[m_mv_component][m_mv_bit];
     case SyntaxElementType::TXSize:
         return calculate_tx_size_probability(node);
     case SyntaxElementType::InterMode:
@@ -150,17 +152,20 @@ u8 TreeParser::select_tree_probability(SyntaxElementType type, u8 node)
     case SyntaxElementType::InterpFilter:
         return calculate_interp_filter_probability(node);
     case SyntaxElementType::MVJoint:
-        break;
+        return m_decoder.m_probability_tables->mv_joint_probs()[node];
     case SyntaxElementType::MVClass:
-        break;
+        // Spec doesn't mention node, but the probabilities table has an extra dimension
+        // so we will use node for that.
+        return m_decoder.m_probability_tables->mv_class_probs()[m_mv_component][node];
     case SyntaxElementType::MVClass0FR:
-        break;
+        VERIFY(m_mv_class0_bit < CLASS0_SIZE);
+        return m_decoder.m_probability_tables->mv_class0_fr_probs()[m_mv_component][m_mv_class0_bit][node];
     case SyntaxElementType::MVClass0HP:
-        break;
+        return m_decoder.m_probability_tables->mv_class0_hp_prob()[m_mv_component];
     case SyntaxElementType::MVFR:
-        break;
+        return m_decoder.m_probability_tables->mv_fr_probs()[m_mv_component][node];
     case SyntaxElementType::MVHP:
-        break;
+        return m_decoder.m_probability_tables->mv_hp_prob()[m_mv_component];
     case SyntaxElementType::Token:
         return calculate_token_probability(node);
     case SyntaxElementType::MoreCoefs:
@@ -212,17 +217,17 @@ u8 TreeParser::calculate_default_intra_mode_probability(u8 node)
     u32 above_mode, left_mode;
     if (m_decoder.m_mi_size >= Block_8x8) {
         above_mode = AVAIL_U
-            ? m_decoder.m_sub_modes[(m_decoder.m_mi_row - 1) * m_decoder.m_mi_cols * 4 + m_decoder.m_mi_col * 4 + 2]
+            ? m_decoder.m_sub_modes[m_decoder.get_image_index(m_decoder.m_mi_row - 1, m_decoder.m_mi_col)][2]
             : DcPred;
         left_mode = AVAIL_L
-            ? m_decoder.m_sub_modes[m_decoder.m_mi_row * m_decoder.m_mi_cols * 4 + (m_decoder.m_mi_col - 1) * 4 + 1]
+            ? m_decoder.m_sub_modes[m_decoder.get_image_index(m_decoder.m_mi_row, m_decoder.m_mi_col - 1)][1]
             : DcPred;
     } else {
         if (m_idy) {
             above_mode = m_decoder.m_block_sub_modes[m_idx];
         } else {
             above_mode = AVAIL_U
-                ? m_decoder.m_sub_modes[(m_decoder.m_mi_row - 1) * m_decoder.m_mi_cols * 4 + m_decoder.m_mi_col * 4 + 2 + m_idx]
+                ? m_decoder.m_sub_modes[m_decoder.get_image_index(m_decoder.m_mi_row - 1, m_decoder.m_mi_col)][2 + m_idx]
                 : DcPred;
         }
 
@@ -230,7 +235,7 @@ u8 TreeParser::calculate_default_intra_mode_probability(u8 node)
             left_mode = m_decoder.m_block_sub_modes[m_idy * 2];
         } else {
             left_mode = AVAIL_L
-                ? m_decoder.m_sub_modes[m_decoder.m_mi_row * m_decoder.m_mi_cols * 4 + (m_decoder.m_mi_col - 1) * 4 + 1 + m_idy * 2]
+                ? m_decoder.m_sub_modes[m_decoder.get_image_index(m_decoder.m_mi_row, m_decoder.m_mi_col - 1)][1 + m_idy * 2]
                 : DcPred;
         }
     }
@@ -544,12 +549,16 @@ u8 TreeParser::calculate_tx_size_probability(u8 node)
 {
     auto above = m_decoder.m_max_tx_size;
     auto left = m_decoder.m_max_tx_size;
-    auto u_pos = (m_decoder.m_mi_row - 1) * m_decoder.m_mi_cols + m_decoder.m_mi_col;
-    if (AVAIL_U && !m_decoder.m_skips[u_pos])
-        above = m_decoder.m_tx_sizes[u_pos];
-    auto l_pos = m_decoder.m_mi_row * m_decoder.m_mi_cols + m_decoder.m_mi_col - 1;
-    if (AVAIL_L && !m_decoder.m_skips[l_pos])
-        left = m_decoder.m_tx_sizes[l_pos];
+    if (AVAIL_U) {
+        auto u_pos = (m_decoder.m_mi_row - 1) * m_decoder.m_mi_cols + m_decoder.m_mi_col;
+        if (!m_decoder.m_skips[u_pos])
+            above = m_decoder.m_tx_sizes[u_pos];
+    }
+    if (AVAIL_L) {
+        auto l_pos = m_decoder.m_mi_row * m_decoder.m_mi_cols + m_decoder.m_mi_col - 1;
+        if (!m_decoder.m_skips[l_pos])
+            left = m_decoder.m_tx_sizes[l_pos];
+    }
     if (!AVAIL_L)
         left = above;
     if (!AVAIL_U)
@@ -560,42 +569,40 @@ u8 TreeParser::calculate_tx_size_probability(u8 node)
 
 u8 TreeParser::calculate_inter_mode_probability(u8 node)
 {
-    // FIXME: Implement when ModeContext is implemented
-    //  m_ctx = m_decoder.m_mode_context[m_decoder.m_ref_frame[0]]
+    m_ctx = m_decoder.m_mode_context[m_decoder.m_ref_frame[0]];
     return m_decoder.m_probability_tables->inter_mode_probs()[m_ctx][node];
 }
 
 u8 TreeParser::calculate_interp_filter_probability(u8 node)
 {
+    // NOTE: SWITCHABLE_FILTERS is not used in the spec for this function. Therefore, the number
+    //       was demystified by referencing the reference codec libvpx:
+    //       https://github.com/webmproject/libvpx/blob/705bf9de8c96cfe5301451f1d7e5c90a41c64e5f/vp9/common/vp9_pred_common.h#L69
     auto left_interp = (AVAIL_L && m_decoder.m_left_ref_frame[0] > IntraFrame)
-        ? m_decoder.m_interp_filters[m_decoder.m_mi_row * m_decoder.m_mi_cols + m_decoder.m_mi_col - 1]
-        : 3;
+        ? m_decoder.m_interp_filters[m_decoder.get_image_index(m_decoder.m_mi_row, m_decoder.m_mi_col - 1)]
+        : SWITCHABLE_FILTERS;
     auto above_interp = (AVAIL_U && m_decoder.m_above_ref_frame[0] > IntraFrame)
-        ? m_decoder.m_interp_filters[m_decoder.m_mi_row * m_decoder.m_mi_cols + m_decoder.m_mi_col - 1]
-        : 3;
-    if (left_interp == above_interp || (left_interp != 3 && above_interp == 3))
+        ? m_decoder.m_interp_filters[m_decoder.get_image_index(m_decoder.m_mi_row - 1, m_decoder.m_mi_col)]
+        : SWITCHABLE_FILTERS;
+    if (left_interp == above_interp)
         m_ctx = left_interp;
-    else if (left_interp == 3 && above_interp != 3)
+    else if (left_interp == SWITCHABLE_FILTERS)
         m_ctx = above_interp;
+    else if (above_interp == SWITCHABLE_FILTERS)
+        m_ctx = left_interp;
     else
-        m_ctx = 3;
+        m_ctx = SWITCHABLE_FILTERS;
     return m_decoder.m_probability_tables->interp_filter_probs()[m_ctx][node];
 }
 
-u8 TreeParser::calculate_token_probability(u8 node)
+void TreeParser::set_tokens_variables(u8 band, u32 c, u32 plane, TXSize tx_size, u32 pos)
 {
-    auto prob = m_decoder.m_probability_tables->coef_probs()[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][min(2, 1 + node)];
-    if (node < 2)
-        return prob;
-    auto x = (prob - 1) / 2;
-    auto& pareto_table = m_decoder.m_probability_tables->pareto_table();
-    if (prob & 1)
-        return pareto_table[x][node - 2];
-    return (pareto_table[x][node - 2] + pareto_table[x + 1][node - 2]) >> 1;
-}
+    m_band = band;
+    m_c = c;
+    m_plane = plane;
+    m_tx_size = tx_size;
+    m_pos = pos;
 
-u8 TreeParser::calculate_more_coefs_probability()
-{
     if (m_c == 0) {
         auto sx = m_plane > 0 ? m_decoder.m_subsampling_x : 0;
         auto sy = m_plane > 0 ? m_decoder.m_subsampling_y : 0;
@@ -618,7 +625,7 @@ u8 TreeParser::calculate_more_coefs_probability()
         auto n = 4 << m_tx_size;
         auto i = m_pos / n;
         auto j = m_pos % n;
-        auto a = (i - 1) * n + j;
+        auto a = i > 0 ? (i - 1) * n + j : 0;
         auto a2 = i * n + j - 1;
         if (i > 0 && j > 0) {
             if (m_decoder.m_tx_type == DCT_ADST) {
@@ -640,73 +647,104 @@ u8 TreeParser::calculate_more_coefs_probability()
         }
         m_ctx = (1 + m_decoder.m_token_cache[neighbor_0] + m_decoder.m_token_cache[neighbor_1]) >> 1;
     }
+}
+
+u8 TreeParser::calculate_more_coefs_probability()
+{
     return m_decoder.m_probability_tables->coef_probs()[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][0];
+}
+
+u8 TreeParser::calculate_token_probability(u8 node)
+{
+    auto prob = m_decoder.m_probability_tables->coef_probs()[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][min(2, 1 + node)];
+    if (node < 2)
+        return prob;
+    auto x = (prob - 1) / 2;
+    auto& pareto_table = m_decoder.m_probability_tables->pareto_table();
+    if (prob & 1)
+        return pareto_table[x][node - 2];
+    return (pareto_table[x][node - 2] + pareto_table[x + 1][node - 2]) >> 1;
 }
 
 void TreeParser::count_syntax_element(SyntaxElementType type, int value)
 {
+    auto increment = [](u8& count) {
+        count = min(static_cast<u32>(count) + 1, 255);
+    };
     switch (type) {
     case SyntaxElementType::Partition:
-        m_decoder.m_syntax_element_counter->m_counts_partition[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_partition[m_ctx][value]);
         return;
     case SyntaxElementType::IntraMode:
     case SyntaxElementType::SubIntraMode:
-        m_decoder.m_syntax_element_counter->m_counts_intra_mode[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_intra_mode[m_ctx][value]);
         return;
     case SyntaxElementType::UVMode:
-        m_decoder.m_syntax_element_counter->m_counts_uv_mode[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_uv_mode[m_ctx][value]);
         return;
     case SyntaxElementType::Skip:
-        m_decoder.m_syntax_element_counter->m_counts_skip[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_skip[m_ctx][value]);
         return;
     case SyntaxElementType::IsInter:
-        m_decoder.m_syntax_element_counter->m_counts_is_inter[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_is_inter[m_ctx][value]);
         return;
     case SyntaxElementType::CompMode:
-        m_decoder.m_syntax_element_counter->m_counts_comp_mode[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_comp_mode[m_ctx][value]);
         return;
     case SyntaxElementType::CompRef:
-        m_decoder.m_syntax_element_counter->m_counts_comp_ref[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_comp_ref[m_ctx][value]);
         return;
     case SyntaxElementType::SingleRefP1:
-        m_decoder.m_syntax_element_counter->m_counts_single_ref[m_ctx][0][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_single_ref[m_ctx][0][value]);
         return;
     case SyntaxElementType::SingleRefP2:
-        m_decoder.m_syntax_element_counter->m_counts_single_ref[m_ctx][1][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_single_ref[m_ctx][1][value]);
         return;
     case SyntaxElementType::MVSign:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_sign[m_mv_component][value]);
+        return;
     case SyntaxElementType::MVClass0Bit:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_class0_bit[m_mv_component][value]);
+        return;
     case SyntaxElementType::MVBit:
-        break;
+        VERIFY(m_mv_bit < MV_OFFSET_BITS);
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_bits[m_mv_component][m_mv_bit][value]);
+        m_mv_bit = 0xFF;
+        return;
     case SyntaxElementType::TXSize:
-        m_decoder.m_syntax_element_counter->m_counts_tx_size[m_decoder.m_max_tx_size][m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_tx_size[m_decoder.m_max_tx_size][m_ctx][value]);
         return;
     case SyntaxElementType::InterMode:
-        m_decoder.m_syntax_element_counter->m_counts_inter_mode[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_inter_mode[m_ctx][value]);
         return;
     case SyntaxElementType::InterpFilter:
-        m_decoder.m_syntax_element_counter->m_counts_interp_filter[m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_interp_filter[m_ctx][value]);
         return;
     case SyntaxElementType::MVJoint:
-        m_decoder.m_syntax_element_counter->m_counts_mv_joint[value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_joint[value]);
         return;
     case SyntaxElementType::MVClass:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_class[m_mv_component][value]);
+        return;
     case SyntaxElementType::MVClass0FR:
-        break;
+        VERIFY(m_mv_class0_bit < CLASS0_SIZE);
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_class0_fr[m_mv_component][m_mv_class0_bit][value]);
+        m_mv_class0_bit = 0xFF;
+        return;
     case SyntaxElementType::MVClass0HP:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_class0_hp[m_mv_component][value]);
+        return;
     case SyntaxElementType::MVFR:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_fr[m_mv_component][value]);
+        return;
     case SyntaxElementType::MVHP:
-        break;
+        increment(m_decoder.m_syntax_element_counter->m_counts_mv_hp[m_mv_component][value]);
+        return;
     case SyntaxElementType::Token:
-        m_decoder.m_syntax_element_counter->m_counts_token[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][min(2, value)]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_token[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][min(2, value)]);
         return;
     case SyntaxElementType::MoreCoefs:
-        m_decoder.m_syntax_element_counter->m_counts_more_coefs[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][value]++;
+        increment(m_decoder.m_syntax_element_counter->m_counts_more_coefs[m_tx_size][m_plane > 0][m_decoder.m_is_inter][m_band][m_ctx][value]);
         return;
     case SyntaxElementType::DefaultIntraMode:
     case SyntaxElementType::DefaultUVMode:
@@ -716,18 +754,6 @@ void TreeParser::count_syntax_element(SyntaxElementType type, int value)
         return;
     }
     TODO();
-}
-
-TreeParser::TreeSelection::TreeSelection(int const* values)
-    : m_is_single_value(false)
-    , m_value { .m_tree = values }
-{
-}
-
-TreeParser::TreeSelection::TreeSelection(int value)
-    : m_is_single_value(true)
-    , m_value { .m_value = value }
-{
 }
 
 }

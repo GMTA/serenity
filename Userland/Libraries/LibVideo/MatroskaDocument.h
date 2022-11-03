@@ -13,6 +13,7 @@
 #include <AK/OwnPtr.h>
 #include <AK/String.h>
 #include <AK/Utf8View.h>
+#include <LibVideo/Color/CodingIndependentCodePoints.h>
 
 namespace Video {
 
@@ -29,11 +30,14 @@ public:
     void set_muxing_app(String muxing_app) { m_muxing_app = move(muxing_app); }
     Utf8View writing_app() const { return Utf8View(m_writing_app); }
     void set_writing_app(String writing_app) { m_writing_app = move(writing_app); }
+    Optional<double> duration() const { return m_duration; }
+    void set_duration(double duration) { m_duration.emplace(duration); }
 
 private:
     u64 m_timestamp_scale { 1'000'000 };
     String m_muxing_app;
     String m_writing_app;
+    Optional<double> m_duration;
 };
 
 class TrackEntry {
@@ -50,9 +54,48 @@ public:
         Metadata = 33,
     };
 
+    enum class ColorRange : u8 {
+        Unspecified = 0,
+        Broadcast = 1,
+        Full = 2,
+        UseCICP = 3, // defined by MatrixCoefficients / TransferCharacteristics
+    };
+
+    struct ColorFormat {
+        ColorPrimaries color_primaries = ColorPrimaries::Unspecified;
+        TransferCharacteristics transfer_characteristics = TransferCharacteristics::Unspecified;
+        MatrixCoefficients matrix_coefficients = MatrixCoefficients::Unspecified;
+        u64 bits_per_channel = 0;
+        ColorRange range = ColorRange::Unspecified;
+
+        CodingIndependentCodePoints to_cicp() const
+        {
+            Video::ColorRange color_range;
+            switch (range) {
+            case ColorRange::Full:
+                color_range = Video::ColorRange::Full;
+                break;
+            case ColorRange::Broadcast:
+                color_range = Video::ColorRange::Studio;
+                break;
+            case ColorRange::Unspecified:
+            case ColorRange::UseCICP:
+                // FIXME: Figure out what UseCICP should do here. Matroska specification did not
+                //        seem to explain in the 'colour' section. When this is fixed, change
+                //        replace_code_points_if_specified to match.
+                color_range = Video::ColorRange::Unspecified;
+                break;
+            }
+
+            return { color_primaries, transfer_characteristics, matrix_coefficients, color_range };
+        }
+    };
+
     struct VideoTrack {
         u64 pixel_width;
         u64 pixel_height;
+
+        ColorFormat color_format;
     };
 
     struct AudioTrack {
@@ -93,7 +136,7 @@ private:
     FlyString m_codec_id;
 
     union {
-        VideoTrack m_video_track;
+        VideoTrack m_video_track {};
         AudioTrack m_audio_track;
     };
 };
@@ -122,7 +165,8 @@ public:
     bool discardable() const { return m_discardable; }
     void set_discardable(bool discardable) { m_discardable = discardable; }
     u64 frame_count() const { return m_frames.size(); }
-    ByteBuffer const& frame(size_t index) const { return m_frames.at(index); }
+    Vector<ByteBuffer> const& frames() const { return m_frames; }
+    ByteBuffer const& frame(size_t index) const { return frames()[index]; }
     void add_frame(ByteBuffer frame) { m_frames.append(move(frame)); }
 
 private:

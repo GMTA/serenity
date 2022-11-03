@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/HTMLCollection.h>
 #include <LibWeb/HTML/HTMLTableRowElement.h>
 #include <LibWeb/HTML/HTMLTableSectionElement.h>
-#include <LibWeb/HTML/Window.h>
 #include <LibWeb/Namespace.h>
 
 namespace Web::HTML {
@@ -17,7 +17,7 @@ namespace Web::HTML {
 HTMLTableSectionElement::HTMLTableSectionElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLTableSectionElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLTableSectionElement"));
 }
 
 HTMLTableSectionElement::~HTMLTableSectionElement() = default;
@@ -36,21 +36,21 @@ JS::NonnullGCPtr<DOM::HTMLCollection> HTMLTableSectionElement::rows() const
 }
 
 // https://html.spec.whatwg.org/multipage/tables.html#dom-tbody-insertrow
-DOM::ExceptionOr<JS::NonnullGCPtr<HTMLTableRowElement>> HTMLTableSectionElement::insert_row(long index)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<HTMLTableRowElement>> HTMLTableSectionElement::insert_row(long index)
 {
     auto rows_collection = rows();
     auto rows_collection_size = static_cast<long>(rows_collection->length());
 
     // 1. If index is less than −1 or greater than the number of elements in the rows collection, throw an "IndexSizeError" DOMException.
     if (index < -1 || index > rows_collection_size)
-        return DOM::IndexSizeError::create(global_object(), "Index is negative or greater than the number of rows");
+        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than the number of rows");
 
     // 2. Let table row be the result of creating an element given this element's node document, tr, and the HTML namespace.
     auto& table_row = static_cast<HTMLTableRowElement&>(*DOM::create_element(document(), TagNames::tr, Namespace::HTML));
 
     // 3. If index is −1 or equal to the number of items in the rows collection, then append table row to this element.
     if (index == -1 || index == rows_collection_size)
-        append_child(table_row);
+        TRY(append_child(table_row));
     // 4. Otherwise, insert table row as a child of this element, immediately before the index-th tr element in the rows collection.
     else
         table_row.insert_before(*this, rows_collection->item(index));
@@ -60,14 +60,14 @@ DOM::ExceptionOr<JS::NonnullGCPtr<HTMLTableRowElement>> HTMLTableSectionElement:
 }
 
 // https://html.spec.whatwg.org/multipage/tables.html#dom-tbody-deleterow
-DOM::ExceptionOr<void> HTMLTableSectionElement::delete_row(long index)
+WebIDL::ExceptionOr<void> HTMLTableSectionElement::delete_row(long index)
 {
     auto rows_collection = rows();
     auto rows_collection_size = static_cast<long>(rows_collection->length());
 
     // 1. If index is less than −1 or greater than or equal to the number of elements in the rows collection, then throw an "IndexSizeError" DOMException.
     if (index < -1 || index >= rows_collection_size)
-        return DOM::IndexSizeError::create(global_object(), "Index is negative or greater than or equal to the number of rows");
+        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than or equal to the number of rows");
 
     // 2. If index is −1, then remove the last element in the rows collection from this element, or do nothing if the rows collection is empty.
     if (index == -1) {

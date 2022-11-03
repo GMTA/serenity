@@ -14,7 +14,8 @@
 
 namespace JS {
 
-ThrowCompletionOr<RegExpObject*> regexp_create(VM&, Value pattern, Value flags);
+ThrowCompletionOr<NonnullGCPtr<RegExpObject>> regexp_create(VM&, Value pattern, Value flags);
+ThrowCompletionOr<NonnullGCPtr<RegExpObject>> regexp_alloc(VM&, FunctionObject& new_target);
 
 Result<regex::RegexOptions<ECMAScriptFlags>, String> regex_flags_from_string(StringView flags);
 struct ParseRegexPatternError {
@@ -39,7 +40,7 @@ public:
     static RegExpObject* create(Realm&);
     static RegExpObject* create(Realm&, Regex<ECMA262> regex, String pattern, String flags);
 
-    ThrowCompletionOr<RegExpObject*> regexp_initialize(VM&, Value pattern, Value flags);
+    ThrowCompletionOr<NonnullGCPtr<RegExpObject>> regexp_initialize(VM&, Value pattern, Value flags);
     String escape_regexp_pattern() const;
 
     virtual void initialize(Realm&) override;
@@ -49,6 +50,11 @@ public:
     String const& flags() const { return m_flags; }
     Regex<ECMA262> const& regex() { return *m_regex; }
     Regex<ECMA262> const& regex() const { return *m_regex; }
+    Realm& realm() { return *m_realm; }
+    Realm const& realm() const { return *m_realm; }
+    bool legacy_features_enabled() const { return m_legacy_features_enabled; }
+    void set_legacy_features_enabled(bool legacy_features_enabled) { m_legacy_features_enabled = legacy_features_enabled; }
+    void set_realm(Realm& realm) { m_realm = &realm; }
 
 private:
     RegExpObject(Object& prototype);
@@ -56,6 +62,9 @@ private:
 
     String m_pattern;
     String m_flags;
+    bool m_legacy_features_enabled { false }; // [[LegacyFeaturesEnabled]]
+    // Note: This is initialized in RegExpAlloc, but will be non-null afterwards
+    GCPtr<Realm> m_realm; // [[Realm]]
     Optional<Regex<ECMA262>> m_regex;
 };
 

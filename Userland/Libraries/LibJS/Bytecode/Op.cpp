@@ -182,6 +182,67 @@ ThrowCompletionOr<void> NewArray::execute_impl(Bytecode::Interpreter& interprete
     return {};
 }
 
+ThrowCompletionOr<void> Append::execute_impl(Bytecode::Interpreter& interpreter) const
+{
+    // Note: This OpCode is used to construct array literals and argument arrays for calls,
+    //       containing at least one spread element,
+    //       Iterating over such a spread element to unpack it has to be visible by
+    //       the user courtesy of
+    //       (1) https://tc39.es/ecma262/#sec-runtime-semantics-arrayaccumulation
+    //          SpreadElement : ... AssignmentExpression
+    //              1. Let spreadRef be ? Evaluation of AssignmentExpression.
+    //              2. Let spreadObj be ? GetValue(spreadRef).
+    //              3. Let iteratorRecord be ? GetIterator(spreadObj).
+    //              4. Repeat,
+    //                  a. Let next be ? IteratorStep(iteratorRecord).
+    //                  b. If next is false, return nextIndex.
+    //                  c. Let nextValue be ? IteratorValue(next).
+    //                  d. Perform ! CreateDataPropertyOrThrow(array, ! ToString(𝔽(nextIndex)), nextValue).
+    //                  e. Set nextIndex to nextIndex + 1.
+    //       (2) https://tc39.es/ecma262/#sec-runtime-semantics-argumentlistevaluation
+    //          ArgumentList : ... AssignmentExpression
+    //              1. Let list be a new empty List.
+    //              2. Let spreadRef be ? Evaluation of AssignmentExpression.
+    //              3. Let spreadObj be ? GetValue(spreadRef).
+    //              4. Let iteratorRecord be ? GetIterator(spreadObj).
+    //              5. Repeat,
+    //                  a. Let next be ? IteratorStep(iteratorRecord).
+    //                  b. If next is false, return list.
+    //                  c. Let nextArg be ? IteratorValue(next).
+    //                  d. Append nextArg to list.
+    //          ArgumentList : ArgumentList , ... AssignmentExpression
+    //             1. Let precedingArgs be ? ArgumentListEvaluation of ArgumentList.
+    //             2. Let spreadRef be ? Evaluation of AssignmentExpression.
+    //             3. Let iteratorRecord be ? GetIterator(? GetValue(spreadRef)).
+    //             4. Repeat,
+    //                 a. Let next be ? IteratorStep(iteratorRecord).
+    //                 b. If next is false, return precedingArgs.
+    //                 c. Let nextArg be ? IteratorValue(next).
+    //                 d. Append nextArg to precedingArgs.
+
+    auto& vm = interpreter.vm();
+
+    // Note: We know from codegen, that lhs is a plain array with only indexed properties
+    auto& lhs = interpreter.reg(m_lhs).as_array();
+    auto lhs_size = lhs.indexed_properties().array_like_size();
+
+    auto rhs = interpreter.accumulator();
+
+    if (m_is_spread) {
+        // ...rhs
+        size_t i = lhs_size;
+        TRY(get_iterator_values(vm, rhs, [&i, &lhs](Value iterator_value) -> Optional<Completion> {
+            lhs.indexed_properties().put(i, iterator_value, default_attributes);
+            ++i;
+            return {};
+        }));
+    } else {
+        lhs.indexed_properties().put(lhs_size, rhs, default_attributes);
+    }
+
+    return {};
+}
+
 // FIXME: Since the accumulator is a Value, we store an object there and have to convert back and forth between that an Iterator records. Not great.
 // Make sure to put this into the accumulator before the iterator object disappears from the stack to prevent the members from being GC'd.
 static Object* iterator_to_object(VM& vm, Iterator iterator)
@@ -496,6 +557,48 @@ ThrowCompletionOr<void> JumpUndefined::execute_impl(Bytecode::Interpreter& inter
     return {};
 }
 
+// 13.3.8.1 https://tc39.es/ecma262/#sec-runtime-semantics-argumentlistevaluation
+static MarkedVector<Value> argument_list_evaluation(Bytecode::Interpreter& interpreter)
+{
+    // Note: Any spreading and actual evaluation is handled in preceding opcodes
+    // Note: The spec uses the concept of a list, while we create a temporary array
+    //       in the preceding opcodes, so we have to convert in a manner that is not
+    //       visible to the user
+    auto& vm = interpreter.vm();
+
+    MarkedVector<Value> argument_values { vm.heap() };
+    auto arguments = interpreter.accumulator();
+
+    if (!(arguments.is_object() && is<Array>(arguments.as_object()))) {
+        dbgln("Call arguments are not an array, but: {}", arguments.to_string_without_side_effects());
+        dbgln("PC: {}[{:4x}]", interpreter.current_block().name(), interpreter.pc());
+        interpreter.current_executable().dump();
+        VERIFY_NOT_REACHED();
+    }
+    auto& argument_array = arguments.as_array();
+    auto array_length = argument_array.indexed_properties().array_like_size();
+
+    argument_values.ensure_capacity(array_length);
+
+    for (size_t i = 0; i < array_length; ++i) {
+        if (auto maybe_value = argument_array.indexed_properties().get(i); maybe_value.has_value())
+            argument_values.append(maybe_value.release_value().value);
+        else
+            argument_values.append(js_undefined());
+    }
+
+    return argument_values;
+}
+
+Completion Call::throw_type_error_for_callee(Bytecode::Interpreter& interpreter, StringView callee_type) const
+{
+    auto callee = interpreter.reg(m_callee);
+    if (m_expression_string.has_value())
+        return interpreter.vm().throw_completion<TypeError>(ErrorType::IsNotAEvaluatedFrom, callee.to_string_without_side_effects(), callee_type, interpreter.current_executable().get_string(m_expression_string->value()));
+
+    return interpreter.vm().throw_completion<TypeError>(ErrorType::IsNotA, callee.to_string_without_side_effects(), callee_type);
+}
+
 ThrowCompletionOr<void> Call::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     auto& vm = interpreter.vm();
@@ -503,18 +606,15 @@ ThrowCompletionOr<void> Call::execute_impl(Bytecode::Interpreter& interpreter) c
     auto callee = interpreter.reg(m_callee);
 
     if (m_type == CallType::Call && !callee.is_function())
-        return vm.throw_completion<TypeError>(ErrorType::IsNotA, callee.to_string_without_side_effects(), "function"sv);
-
+        return throw_type_error_for_callee(interpreter, "function"sv);
     if (m_type == CallType::Construct && !callee.is_constructor())
-        return vm.throw_completion<TypeError>(ErrorType::IsNotA, callee.to_string_without_side_effects(), "constructor"sv);
+        return throw_type_error_for_callee(interpreter, "constructor"sv);
 
     auto& function = callee.as_function();
 
     auto this_value = interpreter.reg(m_this_value);
 
-    MarkedVector<Value> argument_values { vm.heap() };
-    for (size_t i = 0; i < m_argument_count; ++i)
-        argument_values.append(interpreter.reg(m_arguments[i]));
+    auto argument_values = argument_list_evaluation(interpreter);
 
     Value return_value;
     if (m_type == CallType::Call)
@@ -549,8 +649,7 @@ ThrowCompletionOr<void> SuperCall::execute_impl(Bytecode::Interpreter& interpret
         for (size_t i = 0; i < length; ++i)
             arg_list.append(array_value.get_without_side_effects(PropertyKey { i }));
     } else {
-        for (size_t i = 0; i < m_argument_count; ++i)
-            arg_list.append(interpreter.reg(m_arguments[i]));
+        arg_list = argument_list_evaluation(interpreter);
     }
 
     // 5. If IsConstructor(func) is false, throw a TypeError exception.
@@ -859,7 +958,10 @@ ThrowCompletionOr<void> NewClass::execute_impl(Bytecode::Interpreter& interprete
     auto name = m_class_expression.name();
     auto scope = interpreter.ast_interpreter_scope();
     auto& ast_interpreter = scope.interpreter();
-    auto class_object = TRY(m_class_expression.class_definition_evaluation(ast_interpreter, name, name.is_null() ? ""sv : name));
+
+    auto* class_object = TRY(m_class_expression.class_definition_evaluation(ast_interpreter, name, name.is_null() ? ""sv : name));
+    class_object->set_source_text(m_class_expression.source_text());
+
     interpreter.accumulator() = class_object;
     return {};
 }
@@ -917,6 +1019,13 @@ String NewArray::to_string_impl(Bytecode::Executable const&) const
         builder.appendff(" [{}-{}]", m_elements[0], m_elements[1]);
     }
     return builder.to_string();
+}
+
+String Append::to_string_impl(Bytecode::Executable const&) const
+{
+    if (m_is_spread)
+        return String::formatted("Append lhs: **{}", m_lhs);
+    return String::formatted("Append lhs: {}", m_lhs);
 }
 
 String IteratorToArray::to_string_impl(Bytecode::Executable const&) const
@@ -1043,30 +1152,17 @@ String JumpUndefined::to_string_impl(Bytecode::Executable const&) const
     return String::formatted("JumpUndefined undefined:{} not undefined:{}", true_string, false_string);
 }
 
-String Call::to_string_impl(Bytecode::Executable const&) const
+String Call::to_string_impl(Bytecode::Executable const& executable) const
 {
-    StringBuilder builder;
-    builder.appendff("Call callee:{}, this:{}", m_callee, m_this_value);
-    if (m_argument_count != 0) {
-        builder.append(", arguments:["sv);
-        builder.join(", "sv, Span<Register const>(m_arguments, m_argument_count));
-        builder.append(']');
-    }
-    return builder.to_string();
+    if (m_expression_string.has_value())
+        return String::formatted("Call callee:{}, this:{}, arguments:[...acc] ({})", m_callee, m_this_value, executable.get_string(m_expression_string.value()));
+
+    return String::formatted("Call callee:{}, this:{}, arguments:[...acc]", m_callee, m_this_value);
 }
 
 String SuperCall::to_string_impl(Bytecode::Executable const&) const
 {
-    StringBuilder builder;
-    builder.append("SuperCall"sv);
-    if (m_is_synthetic) {
-        builder.append(" arguments:[...acc]"sv);
-    } else if (m_argument_count != 0) {
-        builder.append(" arguments:["sv);
-        builder.join(", "sv, Span<Register const>(m_arguments, m_argument_count));
-        builder.append(']');
-    }
-    return builder.to_string();
+    return "SuperCall arguments:[...acc]"sv;
 }
 
 String NewFunction::to_string_impl(Bytecode::Executable const&) const
@@ -1076,7 +1172,8 @@ String NewFunction::to_string_impl(Bytecode::Executable const&) const
 
 String NewClass::to_string_impl(Bytecode::Executable const&) const
 {
-    return "NewClass";
+    auto name = m_class_expression.name();
+    return String::formatted("NewClass '{}'", name.is_null() ? ""sv : name);
 }
 
 String Return::to_string_impl(Bytecode::Executable const&) const

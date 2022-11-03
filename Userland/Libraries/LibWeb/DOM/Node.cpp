@@ -73,8 +73,12 @@ Node::Node(Document& document, NodeType type)
 {
 }
 
-Node::~Node()
+Node::~Node() = default;
+
+void Node::finalize()
 {
+    Base::finalize();
+
     if (layout_node() && layout_node()->parent())
         layout_node()->parent()->remove_child(*layout_node());
 
@@ -90,6 +94,9 @@ void Node::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_last_child.ptr());
     visitor.visit(m_next_sibling.ptr());
     visitor.visit(m_previous_sibling.ptr());
+    visitor.visit(m_child_nodes);
+
+    visitor.visit(m_layout_node);
 
     for (auto& registered_observer : m_registered_observer_list)
         visitor.visit(registered_observer);
@@ -143,14 +150,18 @@ String Node::descendant_text_content() const
 String Node::text_content() const
 {
     // The textContent getter steps are to return the following, switching on the interface this implements:
+
     // If DocumentFragment or Element, return the descendant text content of this.
     if (is<DocumentFragment>(this) || is<Element>(this))
         return descendant_text_content();
-    else if (is<CharacterData>(this))
-        // If CharacterData, return this’s data.
-        return verify_cast<CharacterData>(this)->data();
 
-    // FIXME: If this is an Attr node, return this's value.
+    // If CharacterData, return this’s data.
+    if (is<CharacterData>(this))
+        return static_cast<CharacterData const&>(*this).data();
+
+    // If Attr node, return this's value.
+    if (is<Attr>(*this))
+        return static_cast<Attr const&>(*this).value();
 
     // Otherwise, return null
     return {};
@@ -165,16 +176,21 @@ void Node::set_text_content(String const& content)
     // If DocumentFragment or Element, string replace all with the given value within this.
     if (is<DocumentFragment>(this) || is<Element>(this)) {
         string_replace_all(content);
-    } else if (is<CharacterData>(this)) {
-        // If CharacterData, replace data with node this, offset 0, count this’s length, and data the given value.
+    }
+
+    // If CharacterData, replace data with node this, offset 0, count this’s length, and data the given value.
+    else if (is<CharacterData>(this)) {
+
         auto* character_data_node = verify_cast<CharacterData>(this);
         character_data_node->set_data(content);
 
         // FIXME: CharacterData::set_data is not spec compliant. Make this match the spec when set_data becomes spec compliant.
         //        Do note that this will make this function able to throw an exception.
-    } else {
-        // FIXME: If this is an Attr node, set an existing attribute value with this and the given value.
-        return;
+    }
+
+    // If Attr, set an existing attribute value with this and the given value.
+    if (is<Attr>(*this)) {
+        static_cast<Attr&>(*this).set_value(content);
     }
 
     // Otherwise, do nothing.
@@ -188,8 +204,8 @@ String Node::node_value() const
     // The nodeValue getter steps are to return the following, switching on the interface this implements:
 
     // If Attr, return this’s value.
-    if (is<Attribute>(this)) {
-        return verify_cast<Attribute>(this)->value();
+    if (is<Attr>(this)) {
+        return verify_cast<Attr>(this)->value();
     }
 
     // If CharacterData, return this’s data.
@@ -208,8 +224,8 @@ void Node::set_node_value(String const& value)
     // and then do as described below, switching on the interface this implements:
 
     // If Attr, set an existing attribute value with this and the given value.
-    if (is<Attribute>(this)) {
-        verify_cast<Attribute>(this)->set_value(value);
+    if (is<Attr>(this)) {
+        verify_cast<Attr>(this)->set_value(value);
     } else if (is<CharacterData>(this)) {
         // If CharacterData, replace data with node this, offset 0, count this’s length, and data the given value.
         verify_cast<CharacterData>(this)->set_data(value);
@@ -242,11 +258,6 @@ void Node::invalidate_style()
     for (auto* ancestor = parent_or_shadow_host(); ancestor; ancestor = ancestor->parent_or_shadow_host())
         ancestor->m_child_needs_style_update = true;
     document().schedule_style_update();
-}
-
-bool Node::is_link() const
-{
-    return enclosing_link_element();
 }
 
 String Node::child_text_content() const
@@ -306,28 +317,28 @@ Element const* Node::parent_element() const
 }
 
 // https://dom.spec.whatwg.org/#concept-node-ensure-pre-insertion-validity
-ExceptionOr<void> Node::ensure_pre_insertion_validity(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child) const
+WebIDL::ExceptionOr<void> Node::ensure_pre_insertion_validity(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child) const
 {
     // 1. If parent is not a Document, DocumentFragment, or Element node, then throw a "HierarchyRequestError" DOMException.
     if (!is<Document>(this) && !is<DocumentFragment>(this) && !is<Element>(this))
-        return DOM::HierarchyRequestError::create(global_object(), "Can only insert into a document, document fragment or element");
+        return WebIDL::HierarchyRequestError::create(realm(), "Can only insert into a document, document fragment or element");
 
     // 2. If node is a host-including inclusive ancestor of parent, then throw a "HierarchyRequestError" DOMException.
     if (node->is_host_including_inclusive_ancestor_of(*this))
-        return DOM::HierarchyRequestError::create(global_object(), "New node is an ancestor of this node");
+        return WebIDL::HierarchyRequestError::create(realm(), "New node is an ancestor of this node");
 
     // 3. If child is non-null and its parent is not parent, then throw a "NotFoundError" DOMException.
     if (child && child->parent() != this)
-        return DOM::NotFoundError::create(global_object(), "This node is not the parent of the given child");
+        return WebIDL::NotFoundError::create(realm(), "This node is not the parent of the given child");
 
     // FIXME: All the following "Invalid node type for insertion" messages could be more descriptive.
     // 4. If node is not a DocumentFragment, DocumentType, Element, or CharacterData node, then throw a "HierarchyRequestError" DOMException.
     if (!is<DocumentFragment>(*node) && !is<DocumentType>(*node) && !is<Element>(*node) && !is<Text>(*node) && !is<Comment>(*node) && !is<ProcessingInstruction>(*node))
-        return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+        return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
 
     // 5. If either node is a Text node and parent is a document, or node is a doctype and parent is not a document, then throw a "HierarchyRequestError" DOMException.
     if ((is<Text>(*node) && is<Document>(this)) || (is<DocumentType>(*node) && !is<Document>(this)))
-        return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+        return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
 
     // 6. If parent is a document, and any of the statements below, switched on the interface node implements, are true, then throw a "HierarchyRequestError" DOMException.
     if (is<Document>(this)) {
@@ -338,18 +349,18 @@ ExceptionOr<void> Node::ensure_pre_insertion_validity(JS::NonnullGCPtr<Node> nod
             auto node_element_child_count = verify_cast<DocumentFragment>(*node).child_element_count();
             if ((node_element_child_count > 1 || node->has_child_of_type<Text>())
                 || (node_element_child_count == 1 && (has_child_of_type<Element>() || is<DocumentType>(child.ptr()) || (child && child->has_following_node_of_type_in_tree_order<DocumentType>())))) {
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
             }
         } else if (is<Element>(*node)) {
             // Element
             // If parent has an element child, child is a doctype, or child is non-null and a doctype is following child.
             if (has_child_of_type<Element>() || is<DocumentType>(child.ptr()) || (child && child->has_following_node_of_type_in_tree_order<DocumentType>()))
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
         } else if (is<DocumentType>(*node)) {
             // DocumentType
             // parent has a doctype child, child is non-null and an element is preceding child, or child is null and parent has an element child.
             if (has_child_of_type<DocumentType>() || (child && child->has_preceding_node_of_type_in_tree_order<Element>()) || (!child && has_child_of_type<Element>()))
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
         }
     }
 
@@ -380,7 +391,7 @@ void Node::insert_before(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child, boo
 
         // 2. Queue a tree mutation record for node with « », nodes, null, and null.
         // NOTE: This step intentionally does not pay attention to the suppress observers flag.
-        node->queue_tree_mutation_record(StaticNodeList::create(window(), {}), StaticNodeList::create(window(), nodes), nullptr, nullptr);
+        node->queue_tree_mutation_record(StaticNodeList::create(realm(), {}), StaticNodeList::create(realm(), nodes), nullptr, nullptr);
     }
 
     // 5. If child is non-null, then:
@@ -388,13 +399,13 @@ void Node::insert_before(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child, boo
         // 1. For each live range whose start node is parent and start offset is greater than child’s index, increase its start offset by count.
         for (auto& range : Range::live_ranges()) {
             if (range->start_container() == this && range->start_offset() > child->index())
-                range->set_start(*range->start_container(), range->start_offset() + count);
+                MUST(range->set_start(*range->start_container(), range->start_offset() + count));
         }
 
         // 2. For each live range whose end node is parent and end offset is greater than child’s index, increase its end offset by count.
         for (auto& range : Range::live_ranges()) {
             if (range->end_container() == this && range->end_offset() > child->index())
-                range->set_end(*range->end_container(), range->end_offset() + count);
+                MUST(range->set_end(*range->end_container(), range->end_offset() + count));
         }
     }
 
@@ -442,16 +453,17 @@ void Node::insert_before(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child, boo
 
     // 8. If suppress observers flag is unset, then queue a tree mutation record for parent with nodes, « », previousSibling, and child.
     if (!suppress_observers)
-        queue_tree_mutation_record(StaticNodeList::create(window(), move(nodes)), StaticNodeList::create(window(), {}), previous_sibling.ptr(), child.ptr());
+        queue_tree_mutation_record(StaticNodeList::create(realm(), move(nodes)), StaticNodeList::create(realm(), {}), previous_sibling.ptr(), child.ptr());
 
     // 9. Run the children changed steps for parent.
     children_changed();
 
-    document().invalidate_style();
+    // FIXME: This will need to become smarter when we implement the :has() selector.
+    invalidate_style();
 }
 
 // https://dom.spec.whatwg.org/#concept-node-pre-insert
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_insert(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_insert(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child)
 {
     // 1. Ensure pre-insertion validity of node into parent before child.
     TRY(ensure_pre_insertion_validity(node, child));
@@ -471,18 +483,18 @@ ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_insert(JS::NonnullGCPtr<Node> node
 }
 
 // https://dom.spec.whatwg.org/#dom-node-removechild
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::remove_child(JS::NonnullGCPtr<Node> child)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::remove_child(JS::NonnullGCPtr<Node> child)
 {
     // The removeChild(child) method steps are to return the result of pre-removing child from this.
     return pre_remove(child);
 }
 
 // https://dom.spec.whatwg.org/#concept-node-pre-remove
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_remove(JS::NonnullGCPtr<Node> child)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_remove(JS::NonnullGCPtr<Node> child)
 {
     // 1. If child’s parent is not parent, then throw a "NotFoundError" DOMException.
     if (child->parent() != this)
-        return DOM::NotFoundError::create(global_object(), "Child does not belong to this node");
+        return WebIDL::NotFoundError::create(realm(), "Child does not belong to this node");
 
     // 2. Remove child.
     child->remove();
@@ -492,7 +504,7 @@ ExceptionOr<JS::NonnullGCPtr<Node>> Node::pre_remove(JS::NonnullGCPtr<Node> chil
 }
 
 // https://dom.spec.whatwg.org/#concept-node-append
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::append_child(JS::NonnullGCPtr<Node> node)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::append_child(JS::NonnullGCPtr<Node> node)
 {
     // To append a node to a parent, pre-insert node into parent before null.
     return pre_insert(node, nullptr);
@@ -513,25 +525,25 @@ void Node::remove(bool suppress_observers)
     // 4. For each live range whose start node is an inclusive descendant of node, set its start to (parent, index).
     for (auto& range : Range::live_ranges()) {
         if (range->start_container()->is_inclusive_descendant_of(*this))
-            range->set_start(*parent, index);
+            MUST(range->set_start(*parent, index));
     }
 
     // 5. For each live range whose end node is an inclusive descendant of node, set its end to (parent, index).
     for (auto& range : Range::live_ranges()) {
         if (range->end_container()->is_inclusive_descendant_of(*this))
-            range->set_end(*parent, index);
+            MUST(range->set_end(*parent, index));
     }
 
     // 6. For each live range whose start node is parent and start offset is greater than index, decrease its start offset by 1.
     for (auto& range : Range::live_ranges()) {
         if (range->start_container() == parent && range->start_offset() > index)
-            range->set_start(*range->start_container(), range->start_offset() - 1);
+            MUST(range->set_start(*range->start_container(), range->start_offset() - 1));
     }
 
     // 7. For each live range whose end node is parent and end offset is greater than index, decrease its end offset by 1.
     for (auto& range : Range::live_ranges()) {
         if (range->end_container() == parent && range->end_offset() > index)
-            range->set_end(*range->end_container(), range->end_offset() - 1);
+            MUST(range->set_end(*range->end_container(), range->end_offset() - 1));
     }
 
     // 8. For each NodeIterator object iterator whose root’s node document is node’s node document, run the NodeIterator pre-removing steps given node and iterator.
@@ -593,39 +605,39 @@ void Node::remove(bool suppress_observers)
     if (!suppress_observers) {
         Vector<JS::Handle<Node>> removed_nodes;
         removed_nodes.append(JS::make_handle(*this));
-        parent->queue_tree_mutation_record(StaticNodeList::create(window(), {}), StaticNodeList::create(window(), move(removed_nodes)), old_previous_sibling.ptr(), old_next_sibling.ptr());
+        parent->queue_tree_mutation_record(StaticNodeList::create(realm(), {}), StaticNodeList::create(realm(), move(removed_nodes)), old_previous_sibling.ptr(), old_next_sibling.ptr());
     }
 
     // 21. Run the children changed steps for parent.
     parent->children_changed();
 
-    document().invalidate_style();
+    document().invalidate_layout();
 }
 
 // https://dom.spec.whatwg.org/#concept-node-replace
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::replace_child(JS::NonnullGCPtr<Node> node, JS::NonnullGCPtr<Node> child)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::replace_child(JS::NonnullGCPtr<Node> node, JS::NonnullGCPtr<Node> child)
 {
     // If parent is not a Document, DocumentFragment, or Element node, then throw a "HierarchyRequestError" DOMException.
     if (!is<Document>(this) && !is<DocumentFragment>(this) && !is<Element>(this))
-        return DOM::HierarchyRequestError::create(global_object(), "Can only insert into a document, document fragment or element");
+        return WebIDL::HierarchyRequestError::create(realm(), "Can only insert into a document, document fragment or element");
 
     // 2. If node is a host-including inclusive ancestor of parent, then throw a "HierarchyRequestError" DOMException.
     if (node->is_host_including_inclusive_ancestor_of(*this))
-        return DOM::HierarchyRequestError::create(global_object(), "New node is an ancestor of this node");
+        return WebIDL::HierarchyRequestError::create(realm(), "New node is an ancestor of this node");
 
     // 3. If child’s parent is not parent, then throw a "NotFoundError" DOMException.
     if (child->parent() != this)
-        return DOM::NotFoundError::create(global_object(), "This node is not the parent of the given child");
+        return WebIDL::NotFoundError::create(realm(), "This node is not the parent of the given child");
 
     // FIXME: All the following "Invalid node type for insertion" messages could be more descriptive.
 
     // 4. If node is not a DocumentFragment, DocumentType, Element, or CharacterData node, then throw a "HierarchyRequestError" DOMException.
     if (!is<DocumentFragment>(*node) && !is<DocumentType>(*node) && !is<Element>(*node) && !is<Text>(*node) && !is<Comment>(*node) && !is<ProcessingInstruction>(*node))
-        return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+        return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
 
     // 5. If either node is a Text node and parent is a document, or node is a doctype and parent is not a document, then throw a "HierarchyRequestError" DOMException.
     if ((is<Text>(*node) && is<Document>(this)) || (is<DocumentType>(*node) && !is<Document>(this)))
-        return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+        return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
 
     // If parent is a document, and any of the statements below, switched on the interface node implements, are true, then throw a "HierarchyRequestError" DOMException.
     if (is<Document>(this)) {
@@ -636,18 +648,18 @@ ExceptionOr<JS::NonnullGCPtr<Node>> Node::replace_child(JS::NonnullGCPtr<Node> n
             auto node_element_child_count = verify_cast<DocumentFragment>(*node).child_element_count();
             if ((node_element_child_count > 1 || node->has_child_of_type<Text>())
                 || (node_element_child_count == 1 && (first_child_of_type<Element>() != child || child->has_following_node_of_type_in_tree_order<DocumentType>()))) {
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
             }
         } else if (is<Element>(*node)) {
             // Element
             // parent has an element child that is not child or a doctype is following child.
             if (first_child_of_type<Element>() != child || child->has_following_node_of_type_in_tree_order<DocumentType>())
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
         } else if (is<DocumentType>(*node)) {
             // DocumentType
             // parent has a doctype child that is not child, or an element is preceding child.
             if (first_child_of_type<DocumentType>() != node || child->has_preceding_node_of_type_in_tree_order<Element>())
-                return DOM::HierarchyRequestError::create(global_object(), "Invalid node type for insertion");
+                return WebIDL::HierarchyRequestError::create(realm(), "Invalid node type for insertion");
         }
     }
 
@@ -685,7 +697,7 @@ ExceptionOr<JS::NonnullGCPtr<Node>> Node::replace_child(JS::NonnullGCPtr<Node> n
     insert_before(node, reference_child, true);
 
     // 14. Queue a tree mutation record for parent with nodes, removedNodes, previousSibling, and referenceChild.
-    queue_tree_mutation_record(StaticNodeList::create(window(), move(nodes)), StaticNodeList::create(window(), move(removed_nodes)), previous_sibling.ptr(), reference_child.ptr());
+    queue_tree_mutation_record(StaticNodeList::create(realm(), move(nodes)), StaticNodeList::create(realm(), move(removed_nodes)), previous_sibling.ptr(), reference_child.ptr());
 
     // 15. Return child.
     return child;
@@ -709,7 +721,7 @@ JS::NonnullGCPtr<Node> Node::clone_node(Document* document, bool clone_children)
         element.for_each_attribute([&](auto& name, auto& value) {
             // 1. Let copyAttribute be a clone of attribute.
             // 2. Append copyAttribute to copy.
-            element_copy->set_attribute(name, value);
+            MUST(element_copy->set_attribute(name, value));
         });
         copy = move(element_copy);
 
@@ -718,7 +730,7 @@ JS::NonnullGCPtr<Node> Node::clone_node(Document* document, bool clone_children)
     else if (is<Document>(this)) {
         // Document
         auto document_ = verify_cast<Document>(this);
-        auto document_copy = Document::create(Bindings::main_thread_internal_window_object(), document_->url());
+        auto document_copy = Document::create(this->realm(), document_->url());
 
         // Set copy’s encoding, content type, URL, origin, type, and mode to those of node.
         document_copy->set_encoding(document_->encoding());
@@ -738,7 +750,7 @@ JS::NonnullGCPtr<Node> Node::clone_node(Document* document, bool clone_children)
         document_type_copy->set_public_id(document_type->public_id());
         document_type_copy->set_system_id(document_type->system_id());
         copy = move(document_type_copy);
-    } else if (is<Attribute>(this)) {
+    } else if (is<Attr>(this)) {
         // FIXME:
         // Attr
         // Set copy’s namespace, namespace prefix, local name, and value to those of node.
@@ -778,7 +790,7 @@ JS::NonnullGCPtr<Node> Node::clone_node(Document* document, bool clone_children)
     // 6. If the clone children flag is set, clone all the children of node and append them to copy, with document as specified and the clone children flag being set.
     if (clone_children) {
         for_each_child([&](auto& child) {
-            copy->append_child(child.clone_node(document, true));
+            MUST(copy->append_child(child.clone_node(document, true)));
         });
     }
 
@@ -787,11 +799,11 @@ JS::NonnullGCPtr<Node> Node::clone_node(Document* document, bool clone_children)
 }
 
 // https://dom.spec.whatwg.org/#dom-node-clonenode
-ExceptionOr<JS::NonnullGCPtr<Node>> Node::clone_node_binding(bool deep)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Node::clone_node_binding(bool deep)
 {
     // 1. If this is a shadow root, then throw a "NotSupportedError" DOMException.
     if (is<ShadowRoot>(*this))
-        return NotSupportedError::create(global_object(), "Cannot clone shadow root");
+        return WebIDL::NotSupportedError::create(realm(), "Cannot clone shadow root");
 
     // 2. Return a clone of this, with the clone children flag set if deep is true.
     return clone_node(nullptr, deep);
@@ -818,9 +830,14 @@ bool Node::is_editable() const
     return parent() && parent()->is_editable();
 }
 
-void Node::set_layout_node(Badge<Layout::Node>, Layout::Node* layout_node) const
+void Node::set_layout_node(Badge<Layout::Node>, JS::NonnullGCPtr<Layout::Node> layout_node)
 {
     m_layout_node = layout_node;
+}
+
+void Node::detach_layout_node(Badge<DOM::Document>)
+{
+    m_layout_node = nullptr;
 }
 
 EventTarget* Node::get_parent(Event const&)
@@ -857,11 +874,12 @@ ParentNode* Node::parent_or_shadow_host()
 
 JS::NonnullGCPtr<NodeList> Node::child_nodes()
 {
-    // FIXME: This should return the same LiveNodeList object every time,
-    //        but that would cause a reference cycle since NodeList refs the root.
-    return LiveNodeList::create(window(), *this, [this](auto& node) {
-        return is_parent_of(node);
-    });
+    if (!m_child_nodes) {
+        m_child_nodes = LiveNodeList::create(realm(), *this, [this](auto& node) {
+            return is_parent_of(node);
+        });
+    }
+    return *m_child_nodes;
 }
 
 Vector<JS::Handle<Node>> Node::children_as_vector() const
@@ -903,19 +921,19 @@ u16 Node::compare_document_position(JS::GCPtr<Node> other)
     Node* node2 = this;
 
     // 3. Let attr1 and attr2 be null.
-    Attribute* attr1;
-    Attribute* attr2;
+    Attr* attr1;
+    Attr* attr2;
 
     // 4. If node1 is an attribute, then set attr1 to node1 and node1 to attr1’s element.
-    if (is<Attribute>(node1)) {
-        attr1 = verify_cast<Attribute>(node1);
+    if (is<Attr>(node1)) {
+        attr1 = verify_cast<Attr>(node1);
         node1 = const_cast<Element*>(attr1->owner_element());
     }
 
     // 5. If node2 is an attribute, then:
-    if (is<Attribute>(node2)) {
+    if (is<Attr>(node2)) {
         // 1. Set attr2 to node2 and node2 to attr2’s element.
-        attr2 = verify_cast<Attribute>(node2);
+        attr2 = verify_cast<Attr>(node2);
         node2 = const_cast<Element*>(attr2->owner_element());
 
         // 2. If attr1 and node1 are non-null, and node2 is node1, then:
@@ -1137,7 +1155,7 @@ void Node::replace_all(JS::GCPtr<Node> node)
 
     // 7. If either addedNodes or removedNodes is not empty, then queue a tree mutation record for parent with addedNodes, removedNodes, null, and null.
     if (!added_nodes.is_empty() || !removed_nodes.is_empty())
-        queue_tree_mutation_record(StaticNodeList::create(window(), move(added_nodes)), StaticNodeList::create(window(), move(removed_nodes)), nullptr, nullptr);
+        queue_tree_mutation_record(StaticNodeList::create(realm(), move(added_nodes)), StaticNodeList::create(realm(), move(removed_nodes)), nullptr, nullptr);
 }
 
 // https://dom.spec.whatwg.org/#string-replace-all
@@ -1376,7 +1394,7 @@ void Node::queue_mutation_record(FlyString const& type, String attribute_name, S
     for (auto& interested_observer : interested_observers) {
         // 1. Let record be a new MutationRecord object with its type set to type, target set to target, attributeName set to name, attributeNamespace set to namespace, oldValue set to mappedOldValue,
         //    addedNodes set to addedNodes, removedNodes set to removedNodes, previousSibling set to previousSibling, and nextSibling set to nextSibling.
-        auto record = MutationRecord::create(window(), type, *this, added_nodes, removed_nodes, previous_sibling, next_sibling, attribute_name, attribute_namespace, /* mappedOldValue */ interested_observer.value);
+        auto record = MutationRecord::create(realm(), type, *this, added_nodes, removed_nodes, previous_sibling, next_sibling, attribute_name, attribute_namespace, /* mappedOldValue */ interested_observer.value);
 
         // 2. Enqueue record to observer’s record queue.
         interested_observer.key->enqueue_record({}, move(record));
@@ -1489,11 +1507,6 @@ bool Node::is_following(Node const& other) const
     }
 
     return false;
-}
-
-HTML::Window& Node::window() const
-{
-    return document().window();
 }
 
 }

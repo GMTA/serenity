@@ -4,26 +4,28 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/CSSStyleDeclarationPrototype.h>
+#include <LibWeb/Bindings/ExceptionOrUtils.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/CSS/CSSStyleDeclaration.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::CSS {
 
-CSSStyleDeclaration::CSSStyleDeclaration(HTML::Window& window_object)
-    : PlatformObject(window_object.cached_web_prototype("CSSStyleDeclaration"))
+CSSStyleDeclaration::CSSStyleDeclaration(JS::Realm& realm)
+    : PlatformObject(Bindings::ensure_web_prototype<Bindings::CSSStyleDeclarationPrototype>(realm, "CSSStyleDeclaration"))
 {
 }
 
-PropertyOwningCSSStyleDeclaration* PropertyOwningCSSStyleDeclaration::create(HTML::Window& window_object, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
+PropertyOwningCSSStyleDeclaration* PropertyOwningCSSStyleDeclaration::create(JS::Realm& realm, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
 {
-    return window_object.heap().allocate<PropertyOwningCSSStyleDeclaration>(window_object.realm(), window_object, move(properties), move(custom_properties));
+    return realm.heap().allocate<PropertyOwningCSSStyleDeclaration>(realm, realm, move(properties), move(custom_properties));
 }
 
-PropertyOwningCSSStyleDeclaration::PropertyOwningCSSStyleDeclaration(HTML::Window& window_object, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
-    : CSSStyleDeclaration(window_object)
+PropertyOwningCSSStyleDeclaration::PropertyOwningCSSStyleDeclaration(JS::Realm& realm, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
+    : CSSStyleDeclaration(realm)
     , m_properties(move(properties))
     , m_custom_properties(move(custom_properties))
 {
@@ -38,12 +40,12 @@ String PropertyOwningCSSStyleDeclaration::item(size_t index) const
 
 ElementInlineCSSStyleDeclaration* ElementInlineCSSStyleDeclaration::create(DOM::Element& element, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
 {
-    auto& window_object = element.document().window();
-    return window_object.heap().allocate<ElementInlineCSSStyleDeclaration>(window_object.realm(), element, move(properties), move(custom_properties));
+    auto& realm = element.realm();
+    return realm.heap().allocate<ElementInlineCSSStyleDeclaration>(realm, element, move(properties), move(custom_properties));
 }
 
 ElementInlineCSSStyleDeclaration::ElementInlineCSSStyleDeclaration(DOM::Element& element, Vector<StyleProperty> properties, HashMap<String, StyleProperty> custom_properties)
-    : PropertyOwningCSSStyleDeclaration(element.document().window(), move(properties), move(custom_properties))
+    : PropertyOwningCSSStyleDeclaration(element.realm(), move(properties), move(custom_properties))
     , m_element(element.make_weak_ptr<DOM::Element>())
 {
 }
@@ -69,7 +71,7 @@ Optional<StyleProperty> PropertyOwningCSSStyleDeclaration::property(PropertyID p
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-setproperty
-DOM::ExceptionOr<void> PropertyOwningCSSStyleDeclaration::set_property(PropertyID property_id, StringView value, StringView priority)
+WebIDL::ExceptionOr<void> PropertyOwningCSSStyleDeclaration::set_property(PropertyID property_id, StringView value, StringView priority)
 {
     // 1. If the computed flag is set, then throw a NoModificationAllowedError exception.
     // NOTE: This is handled by the virtual override in ResolvedCSSStyleDeclaration.
@@ -117,7 +119,7 @@ DOM::ExceptionOr<void> PropertyOwningCSSStyleDeclaration::set_property(PropertyI
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-removeproperty
-DOM::ExceptionOr<String> PropertyOwningCSSStyleDeclaration::remove_property(PropertyID property_id)
+WebIDL::ExceptionOr<String> PropertyOwningCSSStyleDeclaration::remove_property(PropertyID property_id)
 {
     // 1. If the computed flag is set, then throw a NoModificationAllowedError exception.
     // NOTE: This is handled by the virtual override in ResolvedCSSStyleDeclaration.
@@ -162,7 +164,7 @@ void ElementInlineCSSStyleDeclaration::update_style_attribute()
     m_updating = true;
 
     // 5. Set an attribute value for owner node using "style" and the result of serializing declaration block.
-    m_element->set_attribute(HTML::AttributeNames::style, serialized());
+    MUST(m_element->set_attribute(HTML::AttributeNames::style, serialized()));
 
     // 6. Unset declaration block’s updating flag.
     m_updating = false;
@@ -214,7 +216,7 @@ String CSSStyleDeclaration::get_property_priority(StringView property_name) cons
     return maybe_property->important == Important::Yes ? "important" : "";
 }
 
-DOM::ExceptionOr<void> CSSStyleDeclaration::set_property(StringView property_name, StringView css_text, StringView priority)
+WebIDL::ExceptionOr<void> CSSStyleDeclaration::set_property(StringView property_name, StringView css_text, StringView priority)
 {
     auto property_id = property_id_from_string(property_name);
     if (property_id == CSS::PropertyID::Invalid)
@@ -222,7 +224,7 @@ DOM::ExceptionOr<void> CSSStyleDeclaration::set_property(StringView property_nam
     return set_property(property_id, css_text, priority);
 }
 
-DOM::ExceptionOr<String> CSSStyleDeclaration::remove_property(StringView property_name)
+WebIDL::ExceptionOr<String> CSSStyleDeclaration::remove_property(StringView property_name)
 {
     auto property_id = property_id_from_string(property_name);
     if (property_id == CSS::PropertyID::Invalid)
@@ -345,15 +347,16 @@ JS::ThrowCompletionOr<JS::Value> CSSStyleDeclaration::internal_get(JS::PropertyK
 
 JS::ThrowCompletionOr<bool> CSSStyleDeclaration::internal_set(JS::PropertyKey const& name, JS::Value value, JS::Value receiver)
 {
+    auto& vm = this->vm();
     if (!name.is_string())
         return Base::internal_set(name, value, receiver);
     auto property_id = property_id_from_name(name.to_string());
     if (property_id == CSS::PropertyID::Invalid)
         return Base::internal_set(name, value, receiver);
 
-    auto css_text = TRY(value.to_string(vm()));
+    auto css_text = TRY(value.to_string(vm));
 
-    impl().set_property(property_id, css_text);
+    TRY(Bindings::throw_dom_exception_if_needed(vm, [&] { return set_property(property_id, css_text); }));
     return true;
 }
 

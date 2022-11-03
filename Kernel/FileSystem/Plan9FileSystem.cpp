@@ -20,6 +20,12 @@ Plan9FS::Plan9FS(OpenFileDescription& file_description)
 {
 }
 
+ErrorOr<void> Plan9FS::prepare_to_clear_last_mount()
+{
+    // FIXME: Do proper cleaning here.
+    return {};
+}
+
 Plan9FS::~Plan9FS()
 {
     // Make sure to destroy the root inode before the FS gets destroyed.
@@ -196,8 +202,17 @@ private:
     bool m_have_been_built { false };
 };
 
-ErrorOr<void> Plan9FS::initialize()
+bool Plan9FS::is_initialized_while_locked()
 {
+    VERIFY(m_lock.is_locked());
+    return !m_root_inode.is_null();
+}
+
+ErrorOr<void> Plan9FS::initialize_while_locked()
+{
+    VERIFY(m_lock.is_locked());
+    VERIFY(!is_initialized_while_locked());
+
     ensure_thread();
 
     Message version_message { *this, Message::Type::Tversion };
@@ -718,7 +733,7 @@ ErrorOr<void> Plan9FSInode::ensure_open_for_mode(int mode)
     return fs().post_message_and_wait_for_a_reply(message);
 }
 
-ErrorOr<size_t> Plan9FSInode::read_bytes(off_t offset, size_t size, UserOrKernelBuffer& buffer, OpenFileDescription*) const
+ErrorOr<size_t> Plan9FSInode::read_bytes_locked(off_t offset, size_t size, UserOrKernelBuffer& buffer, OpenFileDescription*) const
 {
     TRY(const_cast<Plan9FSInode&>(*this).ensure_open_for_mode(O_RDONLY));
 
@@ -750,7 +765,7 @@ ErrorOr<size_t> Plan9FSInode::read_bytes(off_t offset, size_t size, UserOrKernel
     return nread;
 }
 
-ErrorOr<size_t> Plan9FSInode::write_bytes(off_t offset, size_t size, UserOrKernelBuffer const& data, OpenFileDescription*)
+ErrorOr<size_t> Plan9FSInode::write_bytes_locked(off_t offset, size_t size, UserOrKernelBuffer const& data, OpenFileDescription*)
 {
     TRY(ensure_open_for_mode(O_WRONLY));
     size = fs().adjust_buffer_size(size);

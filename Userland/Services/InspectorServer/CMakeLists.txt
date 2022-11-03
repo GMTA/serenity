@@ -11,9 +11,12 @@ set(SOURCES
     ConnectionFromClient.cpp
     main.cpp
     InspectableProcess.cpp
+)
+
+set(GENERATED_SOURCES
     InspectorServerEndpoint.h
     InspectorClientEndpoint.h
 )
 
 serenity_bin(InspectorServer)
-target_link_libraries(InspectorServer LibIPC LibMain)
+target_link_libraries(InspectorServer PRIVATE LibCore LibIPC LibMain)

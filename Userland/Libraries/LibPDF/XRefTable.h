@@ -10,6 +10,7 @@
 #include <AK/RefCounted.h>
 #include <AK/String.h>
 #include <AK/Vector.h>
+#include <LibPDF/Error.h>
 
 namespace PDF {
 
@@ -19,6 +20,7 @@ struct XRefEntry {
     long byte_offset { invalid_byte_offset };
     u16 generation_number { 0 };
     bool in_use { false };
+    bool compressed { false };
 };
 
 struct XRefSection {
@@ -77,16 +79,32 @@ public:
         return m_entries[index].byte_offset;
     }
 
+    [[nodiscard]] ALWAYS_INLINE long object_stream_for_object(size_t index) const
+    {
+        return byte_offset_for_object(index);
+    }
+
     [[nodiscard]] ALWAYS_INLINE u16 generation_number_for_object(size_t index) const
     {
         VERIFY(has_object(index));
         return m_entries[index].generation_number;
     }
 
+    [[nodiscard]] ALWAYS_INLINE u16 object_stream_index_for_object(size_t index) const
+    {
+        return generation_number_for_object(index);
+    }
+
     [[nodiscard]] ALWAYS_INLINE bool is_object_in_use(size_t index) const
     {
         VERIFY(has_object(index));
         return m_entries[index].in_use;
+    }
+
+    [[nodiscard]] ALWAYS_INLINE bool is_object_compressed(size_t index) const
+    {
+        VERIFY(has_object(index));
+        return m_entries[index].compressed;
     }
 
 private:

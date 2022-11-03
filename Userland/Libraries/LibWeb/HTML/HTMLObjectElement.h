@@ -35,7 +35,7 @@ public:
     virtual void parse_attribute(FlyString const& name, String const& value) override;
 
     String data() const;
-    void set_data(String const& data) { set_attribute(HTML::AttributeNames::data, data); }
+    void set_data(String const& data) { MUST(set_attribute(HTML::AttributeNames::data, data)); }
 
     String type() const { return attribute(HTML::AttributeNames::type); }
 
@@ -46,7 +46,7 @@ public:
 private:
     HTMLObjectElement(DOM::Document&, DOM::QualifiedName);
 
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
     bool has_ancestor_media_element_or_object_element_not_showing_fallback_content() const;
 
@@ -67,5 +67,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(HTMLObjectElement, Web::HTML)

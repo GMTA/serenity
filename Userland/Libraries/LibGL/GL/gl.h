@@ -146,6 +146,8 @@ extern "C" {
 #define GL_MAP2_VERTEX_4 0x0DB8
 #define GL_NORMAL_ARRAY 0x8075
 #define GL_NORMAL_ARRAY_TYPE 0x807E
+#define GL_SAMPLE_BUFFERS 0x80A8
+#define GL_SAMPLES 0x80A9
 #define GL_MAX_TEXTURE_LOD_BIAS 0x84FD
 
 // Blend factors
@@ -688,10 +690,13 @@ GLAPI void glTexCoord3f(GLfloat s, GLfloat t, GLfloat r);
 GLAPI void glTexCoord3fv(GLfloat const* v);
 GLAPI void glTexCoord4f(GLfloat s, GLfloat t, GLfloat r, GLfloat q);
 GLAPI void glTexCoord4fv(GLfloat const* v);
+GLAPI void glMultiTexCoord1f(GLenum target, GLfloat s);
 GLAPI void glMultiTexCoord2fARB(GLenum target, GLfloat s, GLfloat t);
 GLAPI void glMultiTexCoord2fvARB(GLenum target, GLfloat const* v);
 GLAPI void glMultiTexCoord2fv(GLenum target, GLfloat const* v);
 GLAPI void glMultiTexCoord2f(GLenum target, GLfloat s, GLfloat t);
+GLAPI void glMultiTexCoord3f(GLenum target, GLfloat s, GLfloat t, GLfloat r);
+GLAPI void glMultiTexCoord4f(GLenum target, GLfloat s, GLfloat t, GLfloat r, GLfloat q);
 GLAPI void glTexParameteri(GLenum target, GLenum pname, GLint param);
 GLAPI void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
 GLAPI void glTexEnvf(GLenum target, GLenum pname, GLfloat param);
@@ -713,7 +718,6 @@ GLAPI void glEnableClientState(GLenum cap);
 GLAPI void glDisableClientState(GLenum cap);
 GLAPI void glClientActiveTextureARB(GLenum target);
 GLAPI void glClientActiveTexture(GLenum target);
-
 GLAPI void glVertexPointer(GLint size, GLenum type, GLsizei stride, void const* pointer);
 GLAPI void glColorPointer(GLint size, GLenum type, GLsizei stride, void const* pointer);
 GLAPI void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, void const* pointer);
@@ -747,7 +751,10 @@ GLAPI void glNormal3d(GLdouble nx, GLdouble ny, GLdouble nz);
 GLAPI void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz);
 GLAPI void glNormal3fv(GLfloat const* v);
 GLAPI void glNormalPointer(GLenum type, GLsizei stride, void const* pointer);
+GLAPI void glRasterPos2d(GLdouble x, GLdouble y);
+GLAPI void glRasterPos2f(GLfloat x, GLfloat y);
 GLAPI void glRasterPos2i(GLint x, GLint y);
+GLAPI void glRasterPos2s(GLshort x, GLshort y);
 GLAPI void glMaterialf(GLenum face, GLenum pname, GLfloat param);
 GLAPI void glMaterialfv(GLenum face, GLenum pname, GLfloat const* params);
 GLAPI void glMateriali(GLenum face, GLenum pname, GLint param);
@@ -786,6 +793,11 @@ GLAPI void glClipPlane(GLenum plane, GLdouble const* equation);
 GLAPI void glGetClipPlane(GLenum plane, GLdouble* equation);
 GLAPI void glArrayElement(GLint i);
 GLAPI void glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
+GLAPI void glBindBuffer(GLenum target, GLuint buffer);
+GLAPI void glBufferData(GLenum target, GLsizeiptr size, void const* data, GLenum usage);
+GLAPI void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void const* data);
+GLAPI void glDeleteBuffers(GLsizei n, GLuint const* buffers);
+GLAPI void glGenBuffers(GLsizei n, GLuint* buffers);
 
 #ifdef __cplusplus
 }

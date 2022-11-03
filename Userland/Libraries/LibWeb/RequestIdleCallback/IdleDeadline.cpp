@@ -7,20 +7,21 @@
 
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/HighResolutionTime/TimeOrigin.h>
 #include <LibWeb/RequestIdleCallback/IdleDeadline.h>
 
 namespace Web::RequestIdleCallback {
 
-JS::NonnullGCPtr<IdleDeadline> IdleDeadline::create(HTML::Window& window, bool did_timeout)
+JS::NonnullGCPtr<IdleDeadline> IdleDeadline::create(JS::Realm& realm, bool did_timeout)
 {
-    return *window.heap().allocate<IdleDeadline>(window.realm(), window, did_timeout);
+    return *realm.heap().allocate<IdleDeadline>(realm, realm, did_timeout);
 }
 
-IdleDeadline::IdleDeadline(HTML::Window& window, bool did_timeout)
-    : PlatformObject(window.realm())
+IdleDeadline::IdleDeadline(JS::Realm& realm, bool did_timeout)
+    : PlatformObject(realm)
     , m_did_timeout(did_timeout)
 {
-    set_prototype(&window.cached_web_prototype("IdleDeadline"));
+    set_prototype(&Bindings::cached_web_prototype(realm, "IdleDeadline"));
 }
 
 IdleDeadline::~IdleDeadline() = default;
@@ -30,7 +31,7 @@ double IdleDeadline::time_remaining() const
 {
     auto const& event_loop = HTML::main_thread_event_loop();
     // 1. Let now be a DOMHighResTimeStamp representing current high resolution time in milliseconds.
-    auto now = event_loop.unsafe_shared_current_time();
+    auto now = HighResolutionTime::unsafe_shared_current_time();
     // 2. Let deadline be the result of calling IdleDeadline's get deadline time algorithm.
     auto deadline = event_loop.compute_deadline();
     // 3. Let timeRemaining be deadline - now.

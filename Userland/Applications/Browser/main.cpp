@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2022, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2022, the SerenityOS developers.
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -10,6 +11,7 @@
 #include <Applications/Browser/BrowserWindow.h>
 #include <Applications/Browser/CookieJar.h>
 #include <Applications/Browser/Tab.h>
+#include <Applications/Browser/WebDriverConnection.h>
 #include <Applications/Browser/WindowActions.h>
 #include <LibConfig/Client.h>
 #include <LibCore/ArgsParser.h>
@@ -24,6 +26,7 @@
 #include <LibGUI/TabWidget.h>
 #include <LibMain/Main.h>
 #include <LibWeb/Loader/ResourceLoader.h>
+#include <LibWebView/OutOfProcessWebView.h>
 #include <LibWebView/RequestServerAdapter.h>
 #include <unistd.h>
 
@@ -37,6 +40,7 @@ bool g_content_filters_enabled { true };
 Vector<String> g_proxies;
 HashMap<String, size_t> g_proxy_mappings;
 IconBag g_icon_bag;
+RefPtr<Browser::WebDriverConnection> g_web_driver_connection;
 
 }
 
@@ -61,12 +65,15 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         return 1;
     }
 
-    TRY(Core::System::pledge("stdio recvfd sendfd unix cpath rpath wpath proc exec"));
+    TRY(Core::System::pledge("stdio recvfd sendfd unix fattr cpath rpath wpath proc exec"));
 
     Vector<String> specified_urls;
+    String webdriver_ipc_path;
 
     Core::ArgsParser args_parser;
     args_parser.add_positional_argument(specified_urls, "URLs to open", "url", Core::ArgsParser::Required::No);
+    args_parser.add_option(webdriver_ipc_path, "Path to WebDriver IPC", "webdriver", 0, "path");
+
     args_parser.parse(arguments);
 
     auto app = TRY(GUI::Application::try_create(arguments));
@@ -77,18 +84,26 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     // Connect to LaunchServer immediately and let it know that we won't ask for anything other than opening
     // the user's downloads directory.
     // FIXME: This should go away with a standalone download manager at some point.
-    TRY(Desktop::Launcher::add_allowed_url(URL::create_with_file_protocol(Core::StandardPaths::downloads_directory())));
+    TRY(Desktop::Launcher::add_allowed_url(URL::create_with_file_scheme(Core::StandardPaths::downloads_directory())));
     TRY(Desktop::Launcher::seal_allowlist());
 
+    if (!webdriver_ipc_path.is_empty()) {
+        specified_urls.empend("about:blank");
+        TRY(Core::System::unveil(webdriver_ipc_path.view(), "rw"sv));
+    }
+
+    TRY(Core::System::unveil("/sys/kernel/processes", "r"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/filesystemaccess", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/filesystemaccess", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/image", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/webcontent", "rw"));
+    TRY(Core::System::unveil("/tmp/session/%sid/portal/request", "rw"));
     TRY(Core::System::unveil("/home", "rwc"));
     TRY(Core::System::unveil("/res", "r"));
     TRY(Core::System::unveil("/etc/passwd", "r"));
     TRY(Core::System::unveil("/etc/timezone", "r"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/filesystemaccess", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/image", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/webcontent", "rw"));
-    TRY(Core::System::unveil("/tmp/user/%uid/portal/request", "rw"));
     TRY(Core::System::unveil("/bin/BrowserSettings", "x"));
+    TRY(Core::System::unveil("/bin/Browser", "x"));
     TRY(Core::System::unveil(nullptr, nullptr));
 
     Web::ResourceLoader::initialize(TRY(WebView::RequestServerAdapter::try_create()));
@@ -120,7 +135,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     auto url_from_argument_string = [](String const& string) -> URL {
         if (Core::File::exists(string)) {
-            return URL::create_with_file_protocol(Core::File::real_path_for(string));
+            return URL::create_with_file_scheme(Core::File::real_path_for(string));
         }
         return Browser::url_from_user_input(string);
     };
@@ -131,6 +146,14 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     Browser::CookieJar cookie_jar;
     auto window = Browser::BrowserWindow::construct(cookie_jar, first_url);
+
+    if (!webdriver_ipc_path.is_empty()) {
+        Browser::g_web_driver_connection = TRY(Browser::WebDriverConnection::connect_to_webdriver(window, webdriver_ipc_path));
+
+        // The first tab is created with the BrowserWindow above, so we have to do this
+        // manually once after establishing the connection.
+        window->active_tab().view().set_is_webdriver_active(true);
+    }
 
     auto content_filters_watcher = TRY(Core::FileWatcher::create());
     content_filters_watcher->on_change = [&](Core::FileWatcherEvent const&) {
@@ -166,6 +189,9 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         window->create_new_tab(url_from_argument_string(specified_urls[i]), false);
 
     window->show();
+
+    window->broadcast_window_position(window->position());
+    window->broadcast_window_size(window->size());
 
     return app->exec();
 }

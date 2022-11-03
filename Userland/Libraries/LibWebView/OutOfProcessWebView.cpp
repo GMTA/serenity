@@ -515,6 +515,46 @@ OrderedHashMap<String, String> OutOfProcessWebView::get_session_storage_entries(
     return client().get_session_storage_entries();
 }
 
+Optional<i32> OutOfProcessWebView::get_document_element()
+{
+    return client().get_document_element();
+}
+
+Optional<Vector<i32>> OutOfProcessWebView::query_selector_all(i32 start_node_id, String const& selector)
+{
+    return client().query_selector_all(start_node_id, selector);
+}
+
+Optional<String> OutOfProcessWebView::get_element_attribute(i32 element_id, String const& name)
+{
+    return client().get_element_attribute(element_id, name);
+}
+
+Optional<String> OutOfProcessWebView::get_element_property(i32 element_id, String const& name)
+{
+    return client().get_element_property(element_id, name);
+}
+
+String OutOfProcessWebView::get_active_documents_type()
+{
+    return client().get_active_documents_type();
+}
+
+String OutOfProcessWebView::get_computed_value_for_element(i32 element_id, String const& property_name)
+{
+    return client().get_computed_value_for_element(element_id, property_name);
+}
+
+String OutOfProcessWebView::get_element_text(i32 element_id)
+{
+    return client().get_element_text(element_id);
+}
+
+String OutOfProcessWebView::get_element_tag_name(i32 element_id)
+{
+    return client().get_element_tag_name(element_id);
+}
+
 void OutOfProcessWebView::set_content_filters(Vector<String> filters)
 {
     client().async_set_content_filters(filters);
@@ -530,6 +570,33 @@ void OutOfProcessWebView::set_preferred_color_scheme(Web::CSS::PreferredColorSch
     client().async_set_preferred_color_scheme(color_scheme);
 }
 
+void OutOfProcessWebView::set_is_webdriver_active(bool is_webdriver_enabled)
+{
+    client().async_set_is_webdriver_active(is_webdriver_enabled);
+}
+
+void OutOfProcessWebView::set_window_position(Gfx::IntPoint const& position)
+{
+    client().async_set_window_position(position);
+}
+
+void OutOfProcessWebView::set_window_size(Gfx::IntSize const& size)
+{
+    client().async_set_window_size(size);
+}
+
+Gfx::ShareableBitmap OutOfProcessWebView::take_screenshot() const
+{
+    if (auto* bitmap = m_client_state.has_usable_bitmap ? m_client_state.front_bitmap.bitmap.ptr() : m_backup_bitmap.ptr())
+        return bitmap->to_shareable_bitmap();
+    return {};
+}
+
+Messages::WebContentServer::WebdriverExecuteScriptResponse OutOfProcessWebView::webdriver_execute_script(String const& body, Vector<String> const& json_arguments, Optional<u64> const& timeout, bool async)
+{
+    return client().webdriver_execute_script(body, json_arguments, timeout, async);
+}
+
 void OutOfProcessWebView::focusin_event(GUI::FocusEvent&)
 {
     client().async_set_has_focus(true);
@@ -538,6 +605,16 @@ void OutOfProcessWebView::focusin_event(GUI::FocusEvent&)
 void OutOfProcessWebView::focusout_event(GUI::FocusEvent&)
 {
     client().async_set_has_focus(false);
+}
+
+void OutOfProcessWebView::show_event(GUI::ShowEvent&)
+{
+    client().async_set_system_visibility_state(true);
+}
+
+void OutOfProcessWebView::hide_event(GUI::HideEvent&)
+{
+    client().async_set_system_visibility_state(false);
 }
 
 }

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -15,7 +16,9 @@ class DOMPoint final : public DOMPointReadOnly {
     WEB_PLATFORM_OBJECT(DOMPoint, DOMPointReadOnly);
 
 public:
-    static JS::NonnullGCPtr<DOMPoint> create_with_global_object(HTML::Window&, double x = 0, double y = 0, double z = 0, double w = 0);
+    static JS::NonnullGCPtr<DOMPoint> construct_impl(JS::Realm&, double x = 0, double y = 0, double z = 0, double w = 1);
+
+    static JS::NonnullGCPtr<DOMPoint> from_point(JS::VM&, DOMPointInit const&);
 
     virtual ~DOMPoint() override;
 
@@ -30,9 +33,7 @@ public:
     void set_w(double w) { m_w = w; }
 
 private:
-    DOMPoint(HTML::Window&, double x, double y, double z, double w);
+    DOMPoint(JS::Realm&, double x, double y, double z, double w);
 };
 
 }
-
-WRAPPER_HACK(DOMPoint, Web::Geometry)

@@ -9,9 +9,12 @@ compile_ipc(ImageDecoderClient.ipc ImageDecoderClientEndpoint.h)
 set(SOURCES
     ConnectionFromClient.cpp
     main.cpp
+)
+
+set(GENERATED_SOURCES
     ImageDecoderServerEndpoint.h
     ImageDecoderClientEndpoint.h
 )
 
 serenity_bin(ImageDecoder)
-target_link_libraries(ImageDecoder LibGfx LibIPC LibMain)
+target_link_libraries(ImageDecoder PRIVATE LibCore LibGfx LibIPC LibMain)

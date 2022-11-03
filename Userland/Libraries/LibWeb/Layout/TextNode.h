@@ -15,6 +15,8 @@ namespace Web::Layout {
 class LineBoxFragment;
 
 class TextNode : public Node {
+    JS_CELL(TextNode, Node);
+
 public:
     TextNode(DOM::Document&, DOM::Text&);
     virtual ~TextNode() override;
@@ -33,15 +35,15 @@ public:
 
     class ChunkIterator {
     public:
-        ChunkIterator(StringView text, LayoutMode, bool wrap_lines, bool respect_linebreaks);
+        ChunkIterator(StringView text, bool wrap_lines, bool respect_linebreaks, bool is_generated_empty_string);
         Optional<Chunk> next();
 
     private:
         Optional<Chunk> try_commit_chunk(Utf8View::Iterator const& start, Utf8View::Iterator const& end, bool has_breaking_newline) const;
 
-        const LayoutMode m_layout_mode;
         bool const m_wrap_lines;
         bool const m_respect_linebreaks;
+        bool m_should_emit_one_empty_chunk { false };
         Utf8View m_utf8_view;
         Utf8View::Iterator m_iterator;
     };

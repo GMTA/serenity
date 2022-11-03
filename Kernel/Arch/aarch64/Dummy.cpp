@@ -7,113 +7,63 @@
 #include <AK/Singleton.h>
 #include <AK/Types.h>
 
-#include <Kernel/FileSystem/Inode.h>
-#include <Kernel/KString.h>
-#include <Kernel/Locking/SpinlockProtected.h>
-#include <Kernel/Memory/SharedInodeVMObject.h>
-#include <Kernel/Panic.h>
-#include <Kernel/PhysicalAddress.h>
+#include <Kernel/Arch/Delay.h>
 #include <Kernel/Process.h>
-#include <Kernel/Random.h>
 #include <Kernel/Sections.h>
-#include <Kernel/UserOrKernelBuffer.h>
-
-// Scheduler
-namespace Kernel {
-
-READONLY_AFTER_INIT Thread* g_finalizer;
-RecursiveSpinlock g_scheduler_lock { LockRank::None };
-
-}
-
-// Random
-namespace Kernel {
-
-void get_fast_random_bytes(Bytes)
-{
-    VERIFY_NOT_REACHED();
-}
-
-}
-
-// Mutex
-namespace Kernel {
-
-void Mutex::lock(Mode, [[maybe_unused]] LockLocation const& location)
-{
-    VERIFY_NOT_REACHED();
-}
-
-void Mutex::unlock()
-{
-    VERIFY_NOT_REACHED();
-}
-
-}
+#include <Kernel/kstdio.h>
 
 // Process
+char const* asm_signal_trampoline = nullptr;
+char const* asm_signal_trampoline_end = nullptr;
+
 namespace Kernel {
 
-SpinlockProtected<Process::List>& Process::all_instances()
+ProcessID g_init_pid { 0 };
+
+bool Process::has_tracee_thread(ProcessID)
 {
-    VERIFY_NOT_REACHED();
+    TODO_AARCH64();
+}
+
+ErrorOr<void> Process::exec(NonnullOwnPtr<KString>, NonnullOwnPtrVector<KString>, NonnullOwnPtrVector<KString>, Thread*&, u32&, int)
+{
+    TODO_AARCH64();
 }
 
 }
 
-// LockRank
+// Delay.cpp
 namespace Kernel {
 
-void track_lock_acquire(LockRank) { }
-void track_lock_release(LockRank) { }
-
-}
-
-// Inode
-namespace Kernel {
-
-static Singleton<SpinlockProtected<Inode::AllInstancesList>> s_all_instances;
-
-SpinlockProtected<Inode::AllInstancesList>& Inode::all_instances()
+void microseconds_delay(u32)
 {
-    VERIFY_NOT_REACHED();
-    return s_all_instances;
+    TODO_AARCH64();
 }
 
-LockRefPtr<Memory::SharedInodeVMObject> Inode::shared_vmobject() const
+}
+
+// Initializer.cpp
+namespace Kernel::PCI {
+
+bool g_pci_access_io_probe_failed { false };
+bool g_pci_access_is_disabled_from_commandline { false };
+
+}
+
+// kprintf.cpp
+void dbgputstr(StringView)
 {
-    VERIFY_NOT_REACHED();
-    return LockRefPtr<Memory::SharedInodeVMObject>(nullptr);
+    TODO_AARCH64();
 }
 
-void Inode::will_be_destroyed()
+void dbgputstr(char const*, size_t)
 {
-    VERIFY_NOT_REACHED();
+    TODO_AARCH64();
 }
 
-ErrorOr<void> Inode::set_shared_vmobject(Memory::SharedInodeVMObject&)
+void dbgputchar(char)
 {
-    VERIFY_NOT_REACHED();
-    return {};
-}
-
-}
-
-// UserOrKernelBuffer.cpp
-namespace Kernel {
-
-ErrorOr<void> UserOrKernelBuffer::write(void const*, size_t, size_t)
-{
-    VERIFY_NOT_REACHED();
-    return {};
-}
-
-ErrorOr<void> UserOrKernelBuffer::read(void*, size_t, size_t) const
-{
-    VERIFY_NOT_REACHED();
-    return {};
-}
-
+    TODO_AARCH64();
 }
 
 // x86 init

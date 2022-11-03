@@ -32,7 +32,7 @@ get_filename_component(
     SERENITY_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../../.."
     ABSOLUTE CACHE
 )
-set(SERENITY_ARCH "i686" CACHE STRING "Target architecture for SerenityOS.")
+set(SERENITY_ARCH "x86_64" CACHE STRING "Target architecture for SerenityOS.")
 set(SERENITY_TOOLCHAIN "GNU" CACHE STRING "Compiler toolchain to use for Serenity (GNU or Clang)")
 
 # FIXME: It is preferred to keep all the sub-build artifacts below the binary directory for the superbuild
@@ -43,6 +43,11 @@ if(NOT SERENITY_TOOLCHAIN STREQUAL "GNU")
   string(TOLOWER "${SERENITY_TOOLCHAIN}" SERENITY_BUILD_DIR_SUFFIX)
 endif()
 set(SERENITY_BUILD_DIR "${PROJECT_BINARY_DIR}/../${SERENITY_ARCH}${SERENITY_BUILD_DIR_SUFFIX}")
+
+# Pkgconf incorrectly discards a sysroot if it doesn't match the start of the path to the
+# library file. To avoid that, resolve our sysroot into an absolute and canonical path
+# that matches pkgconf's result for resolving the library file.
+get_filename_component(SERENITY_BUILD_DIR "${SERENITY_BUILD_DIR}" ABSOLUTE)
 
 # TODO: Figure out if and how we can skip this when building on Serenity.
 configure_file("${SERENITY_SOURCE_DIR}/Toolchain/CMake/${SERENITY_TOOLCHAIN}Toolchain.txt.in" "${SERENITY_BUILD_DIR}/CMakeToolchain.txt" @ONLY)

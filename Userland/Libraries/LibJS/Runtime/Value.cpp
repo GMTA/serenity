@@ -9,6 +9,7 @@
 #include <AK/AllOf.h>
 #include <AK/Assertions.h>
 #include <AK/CharacterTypes.h>
+#include <AK/FloatingPointStringConversions.h>
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
 #include <AK/Utf8View.h>
@@ -524,7 +525,7 @@ static Optional<NumberParseResult> parse_number_text(StringView text)
 }
 
 // 7.1.4.1.1 StringToNumber ( str ), https://tc39.es/ecma262/#sec-stringtonumber
-static Optional<Value> string_to_number(StringView string)
+Optional<Value> string_to_number(StringView string)
 {
     // 1. Let text be StringToCodePoints(str).
     String text = Utf8View(string).trim(whitespace_characters, AK::TrimMode::Both).as_string();
@@ -549,12 +550,11 @@ static Optional<Value> string_to_number(StringView string)
         return Value(bigint.to_double());
     }
 
-    char* endptr;
-    auto parsed_double = strtod(text.characters(), &endptr);
-    if (*endptr)
+    auto maybe_double = text.to_double(AK::TrimWhitespace::No);
+    if (!maybe_double.has_value())
         return js_nan();
 
-    return Value(parsed_double);
+    return Value(*maybe_double);
 }
 
 // 7.1.4 ToNumber ( argument ), https://tc39.es/ecma262/#sec-tonumber
@@ -1536,7 +1536,7 @@ ThrowCompletionOr<bool> is_loosely_equal(VM& vm, Value lhs, Value rhs)
         auto& number_side = lhs.is_number() ? lhs : rhs;
         auto& bigint_side = lhs.is_number() ? rhs : lhs;
 
-        return bigint_side.as_bigint().big_integer().compare_to_double(number_side.as_double()) == Crypto::SignedBigInteger::CompareResult::DoubleEqualsBigInt;
+        return bigint_side.as_bigint().big_integer().compare_to_double(number_side.as_double()) == Crypto::UnsignedBigInteger::CompareResult::DoubleEqualsBigInt;
     }
 
     // 14. Return false.
@@ -1635,10 +1635,10 @@ ThrowCompletionOr<TriState> is_less_than(VM& vm, Value lhs, Value rhs, bool left
     VERIFY(!x_numeric.is_nan() && !y_numeric.is_nan());
     if (x_numeric.is_number()) {
         x_lower_than_y = y_numeric.as_bigint().big_integer().compare_to_double(x_numeric.as_double())
-            == Crypto::SignedBigInteger::CompareResult::DoubleLessThanBigInt;
+            == Crypto::UnsignedBigInteger::CompareResult::DoubleLessThanBigInt;
     } else {
         x_lower_than_y = x_numeric.as_bigint().big_integer().compare_to_double(y_numeric.as_double())
-            == Crypto::SignedBigInteger::CompareResult::DoubleGreaterThanBigInt;
+            == Crypto::UnsignedBigInteger::CompareResult::DoubleGreaterThanBigInt;
     }
     if (x_lower_than_y)
         return TriState::True;

@@ -14,6 +14,8 @@
 #include <AK/URL.h>
 #include <AK/Variant.h>
 #include <AK/Vector.h>
+#include <LibJS/Forward.h>
+#include <LibJS/Heap/Cell.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Bodies.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Headers.h>
 #include <LibWeb/HTML/Origin.h>
@@ -23,7 +25,9 @@
 namespace Web::Fetch::Infrastructure {
 
 // https://fetch.spec.whatwg.org/#concept-request
-class Request final {
+class Request final : public JS::Cell {
+    JS_CELL(Request, JS::Cell);
+
 public:
     enum class CacheMode {
         Default,
@@ -59,6 +63,7 @@ public:
         Style,
         Track,
         Video,
+        WebIdentity,
         Worker,
         XSLT,
     };
@@ -154,17 +159,16 @@ public:
     using ReservedClientType = Variant<Empty, HTML::Environment*, HTML::EnvironmentSettingsObject*>;
     using WindowType = Variant<Window, HTML::EnvironmentSettingsObject*>;
 
-    Request() = default;
+    [[nodiscard]] static JS::NonnullGCPtr<Request> create(JS::VM&);
 
-    [[nodiscard]] ReadonlyBytes method() { return m_method; }
+    [[nodiscard]] ReadonlyBytes method() const { return m_method; }
     void set_method(ByteBuffer method) { m_method = move(method); }
 
     [[nodiscard]] bool local_urls_only() const { return m_local_urls_only; }
     void set_local_urls_only(bool local_urls_only) { m_local_urls_only = local_urls_only; }
 
-    [[nodiscard]] HeaderList const& header_list() const { return m_header_list; }
-    [[nodiscard]] HeaderList& header_list() { return m_header_list; }
-    void set_header_list(HeaderList header_list) { m_header_list = move(header_list); }
+    [[nodiscard]] JS::NonnullGCPtr<HeaderList> header_list() const { return m_header_list; }
+    void set_header_list(JS::NonnullGCPtr<HeaderList> header_list) { m_header_list = header_list; }
 
     [[nodiscard]] bool unsafe_request() const { return m_unsafe_request; }
     void set_unsafe_request(bool unsafe_request) { m_unsafe_request = unsafe_request; }
@@ -175,7 +179,7 @@ public:
 
     [[nodiscard]] HTML::EnvironmentSettingsObject const* client() const { return m_client; }
     [[nodiscard]] HTML::EnvironmentSettingsObject* client() { return m_client; }
-    void set_client(HTML::EnvironmentSettingsObject& client) { m_client = &client; }
+    void set_client(HTML::EnvironmentSettingsObject* client) { m_client = client; }
 
     [[nodiscard]] ReservedClientType const& reserved_client() const { return m_reserved_client; }
     [[nodiscard]] ReservedClientType& reserved_client() { return m_reserved_client; }
@@ -193,7 +197,7 @@ public:
     [[nodiscard]] Optional<InitiatorType> const& initiator_type() const { return m_initiator_type; }
     void set_initiator_type(Optional<InitiatorType> initiator_type) { m_initiator_type = move(initiator_type); }
 
-    [[nodiscard]] ServiceWorkersMode service_workers_mode() { return m_service_workers_mode; }
+    [[nodiscard]] ServiceWorkersMode service_workers_mode() const { return m_service_workers_mode; }
     void set_service_workers_mode(ServiceWorkersMode service_workers_mode) { m_service_workers_mode = service_workers_mode; }
 
     [[nodiscard]] Optional<Initiator> const& initiator() const { return m_initiator; }
@@ -207,6 +211,9 @@ public:
 
     [[nodiscard]] OriginType const& origin() const { return m_origin; }
     void set_origin(OriginType origin) { m_origin = move(origin); }
+
+    [[nodiscard]] PolicyContainerType const& policy_container() const { return m_policy_container; }
+    void set_policy_container(PolicyContainerType policy_container) { m_policy_container = move(policy_container); }
 
     [[nodiscard]] Mode mode() const { return m_mode; }
     void set_mode(Mode mode) { m_mode = mode; }
@@ -254,6 +261,12 @@ public:
     [[nodiscard]] u8 redirect_count() const { return m_redirect_count; }
     void set_redirect_count(u8 redirect_count) { m_redirect_count = redirect_count; }
 
+    [[nodiscard]] ReferrerType const& referrer() const { return m_referrer; }
+    void set_referrer(ReferrerType referrer) { m_referrer = move(referrer); }
+
+    [[nodiscard]] Optional<ReferrerPolicy::ReferrerPolicy> const& referrer_policy() const { return m_referrer_policy; }
+    void set_referrer_policy(Optional<ReferrerPolicy::ReferrerPolicy> referrer_policy) { m_referrer_policy = move(referrer_policy); }
+
     [[nodiscard]] ResponseTainting response_tainting() const { return m_response_tainting; }
     void set_response_tainting(ResponseTainting response_tainting) { m_response_tainting = response_tainting; }
 
@@ -266,8 +279,10 @@ public:
     [[nodiscard]] bool timing_allow_failed() const { return m_timing_allow_failed; }
     void set_timing_allow_failed(bool timing_allow_failed) { m_timing_allow_failed = timing_allow_failed; }
 
+    [[nodiscard]] AK::URL& url();
     [[nodiscard]] AK::URL const& url() const;
-    [[nodiscard]] AK::URL const& current_url();
+    [[nodiscard]] AK::URL& current_url();
+    [[nodiscard]] AK::URL const& current_url() const;
     void set_url(AK::URL url);
 
     [[nodiscard]] bool destination_is_script_like() const;
@@ -281,16 +296,33 @@ public:
     [[nodiscard]] String serialize_origin() const;
     [[nodiscard]] ErrorOr<ByteBuffer> byte_serialize_origin() const;
 
-    [[nodiscard]] Request clone() const;
+    [[nodiscard]] WebIDL::ExceptionOr<JS::NonnullGCPtr<Request>> clone(JS::VM&) const;
 
-    [[nodiscard]] ErrorOr<void> add_range_reader(u64 first, Optional<u64> const& last);
+    [[nodiscard]] ErrorOr<void> add_range_header(u64 first, Optional<u64> const& last);
+    [[nodiscard]] ErrorOr<void> add_origin_header();
 
     [[nodiscard]] bool cross_origin_embedder_policy_allows_credentials() const;
 
+    // Non-standard
+    void add_pending_response(Badge<Fetching::PendingResponse>, JS::NonnullGCPtr<Fetching::PendingResponse> pending_response)
+    {
+        VERIFY(!m_pending_responses.contains_slow(pending_response));
+        m_pending_responses.append(pending_response);
+    }
+
+    void remove_pending_response(Badge<Fetching::PendingResponse>, JS::NonnullGCPtr<Fetching::PendingResponse> pending_response)
+    {
+        m_pending_responses.remove_first_matching([&](auto gc_ptr) { return gc_ptr == pending_response; });
+    }
+
 private:
+    explicit Request(JS::NonnullGCPtr<HeaderList>);
+
+    virtual void visit_edges(JS::Cell::Visitor&) override;
+
     // https://fetch.spec.whatwg.org/#concept-request-method
     // A request has an associated method (a method). Unless stated otherwise it is `GET`.
-    ByteBuffer m_method;
+    ByteBuffer m_method { ByteBuffer::copy("GET"sv.bytes()).release_value() };
 
     // https://fetch.spec.whatwg.org/#local-urls-only-flag
     // A request has an associated local-URLs-only flag. Unless stated otherwise it is unset.
@@ -298,7 +330,7 @@ private:
 
     // https://fetch.spec.whatwg.org/#concept-request-header-list
     // A request has an associated header list (a header list). Unless stated otherwise it is empty.
-    HeaderList m_header_list;
+    JS::NonnullGCPtr<HeaderList> m_header_list;
 
     // https://fetch.spec.whatwg.org/#unsafe-request-flag
     // A request has an associated unsafe-request flag. Unless stated otherwise it is unset.
@@ -313,7 +345,8 @@ private:
     HTML::EnvironmentSettingsObject* m_client { nullptr };
 
     // https://fetch.spec.whatwg.org/#concept-request-reserved-client
-    // A request has an associated reserved client (null, an environment, or an environment settings object). Unless stated otherwise it is null.
+    // A request has an associated reserved client (null, an environment, or an environment settings object). Unless
+    // stated otherwise it is null.
     ReservedClientType m_reserved_client;
 
     // https://fetch.spec.whatwg.org/#concept-request-replaces-client-id
@@ -321,7 +354,8 @@ private:
     String m_replaces_client_id { String::empty() };
 
     // https://fetch.spec.whatwg.org/#concept-request-window
-    // A request has an associated window ("no-window", "client", or an environment settings object whose global object is a Window object). Unless stated otherwise it is "client".
+    // A request has an associated window ("no-window", "client", or an environment settings object whose global object
+    // is a Window object). Unless stated otherwise it is "client".
     WindowType m_window { Window::Client };
 
     // https://fetch.spec.whatwg.org/#request-keepalive-flag
@@ -329,7 +363,9 @@ private:
     bool m_keepalive { false };
 
     // https://fetch.spec.whatwg.org/#request-initiator-type
-    // A request has an associated initiator type, which is null, "audio", "beacon", "body", "css", "early-hint", "embed", "fetch", "font", "frame", "iframe", "image", "img", "input", "link", "object", "ping", "script", "track", "video", "xmlhttprequest", or "other". Unless stated otherwise it is null. [RESOURCE-TIMING]
+    // A request has an associated initiator type, which is null, "audio", "beacon", "body", "css", "early-hint",
+    // "embed", "fetch", "font", "frame", "iframe", "image", "img", "input", "link", "object", "ping", "script",
+    // "track", "video", "xmlhttprequest", or "other". Unless stated otherwise it is null. [RESOURCE-TIMING]
     Optional<InitiatorType> m_initiator_type;
 
     // https://fetch.spec.whatwg.org/#request-service-workers-mode
@@ -337,11 +373,17 @@ private:
     ServiceWorkersMode m_service_workers_mode { ServiceWorkersMode::All };
 
     // https://fetch.spec.whatwg.org/#concept-request-initiator
-    // A request has an associated initiator, which is the empty string, "download", "imageset", "manifest", "prefetch", "prerender", or "xslt". Unless stated otherwise it is the empty string.
+    // A request has an associated initiator, which is the empty string, "download", "imageset", "manifest",
+    // "prefetch", "prerender", or "xslt". Unless stated otherwise it is the empty string.
     Optional<Initiator> m_initiator;
 
     // https://fetch.spec.whatwg.org/#concept-request-destination
-    // A request has an associated destination, which is the empty string, "audio", "audioworklet", "document", "embed", "font", "frame", "iframe", "image", "manifest", "object", "paintworklet", "report", "script", "serviceworker", "sharedworker", "style", "track", "video", "worker", or "xslt". Unless stated otherwise it is the empty string.
+    // A request has an associated destination, which is the empty string, "audio", "audioworklet", "document",
+    // "embed", "font", "frame", "iframe", "image", "manifest", "object", "paintworklet", "report", "script",
+    // "serviceworker", "sharedworker", "style", "track", "video", "webidentity", "worker", or "xslt". Unless stated
+    // otherwise it is the empty string.
+    // NOTE: These are reflected on RequestDestination except for "serviceworker" and "webidentity" as fetches with
+    //       those destinations skip service workers.
     Optional<Destination> m_destination;
 
     // https://fetch.spec.whatwg.org/#concept-request-priority
@@ -353,18 +395,23 @@ private:
     OriginType m_origin { Origin::Client };
 
     // https://fetch.spec.whatwg.org/#concept-request-policy-container
-    // A request has an associated policy container, which is "client" or a policy container. Unless stated otherwise it is "client".
+    // A request has an associated policy container, which is "client" or a policy container. Unless stated otherwise
+    // it is "client".
     PolicyContainerType m_policy_container { PolicyContainer::Client };
 
     // https://fetch.spec.whatwg.org/#concept-request-referrer
-    // A request has an associated referrer, which is "no-referrer", "client", or a URL. Unless stated otherwise it is "client".
+    // A request has an associated referrer, which is "no-referrer", "client", or a URL. Unless stated otherwise it is
+    // "client".
     ReferrerType m_referrer { Referrer::Client };
 
     // https://fetch.spec.whatwg.org/#concept-request-referrer-policy
-    // FIXME: A request has an associated referrer policy, which is a referrer policy. Unless stated otherwise it is the empty string.
+    // A request has an associated referrer policy, which is a referrer policy. Unless stated otherwise it is the empty
+    // string.
+    Optional<ReferrerPolicy::ReferrerPolicy> m_referrer_policy;
 
     // https://fetch.spec.whatwg.org/#concept-request-mode
-    // A request has an associated mode, which is "same-origin", "cors", "no-cors", "navigate", or "websocket". Unless stated otherwise, it is "no-cors".
+    // A request has an associated mode, which is "same-origin", "cors", "no-cors", "navigate", or "websocket". Unless
+    // stated otherwise, it is "no-cors".
     Mode m_mode { Mode::NoCORS };
 
     // https://fetch.spec.whatwg.org/#use-cors-preflight-flag
@@ -372,29 +419,43 @@ private:
     bool m_use_cors_preflight { false };
 
     // https://fetch.spec.whatwg.org/#concept-request-credentials-mode
-    // A request has an associated credentials mode, which is "omit", "same-origin", or "include". Unless stated otherwise, it is "same-origin".
+    // A request has an associated credentials mode, which is "omit", "same-origin", or "include". Unless stated
+    // otherwise, it is "same-origin".
     CredentialsMode m_credentials_mode { CredentialsMode::SameOrigin };
 
     // https://fetch.spec.whatwg.org/#concept-request-use-url-credentials-flag
     // A request has an associated use-URL-credentials flag. Unless stated otherwise, it is unset.
+    // NOTE: When this flag is set, when a request’s URL has a username and password, and there is an available
+    //       authentication entry for the request, then the URL’s credentials are preferred over that of the
+    //       authentication entry. Modern specifications avoid setting this flag, since putting credentials in URLs is
+    //       discouraged, but some older features set it for compatibility reasons.
     bool m_use_url_credentials { false };
 
     // https://fetch.spec.whatwg.org/#concept-request-cache-mode
-    // A request has an associated cache mode, which is "default", "no-store", "reload", "no-cache", "force-cache", or "only-if-cached". Unless stated otherwise, it is "default".
+    // A request has an associated cache mode, which is "default", "no-store", "reload", "no-cache", "force-cache", or
+    // "only-if-cached". Unless stated otherwise, it is "default".
     CacheMode m_cache_mode { CacheMode::Default };
 
-    // A request has an associated redirect mode, which is "follow", "error", or "manual". Unless stated otherwise, it is "follow".
+    // https://fetch.spec.whatwg.org/#concept-request-redirect-mode
+    // A request has an associated redirect mode, which is "follow", "error", or "manual". Unless stated otherwise, it
+    // is "follow".
     RedirectMode m_redirect_mode { RedirectMode::Follow };
 
+    // https://fetch.spec.whatwg.org/#concept-request-integrity-metadata
     // A request has associated integrity metadata (a string). Unless stated otherwise, it is the empty string.
     String m_integrity_metadata { String::empty() };
 
-    // A request has associated cryptographic nonce metadata (a string). Unless stated otherwise, it is the empty string.
+    // https://fetch.spec.whatwg.org/#concept-request-nonce-metadata
+    // A request has associated cryptographic nonce metadata (a string). Unless stated otherwise, it is the empty
+    // string.
     String m_cryptographic_nonce_metadata { String::empty() };
 
-    // A request has associated parser metadata which is the empty string, "parser-inserted", or "not-parser-inserted". Unless otherwise stated, it is the empty string.
+    // https://fetch.spec.whatwg.org/#concept-request-parser-metadata
+    // A request has associated parser metadata which is the empty string, "parser-inserted", or
+    // "not-parser-inserted". Unless otherwise stated, it is the empty string.
     Optional<ParserMetadata> m_parser_metadata;
 
+    // https://fetch.spec.whatwg.org/#concept-request-reload-navigation-flag
     // A request has an associated reload-navigation flag. Unless stated otherwise, it is unset.
     bool m_reload_navigation { false };
 
@@ -411,7 +472,8 @@ private:
     bool m_render_blocking { false };
 
     // https://fetch.spec.whatwg.org/#concept-request-url-list
-    // A request has an associated URL list (a list of one or more URLs). Unless stated otherwise, it is a list containing a copy of request’s URL.
+    // A request has an associated URL list (a list of one or more URLs). Unless stated otherwise, it is a list
+    // containing a copy of request’s URL.
     Vector<AK::URL> m_url_list;
 
     // https://fetch.spec.whatwg.org/#concept-request-redirect-count
@@ -420,11 +482,13 @@ private:
     u8 m_redirect_count { 0 };
 
     // https://fetch.spec.whatwg.org/#concept-request-response-tainting
-    // A request has an associated response tainting, which is "basic", "cors", or "opaque". Unless stated otherwise, it is "basic".
+    // A request has an associated response tainting, which is "basic", "cors", or "opaque". Unless stated otherwise,
+    // it is "basic".
     ResponseTainting m_response_tainting { ResponseTainting::Basic };
 
     // https://fetch.spec.whatwg.org/#no-cache-prevent-cache-control
-    // A request has an associated prevent no-cache cache-control header modification flag. Unless stated otherwise, it is unset.
+    // A request has an associated prevent no-cache cache-control header modification flag. Unless stated otherwise, it
+    // is unset.
     bool m_prevent_no_cache_cache_control_header_modification { false };
 
     // https://fetch.spec.whatwg.org/#done-flag
@@ -434,6 +498,9 @@ private:
     // https://fetch.spec.whatwg.org/#timing-allow-failed
     // A request has an associated timing allow failed flag. Unless stated otherwise, it is unset.
     bool m_timing_allow_failed { false };
+
+    // Non-standard
+    Vector<JS::NonnullGCPtr<Fetching::PendingResponse>> m_pending_responses;
 };
 
 }

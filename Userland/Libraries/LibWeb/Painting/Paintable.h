@@ -83,8 +83,13 @@ public:
     }
 
     virtual void paint(PaintContext&, PaintPhase) const { }
-    virtual void before_children_paint(PaintContext&, PaintPhase) const { }
-    virtual void after_children_paint(PaintContext&, PaintPhase) const { }
+
+    enum class ShouldClipOverflow {
+        No,
+        Yes
+    };
+    virtual void before_children_paint(PaintContext&, PaintPhase, ShouldClipOverflow) const { }
+    virtual void after_children_paint(PaintContext&, PaintPhase, ShouldClipOverflow) const { }
 
     virtual Optional<HitTestResult> hit_test(Gfx::FloatPoint const&, HitTestType) const;
 
@@ -111,6 +116,8 @@ public:
     DOM::Node const* dom_node() const { return layout_node().dom_node(); }
 
     auto const& computed_values() const { return m_layout_node.computed_values(); }
+
+    bool visible_for_hit_testing() const { return computed_values().pointer_events() != CSS::PointerEvents::None; }
 
     HTML::BrowsingContext const& browsing_context() const { return m_layout_node.browsing_context(); }
     HTML::BrowsingContext& browsing_context() { return layout_node().browsing_context(); }

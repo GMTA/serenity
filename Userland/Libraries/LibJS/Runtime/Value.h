@@ -18,6 +18,7 @@
 #include <AK/String.h>
 #include <AK/Types.h>
 #include <LibJS/Forward.h>
+#include <LibJS/Heap/GCPtr.h>
 #include <LibJS/Runtime/BigInt.h>
 #include <LibJS/Runtime/Utf16String.h>
 #include <math.h>
@@ -275,6 +276,18 @@ public:
     {
     }
 
+    template<typename T>
+    Value(GCPtr<T> ptr)
+        : Value(ptr.ptr())
+    {
+    }
+
+    template<typename T>
+    Value(NonnullGCPtr<T> ptr)
+        : Value(ptr.ptr())
+    {
+    }
+
     double as_double() const
     {
         VERIFY(is_number());
@@ -398,6 +411,24 @@ public:
     template<typename... Args>
     [[nodiscard]] ALWAYS_INLINE ThrowCompletionOr<Value> invoke(VM&, PropertyKey const& property_key, Args... args);
 
+    static constexpr FlatPtr extract_pointer_bits(u64 encoded)
+    {
+#ifdef AK_ARCH_32_BIT
+        // For 32-bit system the pointer fully fits so we can just return it directly.
+        static_assert(sizeof(void*) == sizeof(u32));
+        return static_cast<FlatPtr>(encoded & 0xffff'ffff);
+#elif ARCH(X86_64)
+        // For x86_64 the top 16 bits should be sign extending the "real" top bit (47th).
+        // So first shift the top 16 bits away then using the right shift it sign extends the top 16 bits.
+        return static_cast<FlatPtr>((static_cast<i64>(encoded << 16)) >> 16);
+#elif ARCH(AARCH64)
+        // For AArch64 the top 16 bits of the pointer should be zero.
+        return static_cast<FlatPtr>(encoded & 0xffff'ffff'ffffULL);
+#else
+#    error "Unknown architecture. Don't know whether pointers need to be sign-extended."
+#endif
+    }
+
 private:
     Value(u64 tag, u64 val)
     {
@@ -444,15 +475,7 @@ private:
     PointerType* extract_pointer() const
     {
         VERIFY(is_cell());
-
-        // For 32-bit system the pointer fully fits so we can just return it directly.
-        if constexpr (sizeof(PointerType*) < sizeof(u64))
-            return reinterpret_cast<PointerType*>(static_cast<u32>(m_value.encoded & 0xffffffff));
-
-        // For x86_64 the top 16 bits should be sign extending the "real" top bit (47th).
-        // So first shift the top 16 bits away then using the right shift it sign extends the top 16 bits.
-        u64 ptr_val = (u64)(((i64)(m_value.encoded << 16)) >> 16);
-        return reinterpret_cast<PointerType*>(ptr_val);
+        return reinterpret_cast<PointerType*>(extract_pointer_bits(m_value.encoded));
     }
 
     [[nodiscard]] ThrowCompletionOr<Value> invoke_internal(VM&, PropertyKey const&, Optional<MarkedVector<Value>> arguments);
@@ -540,6 +563,8 @@ bool same_value_non_numeric(Value lhs, Value rhs);
 ThrowCompletionOr<TriState> is_less_than(VM&, Value lhs, Value rhs, bool left_first);
 
 double to_integer_or_infinity(double);
+
+Optional<Value> string_to_number(StringView);
 
 inline bool Value::operator==(Value const& value) const { return same_value(*this, value); }
 

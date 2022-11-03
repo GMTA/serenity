@@ -9,10 +9,13 @@ set(SOURCES
     main.cpp
     Calculator.cpp
     CalculatorWidget.cpp
+    RoundingDialog.cpp
     Keypad.cpp
-    KeypadValue.cpp
+)
+
+set(GENERATED_SOURCES
     CalculatorGML.h
 )
 
 serenity_app(Calculator ICON app-calculator)
-target_link_libraries(Calculator LibGUI LibMain)
+target_link_libraries(Calculator PRIVATE LibCore LibCrypto LibGfx LibGUI LibMain)

@@ -16,12 +16,10 @@ class SVGClipPathElement final : public SVGElement {
 public:
     virtual ~SVGClipPathElement();
 
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
 private:
     SVGClipPathElement(DOM::Document&, DOM::QualifiedName);
 };
 
 }
-
-WRAPPER_HACK(SVGClipPathElement, Web::SVG)

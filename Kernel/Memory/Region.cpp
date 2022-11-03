@@ -6,11 +6,11 @@
 
 #include <AK/Memory.h>
 #include <AK/StringView.h>
-#include <Kernel/Arch/InterruptDisabler.h>
 #include <Kernel/Arch/PageDirectory.h>
 #include <Kernel/Arch/PageFault.h>
 #include <Kernel/Debug.h>
 #include <Kernel/FileSystem/Inode.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Memory/PageDirectory.h>
@@ -501,6 +501,11 @@ PageFaultResponse Region::handle_inode_fault(size_t page_index_in_region)
     }
 
     auto nread = result.value();
+    // Note: If we received 0, it means we are at the end of file or after it,
+    // which means we should return bus error.
+    if (nread == 0)
+        return PageFaultResponse::BusError;
+
     if (nread < PAGE_SIZE) {
         // If we read less than a page, zero out the rest to avoid leaking uninitialized data.
         memset(page_buffer + nread, 0, PAGE_SIZE - nread);

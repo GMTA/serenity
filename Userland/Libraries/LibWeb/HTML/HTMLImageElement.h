@@ -40,6 +40,9 @@ public:
     unsigned natural_width() const;
     unsigned natural_height() const;
 
+    // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-complete
+    bool complete() const;
+
 private:
     HTMLImageElement(DOM::Document&, DOM::QualifiedName);
 
@@ -47,11 +50,9 @@ private:
 
     void animate();
 
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
     ImageLoader m_image_loader;
 };
 
 }
-
-WRAPPER_HACK(HTMLImageElement, Web::HTML)

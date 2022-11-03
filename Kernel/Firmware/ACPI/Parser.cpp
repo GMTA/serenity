@@ -7,10 +7,13 @@
  */
 
 #include <AK/Format.h>
+#include <AK/Platform.h>
 #include <AK/StringView.h>
 #include <AK/Try.h>
-#include <Kernel/Arch/InterruptDisabler.h>
-#include <Kernel/Arch/x86/IO.h>
+#include <Kernel/InterruptDisabler.h>
+#if ARCH(I386) || ARCH(X86_64)
+#    include <Kernel/Arch/x86/IO.h>
+#endif
 #include <Kernel/Bus/PCI/API.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Firmware/ACPI/Parser.h>
@@ -127,6 +130,7 @@ UNMAP_AFTER_INIT void Parser::locate_static_data()
     locate_main_system_description_table();
     initialize_main_system_description_table();
     process_fadt_data();
+    process_dsdt();
 }
 
 UNMAP_AFTER_INIT Optional<PhysicalAddress> Parser::find_table(StringView signature)
@@ -167,7 +171,6 @@ UNMAP_AFTER_INIT void Parser::process_fadt_data()
 
     auto sdt = Memory::map_typed<Structures::FADT>(m_fadt).release_value_but_fixme_should_propagate_errors();
     dmesgln("ACPI: Fixed ACPI data, Revision {}, length: {} bytes", (size_t)sdt->h.revision, (size_t)sdt->h.length);
-    dmesgln("ACPI: DSDT {}", PhysicalAddress(sdt->dsdt_ptr));
     m_x86_specific_flags.cmos_rtc_not_present = (sdt->ia_pc_boot_arch_flags & (u8)FADTFlags::IA_PC_Flags::CMOS_RTC_Not_Present);
 
     // FIXME: QEMU doesn't report that we have an i8042 controller in these flags, even if it should (when FADT revision is 3),
@@ -202,6 +205,21 @@ UNMAP_AFTER_INIT void Parser::process_fadt_data()
     m_hardware_flags.wbinvd_flush = (sdt->flags & (u32)FADTFlags::FeatureFlags::WBINVD_FLUSH);
 }
 
+UNMAP_AFTER_INIT void Parser::process_dsdt()
+{
+    auto sdt = Memory::map_typed<Structures::FADT>(m_fadt).release_value_but_fixme_should_propagate_errors();
+
+    // Add DSDT-pointer to expose the full table in /sys/firmware/acpi/
+    m_sdt_pointers.append(PhysicalAddress(sdt->dsdt_ptr));
+
+    auto dsdt_or_error = Memory::map_typed<Structures::DSDT>(PhysicalAddress(sdt->dsdt_ptr));
+    if (dsdt_or_error.is_error()) {
+        dmesgln("ACPI: DSDT is unmappable");
+        return;
+    }
+    dmesgln("ACPI: Using DSDT @ {} with {} bytes", PhysicalAddress(sdt->dsdt_ptr), dsdt_or_error.value()->h.length);
+}
+
 bool Parser::can_reboot()
 {
     auto fadt_or_error = Memory::map_typed<Structures::FADT>(m_fadt);
@@ -216,6 +234,7 @@ void Parser::access_generic_address(Structures::GenericAddressStructure const& s
 {
     switch ((GenericAddressStructure::AddressSpace)structure.address_space) {
     case GenericAddressStructure::AddressSpace::SystemIO: {
+#if ARCH(I386) || ARCH(X86_64)
         IOAddress address(structure.address);
         dbgln("ACPI: Sending value {:x} to {}", value, address);
         switch (structure.access_size) {
@@ -236,6 +255,7 @@ void Parser::access_generic_address(Structures::GenericAddressStructure const& s
             address.out(value, (8 << (structure.access_size - 1)));
             break;
         }
+#endif
         return;
     }
     case GenericAddressStructure::AddressSpace::SystemMemory: {

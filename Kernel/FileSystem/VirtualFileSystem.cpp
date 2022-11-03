@@ -65,7 +65,8 @@ ErrorOr<void> VirtualFileSystem::mount(FileSystem& fs, Custody& mount_point, int
     auto new_mount = TRY(adopt_nonnull_own_or_enomem(new (nothrow) Mount(fs, &mount_point, flags)));
     return m_mounts.with([&](auto& mounts) -> ErrorOr<void> {
         auto& inode = mount_point.inode();
-        dbgln("VirtualFileSystem: Mounting {} at inode {} with flags {}",
+        dbgln("VirtualFileSystem: FileSystemID {}, Mounting {} at inode {} with flags {}",
+            fs.fsid(),
             fs.class_name(),
             inode.identifier(),
             flags);
@@ -73,6 +74,10 @@ ErrorOr<void> VirtualFileSystem::mount(FileSystem& fs, Custody& mount_point, int
             dbgln("VirtualFileSystem: Mounting unsuccessful - inode {} is already a mount-point.", inode.identifier());
             return EBUSY;
         }
+        // Note: Actually add a mount for the filesystem and increment the filesystem mounted count
+        new_mount->guest_fs().mounted_count({}).with([&](auto& mounted_count) {
+            mounted_count++;
+        });
         mounts.append(move(new_mount));
         return {};
     });
@@ -106,17 +111,65 @@ ErrorOr<void> VirtualFileSystem::remount(Custody& mount_point, int new_flags)
     return {};
 }
 
-ErrorOr<void> VirtualFileSystem::unmount(Inode& guest_inode)
+void VirtualFileSystem::sync_filesystems()
 {
-    dbgln("VirtualFileSystem: unmount called with inode {}", guest_inode.identifier());
+    NonnullLockRefPtrVector<FileSystem, 32> file_systems;
+    m_file_systems_list.with([&](auto const& list) {
+        for (auto& fs : list)
+            file_systems.append(fs);
+    });
+
+    for (auto& fs : file_systems)
+        fs.flush_writes();
+}
+
+void VirtualFileSystem::lock_all_filesystems()
+{
+    NonnullLockRefPtrVector<FileSystem, 32> file_systems;
+    m_file_systems_list.with([&](auto const& list) {
+        for (auto& fs : list)
+            file_systems.append(fs);
+    });
+
+    for (auto& fs : file_systems)
+        fs.m_lock.lock();
+}
+
+ErrorOr<void> VirtualFileSystem::unmount(Custody& mountpoint_custody)
+{
+    auto& guest_inode = mountpoint_custody.inode();
+    auto custody_path = TRY(mountpoint_custody.try_serialize_absolute_path());
+    dbgln("VirtualFileSystem: unmount called with inode {} on mountpoint {}", guest_inode.identifier(), custody_path->view());
 
     return m_mounts.with([&](auto& mounts) -> ErrorOr<void> {
         for (size_t i = 0; i < mounts.size(); ++i) {
             auto& mount = mounts[i];
             if (&mount->guest() != &guest_inode)
                 continue;
-            TRY(mount->guest_fs().prepare_to_unmount());
-            dbgln("VirtualFileSystem: Unmounting file system {}...", mount->guest_fs().fsid());
+            auto mountpoint_path = TRY(mount->absolute_path());
+            if (custody_path->view() != mountpoint_path->view())
+                continue;
+            NonnullRefPtr<FileSystem> fs = mount->guest_fs();
+            TRY(fs->prepare_to_unmount());
+            fs->mounted_count({}).with([&](auto& mounted_count) {
+                VERIFY(mounted_count > 0);
+                if (mounted_count == 1) {
+                    dbgln("VirtualFileSystem: Unmounting file system {} for the last time...", fs->fsid());
+                    m_file_systems_list.with([&](auto& list) {
+                        list.remove(*fs);
+                    });
+                    if (fs->is_file_backed()) {
+                        dbgln("VirtualFileSystem: Unmounting file backed file system {} for the last time...", fs->fsid());
+                        auto& file_backed_fs = static_cast<FileBackedFileSystem&>(*fs);
+                        m_file_backed_file_systems_list.with([&](auto& list) {
+                            list.remove(file_backed_fs);
+                        });
+                    }
+                } else {
+                    mounted_count--;
+                }
+            });
+            dbgln("VirtualFileSystem: Unmounting file system {}...", fs->fsid());
             (void)mounts.unstable_take(i);
             return {};
         }
@@ -141,10 +194,25 @@ ErrorOr<void> VirtualFileSystem::mount_root(FileSystem& fs)
     }
 
     m_root_inode = root_inode;
-    auto pseudo_path = TRY(static_cast<FileBackedFileSystem&>(fs).file_description().pseudo_path());
-    dmesgln("VirtualFileSystem: mounted root from {} ({})", fs.class_name(), pseudo_path);
+    if (fs.is_file_backed()) {
+        auto pseudo_path = TRY(static_cast<FileBackedFileSystem&>(fs).file_description().pseudo_path());
+        dmesgln("VirtualFileSystem: mounted root({}) from {} ({})", fs.fsid(), fs.class_name(), pseudo_path);
+        m_file_backed_file_systems_list.with([&](auto& list) {
+            list.append(static_cast<FileBackedFileSystem&>(fs));
+        });
+    } else {
+        dmesgln("VirtualFileSystem: mounted root({}) from {}", fs.fsid(), fs.class_name());
+    }
 
+    m_file_systems_list.with([&](auto& fs_list) {
+        fs_list.append(fs);
+    });
+
+    // Note: Actually add a mount for the filesystem and increment the filesystem mounted count
     m_mounts.with([&](auto& mounts) {
+        new_mount->guest_fs().mounted_count({}).with([&](auto& mounted_count) {
+            mounted_count++;
+        });
         mounts.append(move(new_mount));
     });
 
@@ -228,9 +296,9 @@ ErrorOr<void> VirtualFileSystem::utimensat(Credentials const& credentials, Strin
 
     // NOTE: A standard ext2 inode cannot store nanosecond timestamps.
     TRY(inode.update_timestamps(
-        (atime.tv_nsec != UTIME_OMIT) ? atime.tv_nsec : Optional<time_t> {},
+        (atime.tv_nsec != UTIME_OMIT) ? atime.tv_sec : Optional<time_t> {},
         {},
-        (mtime.tv_nsec != UTIME_OMIT) ? mtime.tv_nsec : Optional<time_t> {}));
+        (mtime.tv_nsec != UTIME_OMIT) ? mtime.tv_sec : Optional<time_t> {}));
 
     return {};
 }
@@ -239,6 +307,27 @@ ErrorOr<InodeMetadata> VirtualFileSystem::lookup_metadata(Credentials const& cre
 {
     auto custody = TRY(resolve_path(credentials, path, base, nullptr, options));
     return custody->inode().metadata();
+}
+
+ErrorOr<NonnullLockRefPtr<FileBackedFileSystem>> VirtualFileSystem::find_already_existing_or_create_file_backed_file_system(OpenFileDescription& description, Function<ErrorOr<NonnullLockRefPtr<FileSystem>>(OpenFileDescription&)> callback)
+{
+    return TRY(m_file_backed_file_systems_list.with([&](auto& list) -> ErrorOr<NonnullLockRefPtr<FileBackedFileSystem>> {
+        for (auto& node : list) {
+            if (&node.file_description() == &description) {
+                return node;
+            }
+            if (&node.file() == &description.file()) {
+                return node;
+            }
+        }
+        auto fs = TRY(callback(description));
+        VERIFY(fs->is_file_backed());
+        list.append(static_cast<FileBackedFileSystem&>(*fs));
+        m_file_systems_list.with([&](auto& fs_list) {
+            fs_list.append(*fs);
+        });
+        return static_ptr_cast<FileBackedFileSystem>(fs);
+    }));
 }
 
 ErrorOr<NonnullLockRefPtr<OpenFileDescription>> VirtualFileSystem::open(Credentials const& credentials, StringView path, int options, mode_t mode, Custody& base, Optional<UidAndGid> owner)
@@ -262,6 +351,9 @@ ErrorOr<NonnullLockRefPtr<OpenFileDescription>> VirtualFileSystem::open(Credenti
     auto& custody = *custody_or_error.value();
     auto& inode = custody.inode();
     auto metadata = inode.metadata();
+
+    if (metadata.is_regular_file() && (custody.mount_flags() & MS_NOREGULAR))
+        return EACCES;
 
     if ((options & O_DIRECTORY) && !metadata.is_directory())
         return ENOTDIR;
@@ -370,6 +462,8 @@ ErrorOr<NonnullLockRefPtr<OpenFileDescription>> VirtualFileSystem::create(Creden
         return EACCES;
     if (parent_custody.is_readonly())
         return EROFS;
+    if (is_regular_file(mode) && (parent_custody.mount_flags() & MS_NOREGULAR))
+        return EACCES;
 
     dbgln_if(VFS_DEBUG, "VirtualFileSystem::create: '{}' in {}", basename, parent_inode.identifier());
     auto uid = owner.has_value() ? owner.value().uid : credentials.euid();
@@ -703,8 +797,6 @@ ErrorOr<void> VirtualFileSystem::symlink(Credentials const& credentials, StringV
     auto inode = TRY(parent_inode.create_child(basename, S_IFLNK | 0644, 0, credentials.euid(), credentials.egid()));
 
     auto target_buffer = UserOrKernelBuffer::for_kernel_buffer(const_cast<u8*>((u8 const*)target.characters_without_null_termination()));
-    MutexLocker locker(inode->m_inode_lock);
-    TRY(inode->prepare_to_write_data());
     TRY(inode->write_bytes(0, target.length(), target_buffer, nullptr));
     return {};
 }
@@ -793,8 +885,6 @@ ErrorOr<void> VirtualFileSystem::validate_path_against_process_veil(Custody cons
 ErrorOr<void> VirtualFileSystem::validate_path_against_process_veil(StringView path, int options)
 {
     if (Process::current().veil_state() == VeilState::None)
-        return {};
-    if (options == O_EXEC && path == "/usr/lib/Loader.so")
         return {};
 
     VERIFY(path.starts_with('/'));

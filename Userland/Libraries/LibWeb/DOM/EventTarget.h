@@ -12,9 +12,9 @@
 #include <LibJS/Forward.h>
 #include <LibWeb/Bindings/PlatformObject.h>
 #include <LibWeb/DOM/DOMEventListener.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/EventHandler.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::DOM {
 
@@ -22,7 +22,7 @@ class EventTarget : public Bindings::PlatformObject {
     WEB_PLATFORM_OBJECT(EventTarget, Bindings::PlatformObject);
 
 public:
-    virtual ~EventTarget();
+    virtual ~EventTarget() override;
 
     virtual bool is_focusable() const { return false; }
 
@@ -34,7 +34,7 @@ public:
     void remove_event_listener_without_options(FlyString const& type, IDLEventListener& callback);
 
     virtual bool dispatch_event(Event&);
-    ExceptionOr<bool> dispatch_event_binding(Event&);
+    WebIDL::ExceptionOr<bool> dispatch_event_binding(Event&);
 
     virtual EventTarget* get_parent(Event const&) { return nullptr; }
 
@@ -51,8 +51,10 @@ public:
     virtual void legacy_cancelled_activation_behavior() { }
     virtual void legacy_cancelled_activation_behavior_was_not_called() { }
 
-    Bindings::CallbackType* event_handler_attribute(FlyString const& name);
-    void set_event_handler_attribute(FlyString const& name, Bindings::CallbackType*);
+    WebIDL::CallbackType* event_handler_attribute(FlyString const& name);
+    void set_event_handler_attribute(FlyString const& name, WebIDL::CallbackType*);
+
+    bool has_event_listener(FlyString const& type) const;
 
 protected:
     explicit EventTarget(JS::Realm&);
@@ -68,7 +70,7 @@ private:
     // Spec Note: The order of the entries of event handler map could be arbitrary. It is not observable through any algorithms that operate on the map.
     HashMap<FlyString, JS::GCPtr<HTML::EventHandler>> m_event_handler_map;
 
-    Bindings::CallbackType* get_current_value_of_event_handler(FlyString const& name);
+    WebIDL::CallbackType* get_current_value_of_event_handler(FlyString const& name);
     void activate_event_handler(FlyString const& name, HTML::EventHandler& event_handler);
     void deactivate_event_handler(FlyString const& name);
     JS::ThrowCompletionOr<void> process_event_handler_for_event(FlyString const& name, Event& event);
@@ -77,5 +79,3 @@ private:
 bool is_window_reflecting_body_element_event_handler(FlyString const& name);
 
 }
-
-WRAPPER_HACK(EventTarget, Web::DOM)

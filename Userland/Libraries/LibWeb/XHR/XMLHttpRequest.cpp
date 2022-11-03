@@ -11,19 +11,16 @@
 #include <AK/ByteBuffer.h>
 #include <AK/GenericLexer.h>
 #include <AK/QuickSort.h>
-#include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/ArrayBuffer.h>
 #include <LibJS/Runtime/FunctionObject.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibTextCodec/Decoder.h>
-#include <LibWeb/Bindings/IDLAbstractOperations.h>
 #include <LibWeb/Bindings/XMLHttpRequestPrototype.h>
-#include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/EventDispatcher.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/DOM/IDLEventListener.h>
+#include <LibWeb/Fetch/BodyInit.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Bodies.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Methods.h>
@@ -32,17 +29,21 @@
 #include <LibWeb/HTML/EventNames.h>
 #include <LibWeb/HTML/Origin.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/Infra/JSON.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Page/Page.h>
+#include <LibWeb/WebIDL/DOMException.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 #include <LibWeb/XHR/EventNames.h>
 #include <LibWeb/XHR/ProgressEvent.h>
 #include <LibWeb/XHR/XMLHttpRequest.h>
 
 namespace Web::XHR {
 
-JS::NonnullGCPtr<XMLHttpRequest> XMLHttpRequest::create_with_global_object(HTML::Window& window)
+JS::NonnullGCPtr<XMLHttpRequest> XMLHttpRequest::construct_impl(JS::Realm& realm)
 {
-    return *window.heap().allocate<XMLHttpRequest>(window.realm(), window);
+    auto& window = verify_cast<HTML::Window>(realm.global_object());
+    return *realm.heap().allocate<XMLHttpRequest>(realm, window);
 }
 
 XMLHttpRequest::XMLHttpRequest(HTML::Window& window)
@@ -50,7 +51,8 @@ XMLHttpRequest::XMLHttpRequest(HTML::Window& window)
     , m_window(window)
     , m_response_type(Bindings::XMLHttpRequestResponseType::Empty)
 {
-    set_prototype(&window.cached_web_prototype("XMLHttpRequest"));
+    set_overrides_must_survive_garbage_collection(true);
+    set_prototype(&Bindings::cached_web_prototype(window.realm(), "XMLHttpRequest"));
 }
 
 XMLHttpRequest::~XMLHttpRequest() = default;
@@ -67,7 +69,7 @@ void XMLHttpRequest::visit_edges(Cell::Visitor& visitor)
 void XMLHttpRequest::set_ready_state(ReadyState ready_state)
 {
     m_ready_state = ready_state;
-    dispatch_event(*DOM::Event::create(global_object(), EventNames::readystatechange));
+    dispatch_event(*DOM::Event::create(realm(), EventNames::readystatechange));
 }
 
 void XMLHttpRequest::fire_progress_event(String const& event_name, u64 transmitted, u64 length)
@@ -76,15 +78,15 @@ void XMLHttpRequest::fire_progress_event(String const& event_name, u64 transmitt
     event_init.length_computable = true;
     event_init.loaded = transmitted;
     event_init.total = length;
-    dispatch_event(*ProgressEvent::create(global_object(), event_name, event_init));
+    dispatch_event(*ProgressEvent::create(realm(), event_name, event_init));
 }
 
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-responsetext
-DOM::ExceptionOr<String> XMLHttpRequest::response_text() const
+WebIDL::ExceptionOr<String> XMLHttpRequest::response_text() const
 {
     // 1. If this’s response type is not the empty string or "text", then throw an "InvalidStateError" DOMException.
     if (m_response_type != Bindings::XMLHttpRequestResponseType::Empty && m_response_type != Bindings::XMLHttpRequestResponseType::Text)
-        return DOM::InvalidStateError::create(global_object(), "XHR responseText can only be used for responseType \"\" or \"text\"");
+        return WebIDL::InvalidStateError::create(realm(), "XHR responseText can only be used for responseType \"\" or \"text\"");
 
     // 2. If this’s state is not loading or done, then return the empty string.
     if (m_ready_state != ReadyState::Loading && m_ready_state != ReadyState::Done)
@@ -93,17 +95,39 @@ DOM::ExceptionOr<String> XMLHttpRequest::response_text() const
     return get_text_response();
 }
 
-// https://xhr.spec.whatwg.org/#response
-DOM::ExceptionOr<JS::Value> XMLHttpRequest::response()
+// https://xhr.spec.whatwg.org/#dom-xmlhttprequest-responsetype
+WebIDL::ExceptionOr<void> XMLHttpRequest::set_response_type(Bindings::XMLHttpRequestResponseType response_type)
 {
+    // 1. If the current global object is not a Window object and the given value is "document", then return.
+    if (!is<HTML::Window>(HTML::current_global_object()) && response_type == Bindings::XMLHttpRequestResponseType::Document)
+        return {};
+
+    // 2. If this’s state is loading or done, then throw an "InvalidStateError" DOMException.
+    if (m_ready_state == ReadyState::Loading || m_ready_state == ReadyState::Done)
+        return WebIDL::InvalidStateError::create(realm(), "Can't readyState when XHR is loading or done");
+
+    // 3. If the current global object is a Window object and this’s synchronous flag is set, then throw an "InvalidAccessError" DOMException.
+    if (is<HTML::Window>(HTML::current_global_object()) && m_synchronous)
+        return WebIDL::InvalidAccessError::create(realm(), "Can't set readyState on synchronous XHR in Window environment");
+
+    // 4. Set this’s response type to the given value.
+    m_response_type = response_type;
+    return {};
+}
+
+// https://xhr.spec.whatwg.org/#response
+WebIDL::ExceptionOr<JS::Value> XMLHttpRequest::response()
+{
+    auto& vm = this->vm();
+
     // 1. If this’s response type is the empty string or "text", then:
     if (m_response_type == Bindings::XMLHttpRequestResponseType::Empty || m_response_type == Bindings::XMLHttpRequestResponseType::Text) {
         // 1. If this’s state is not loading or done, then return the empty string.
         if (m_ready_state != ReadyState::Loading && m_ready_state != ReadyState::Done)
-            return JS::Value(JS::js_string(vm(), ""));
+            return JS::js_string(vm, "");
 
         // 2. Return the result of getting a text response for this.
-        return JS::Value(JS::js_string(vm(), get_text_response()));
+        return JS::js_string(vm, get_text_response());
     }
     // 2. If this’s state is not done, then return null.
     if (m_ready_state != ReadyState::Done)
@@ -132,14 +156,14 @@ DOM::ExceptionOr<JS::Value> XMLHttpRequest::response()
     }
     // 6. Otherwise, if this’s response type is "blob", set this’s response object to a new Blob object representing this’s received bytes with type set to the result of get a final MIME type for this.
     else if (m_response_type == Bindings::XMLHttpRequestResponseType::Blob) {
-        auto blob_part = TRY(FileAPI::Blob::create(global_object(), m_received_bytes, get_final_mime_type().type()));
-        auto blob = TRY(FileAPI::Blob::create(global_object(), Vector<FileAPI::BlobPart> { JS::make_handle(*blob_part) }));
+        auto blob_part = FileAPI::Blob::create(realm(), m_received_bytes, get_final_mime_type().type());
+        auto blob = TRY(FileAPI::Blob::create(realm(), Vector<FileAPI::BlobPart> { JS::make_handle(*blob_part) }));
         m_response_object = JS::Value(blob.ptr());
     }
     // 7. Otherwise, if this’s response type is "document", set a document response for this.
     else if (m_response_type == Bindings::XMLHttpRequestResponseType::Document) {
         // FIXME: Implement this.
-        return DOM::SimpleException { DOM::SimpleExceptionType::TypeError, "XHR Document type not implemented" };
+        return WebIDL::SimpleException { WebIDL::SimpleExceptionType::TypeError, "XHR Document type not implemented"sv };
     }
     // 8. Otherwise:
     else {
@@ -149,14 +173,12 @@ DOM::ExceptionOr<JS::Value> XMLHttpRequest::response()
         // 2. If this’s response’s body is null, then return null.
         // FIXME: Implement this once we have 'Response'.
         if (m_received_bytes.is_empty())
-            return JS::Value(JS::js_null());
+            return JS::js_null();
 
         // 3. Let jsonObject be the result of running parse JSON from bytes on this’s received bytes. If that threw an exception, then return null.
-        TextCodec::UTF8Decoder decoder;
-
-        auto json_object_result = JS::call(vm(), realm().intrinsics().json_parse_function(), JS::js_undefined(), JS::js_string(vm(), decoder.to_utf8({ m_received_bytes.data(), m_received_bytes.size() })));
+        auto json_object_result = Infra::parse_json_bytes_to_javascript_value(vm, m_received_bytes);
         if (json_object_result.is_error())
-            return JS::Value(JS::js_null());
+            return JS::js_null();
 
         // 4. Set this’s response object to jsonObject.
         m_response_object = json_object_result.release_value();
@@ -214,18 +236,17 @@ MimeSniff::MimeType XMLHttpRequest::get_final_mime_type() const
 // https://xhr.spec.whatwg.org/#response-mime-type
 MimeSniff::MimeType XMLHttpRequest::get_response_mime_type() const
 {
+    auto& vm = this->vm();
+
     // FIXME: Use an actual HeaderList for XHR headers.
-    Fetch::Infrastructure::HeaderList header_list;
+    auto header_list = Fetch::Infrastructure::HeaderList::create(vm);
     for (auto const& entry : m_response_headers) {
-        auto header = Fetch::Infrastructure::Header {
-            .name = MUST(ByteBuffer::copy(entry.key.bytes())),
-            .value = MUST(ByteBuffer::copy(entry.value.bytes())),
-        };
-        MUST(header_list.append(move(header)));
+        auto header = Fetch::Infrastructure::Header::from_string_pair(entry.key, entry.value).release_value_but_fixme_should_propagate_errors();
+        header_list->append(move(header)).release_value_but_fixme_should_propagate_errors();
     }
 
     // 1. Let mimeType be the result of extracting a MIME type from xhr’s response’s header list.
-    auto mime_type = header_list.extract_mime_type();
+    auto mime_type = header_list->extract_mime_type();
 
     // 2. If mimeType is failure, then set mimeType to text/xml.
     if (!mime_type.has_value())
@@ -268,86 +289,28 @@ Optional<StringView> XMLHttpRequest::get_final_encoding() const
     return encoding;
 }
 
-// https://fetch.spec.whatwg.org/#concept-bodyinit-extract
-// FIXME: The parameter 'body_init' should be 'typedef (ReadableStream or XMLHttpRequestBodyInit) BodyInit'. For now we just let it be 'XMLHttpRequestBodyInit'.
-static ErrorOr<Fetch::Infrastructure::BodyWithType> extract_body(XMLHttpRequestBodyInit const& body_init)
-{
-    // FIXME: 1. Let stream be object if object is a ReadableStream object. Otherwise, let stream be a new ReadableStream, and set up stream.
-    Fetch::Infrastructure::Body::ReadableStreamDummy stream {};
-    // FIXME: 2. Let action be null.
-    // 3. Let source be null.
-    Fetch::Infrastructure::Body::SourceType source {};
-    // 4. Let length be null.
-    Optional<u64> length {};
-    // 5. Let type be null.
-    Optional<ByteBuffer> type {};
-
-    // 6. Switch on object.
-    // FIXME: Still need to support BufferSource and FormData
-    TRY(body_init.visit(
-        [&](JS::Handle<FileAPI::Blob> const& blob) -> ErrorOr<void> {
-            // FIXME: Set action to this step: read object.
-            // Set source to object.
-            source = blob;
-            // Set length to object’s size.
-            length = blob->size();
-            // If object’s type attribute is not the empty byte sequence, set type to its value.
-            if (!blob->type().is_empty())
-                type = blob->type().to_byte_buffer();
-            return {};
-        },
-        [&](JS::Handle<JS::Object> const& buffer_source) -> ErrorOr<void> {
-            // Set source to a copy of the bytes held by object.
-            source = TRY(Bindings::IDL::get_buffer_source_copy(*buffer_source.cell()));
-            return {};
-        },
-        [&](JS::Handle<URL::URLSearchParams> const& url_search_params) -> ErrorOr<void> {
-            // Set source to the result of running the application/x-www-form-urlencoded serializer with object’s list.
-            source = url_search_params->to_string().to_byte_buffer();
-            // Set type to `application/x-www-form-urlencoded;charset=UTF-8`.
-            type = TRY(ByteBuffer::copy("application/x-www-form-urlencoded;charset=UTF-8"sv.bytes()));
-            return {};
-        },
-        [&](String const& scalar_value_string) -> ErrorOr<void> {
-            // NOTE: AK::String is always UTF-8.
-            // Set source to the UTF-8 encoding of object.
-            source = scalar_value_string.to_byte_buffer();
-            // Set type to `text/plain;charset=UTF-8`.
-            type = TRY(ByteBuffer::copy("text/plain;charset=UTF-8"sv.bytes()));
-            return {};
-        }));
-
-    // FIXME: 7. If source is a byte sequence, then set action to a step that returns source and length to source’s length.
-    // FIXME: 8. If action is non-null, then run these steps in in parallel:
-
-    // 9. Let body be a body whose stream is stream, source is source, and length is length.
-    auto body = Fetch::Infrastructure::Body { move(stream), move(source), move(length) };
-    // 10. Return (body, type).
-    return Fetch::Infrastructure::BodyWithType { .body = move(body), .type = move(type) };
-}
-
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-setrequestheader
-DOM::ExceptionOr<void> XMLHttpRequest::set_request_header(String const& name_string, String const& value_string)
+WebIDL::ExceptionOr<void> XMLHttpRequest::set_request_header(String const& name_string, String const& value_string)
 {
     auto name = name_string.to_byte_buffer();
     auto value = value_string.to_byte_buffer();
 
     // 1. If this’s state is not opened, then throw an "InvalidStateError" DOMException.
     if (m_ready_state != ReadyState::Opened)
-        return DOM::InvalidStateError::create(global_object(), "XHR readyState is not OPENED");
+        return WebIDL::InvalidStateError::create(realm(), "XHR readyState is not OPENED");
 
     // 2. If this’s send() flag is set, then throw an "InvalidStateError" DOMException.
     if (m_send)
-        return DOM::InvalidStateError::create(global_object(), "XHR send() flag is already set");
+        return WebIDL::InvalidStateError::create(realm(), "XHR send() flag is already set");
 
     // 3. Normalize value.
     value = MUST(Fetch::Infrastructure::normalize_header_value(value));
 
     // 4. If name is not a header name or value is not a header value, then throw a "SyntaxError" DOMException.
     if (!Fetch::Infrastructure::is_header_name(name))
-        return DOM::SyntaxError::create(global_object(), "Header name contains invalid characters.");
+        return WebIDL::SyntaxError::create(realm(), "Header name contains invalid characters.");
     if (!Fetch::Infrastructure::is_header_value(value))
-        return DOM::SyntaxError::create(global_object(), "Header value contains invalid characters.");
+        return WebIDL::SyntaxError::create(realm(), "Header value contains invalid characters.");
 
     // 5. If name is a forbidden header name, then return.
     if (Fetch::Infrastructure::is_forbidden_header_name(name))
@@ -370,13 +333,13 @@ DOM::ExceptionOr<void> XMLHttpRequest::set_request_header(String const& name_str
 }
 
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-open
-DOM::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String const& url)
+WebIDL::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String const& url)
 {
     // 8. If the async argument is omitted, set async to true, and set username and password to null.
     return open(method_string, url, true, {}, {});
 }
 
-DOM::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String const& url, bool async, String const& username, String const& password)
+WebIDL::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String const& url, bool async, String const& username, String const& password)
 {
     auto method = method_string.to_byte_buffer();
 
@@ -385,15 +348,15 @@ DOM::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String 
 
     // 2. If settingsObject has a responsible document and it is not fully active, then throw an "InvalidStateError" DOMException.
     if (settings_object.responsible_document() && !settings_object.responsible_document()->is_active())
-        return DOM::InvalidStateError::create(global_object(), "Invalid state: Responsible document is not fully active.");
+        return WebIDL::InvalidStateError::create(realm(), "Invalid state: Responsible document is not fully active.");
 
     // 3. If method is not a method, then throw a "SyntaxError" DOMException.
     if (!Fetch::Infrastructure::is_method(method))
-        return DOM::SyntaxError::create(global_object(), "An invalid or illegal string was specified.");
+        return WebIDL::SyntaxError::create(realm(), "An invalid or illegal string was specified.");
 
     // 4. If method is a forbidden method, then throw a "SecurityError" DOMException.
     if (Fetch::Infrastructure::is_forbidden_method(method))
-        return DOM::SecurityError::create(global_object(), "Forbidden method, must not be 'CONNECT', 'TRACE', or 'TRACK'");
+        return WebIDL::SecurityError::create(realm(), "Forbidden method, must not be 'CONNECT', 'TRACE', or 'TRACK'");
 
     // 5. Normalize method.
     method = MUST(Fetch::Infrastructure::normalize_method(method));
@@ -403,7 +366,7 @@ DOM::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String 
 
     // 7. If parsedURL is failure, then throw a "SyntaxError" DOMException.
     if (!parsed_url.is_valid())
-        return DOM::SyntaxError::create(global_object(), "Invalid URL");
+        return WebIDL::SyntaxError::create(realm(), "Invalid URL");
 
     // 8. If the async argument is omitted, set async to true, and set username and password to null.
     // NOTE: This is handled in the overload lacking the async argument.
@@ -453,25 +416,28 @@ DOM::ExceptionOr<void> XMLHttpRequest::open(String const& method_string, String 
 }
 
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-send
-DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> body)
+WebIDL::ExceptionOr<void> XMLHttpRequest::send(Optional<Fetch::XMLHttpRequestBodyInit> body)
 {
+    auto& vm = this->vm();
+    auto& realm = *vm.current_realm();
+
     if (m_ready_state != ReadyState::Opened)
-        return DOM::InvalidStateError::create(global_object(), "XHR readyState is not OPENED");
+        return WebIDL::InvalidStateError::create(realm, "XHR readyState is not OPENED");
 
     if (m_send)
-        return DOM::InvalidStateError::create(global_object(), "XHR send() flag is already set");
+        return WebIDL::InvalidStateError::create(realm, "XHR send() flag is already set");
 
     // If this’s request method is `GET` or `HEAD`, then set body to null.
     if (m_method.is_one_of("GET"sv, "HEAD"sv))
         body = {};
 
-    auto body_with_type = body.has_value() ? TRY_OR_RETURN_OOM(global_object(), extract_body(body.value())) : Optional<Fetch::Infrastructure::BodyWithType> {};
+    auto body_with_type = body.has_value() ? TRY(Fetch::extract_body(realm, body.value())) : Optional<Fetch::Infrastructure::BodyWithType> {};
 
     AK::URL request_url = m_window->associated_document().parse_url(m_url.to_string());
     dbgln("XHR send from {} to {}", m_window->associated_document().url(), request_url);
 
     // TODO: Add support for preflight requests to support CORS requests
-    auto request_url_origin = HTML::Origin(request_url.protocol(), request_url.host(), request_url.port_or_default());
+    auto request_url_origin = HTML::Origin(request_url.scheme(), request_url.host(), request_url.port_or_default());
 
     bool should_enforce_same_origin_policy = true;
     if (auto* page = m_window->page())
@@ -480,21 +446,32 @@ DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> bod
     if (should_enforce_same_origin_policy && !m_window->associated_document().origin().is_same_origin(request_url_origin)) {
         dbgln("XHR failed to load: Same-Origin Policy violation: {} may not load {}", m_window->associated_document().url(), request_url);
         set_ready_state(ReadyState::Done);
-        dispatch_event(*DOM::Event::create(global_object(), HTML::EventNames::error));
+        dispatch_event(*DOM::Event::create(realm, HTML::EventNames::error));
         return {};
     }
 
     auto request = LoadRequest::create_for_url_on_page(request_url, m_window->page());
     request.set_method(m_method);
     if (body_with_type.has_value()) {
-        TRY_OR_RETURN_OOM(global_object(), body_with_type->body.source().visit([&](ByteBuffer const& buffer) -> ErrorOr<void> {
-                request.set_body(buffer);
-                return {}; }, [&](JS::Handle<FileAPI::Blob> const& blob) -> ErrorOr<void> {
-                auto byte_buffer = TRY(ByteBuffer::copy(blob->bytes()));
-                request.set_body(byte_buffer);
-                return {}; }, [](auto&) -> ErrorOr<void> { return {}; }));
-        if (body_with_type->type.has_value())
-            request.set_header("Content-Type", String { body_with_type->type->span() });
+        TRY(body_with_type->body.source().visit(
+            [&](ByteBuffer const& buffer) -> WebIDL::ExceptionOr<void> {
+                auto byte_buffer = TRY_OR_RETURN_OOM(realm, ByteBuffer::copy(buffer));
+                request.set_body(move(byte_buffer));
+                return {};
+            },
+            [&](JS::Handle<FileAPI::Blob> const& blob) -> WebIDL::ExceptionOr<void> {
+                auto byte_buffer = TRY_OR_RETURN_OOM(realm, ByteBuffer::copy(blob->bytes()));
+                request.set_body(move(byte_buffer));
+                return {};
+            },
+            [](auto&) -> WebIDL::ExceptionOr<void> {
+                return {};
+            }));
+        if (body_with_type->type.has_value()) {
+            // If type is non-null and this’s headers’s header list does not contain `Content-Type`, then append (`Content-Type`, type) to this’s headers.
+            if (!m_request_headers.contains("Content-Type"sv))
+                request.set_header("Content-Type", String { body_with_type->type->span() });
+        }
     }
     for (auto& it : m_request_headers)
         request.set_header(it.key, it.value);
@@ -543,7 +520,7 @@ DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> bod
                 xhr.m_status = status_code.value_or(0);
                 xhr.m_response_headers = move(response_headers);
                 xhr.m_send = false;
-                xhr.dispatch_event(*DOM::Event::create(xhr.global_object(), EventNames::readystatechange));
+                xhr.dispatch_event(*DOM::Event::create(xhr.realm(), EventNames::readystatechange));
                 xhr.fire_progress_event(EventNames::load, transmitted, length);
                 xhr.fire_progress_event(EventNames::loadend, transmitted, length);
             },
@@ -555,7 +532,7 @@ DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> bod
                 auto& xhr = const_cast<XMLHttpRequest&>(*strong_this);
                 xhr.set_ready_state(ReadyState::Done);
                 xhr.set_status(status_code.value_or(0));
-                xhr.dispatch_event(*DOM::Event::create(xhr.global_object(), HTML::EventNames::error));
+                xhr.dispatch_event(*DOM::Event::create(xhr.realm(), HTML::EventNames::error));
             },
             m_timeout,
             [weak_this = make_weak_ptr<XMLHttpRequest>()] {
@@ -563,7 +540,7 @@ DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> bod
                 if (!strong_this)
                     return;
                 auto& xhr = const_cast<XMLHttpRequest&>(*strong_this);
-                xhr.dispatch_event(*DOM::Event::create(xhr.global_object(), EventNames::timeout));
+                xhr.dispatch_event(*DOM::Event::create(xhr.realm(), EventNames::timeout));
             });
     } else {
         TODO();
@@ -571,12 +548,12 @@ DOM::ExceptionOr<void> XMLHttpRequest::send(Optional<XMLHttpRequestBodyInit> bod
     return {};
 }
 
-Bindings::CallbackType* XMLHttpRequest::onreadystatechange()
+WebIDL::CallbackType* XMLHttpRequest::onreadystatechange()
 {
     return event_handler_attribute(Web::XHR::EventNames::readystatechange);
 }
 
-void XMLHttpRequest::set_onreadystatechange(Bindings::CallbackType* value)
+void XMLHttpRequest::set_onreadystatechange(WebIDL::CallbackType* value)
 {
     set_event_handler_attribute(Web::XHR::EventNames::readystatechange, value);
 }
@@ -600,11 +577,11 @@ String XMLHttpRequest::get_all_response_headers() const
 }
 
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-overridemimetype
-DOM::ExceptionOr<void> XMLHttpRequest::override_mime_type(String const& mime)
+WebIDL::ExceptionOr<void> XMLHttpRequest::override_mime_type(String const& mime)
 {
     // 1. If this’s state is loading or done, then throw an "InvalidStateError" DOMException.
     if (m_ready_state == ReadyState::Loading || m_ready_state == ReadyState::Done)
-        return DOM::InvalidStateError::create(global_object(), "Cannot override MIME type when state is Loading or Done.");
+        return WebIDL::InvalidStateError::create(realm(), "Cannot override MIME type when state is Loading or Done.");
 
     // 2. Set this’s override MIME type to the result of parsing mime.
     m_override_mime_type = MimeSniff::MimeType::from_string(mime);
@@ -617,12 +594,12 @@ DOM::ExceptionOr<void> XMLHttpRequest::override_mime_type(String const& mime)
 }
 
 // https://xhr.spec.whatwg.org/#ref-for-dom-xmlhttprequest-timeout%E2%91%A2
-DOM::ExceptionOr<void> XMLHttpRequest::set_timeout(u32 timeout)
+WebIDL::ExceptionOr<void> XMLHttpRequest::set_timeout(u32 timeout)
 {
     // 1. If the current global object is a Window object and this’s synchronous flag is set,
     //    then throw an "InvalidAccessError" DOMException.
     if (is<HTML::Window>(HTML::current_global_object()) && m_synchronous)
-        return DOM::InvalidAccessError::create(global_object(), "Use of XMLHttpRequest's timeout attribute is not supported in the synchronous mode in window context.");
+        return WebIDL::InvalidAccessError::create(realm(), "Use of XMLHttpRequest's timeout attribute is not supported in the synchronous mode in window context.");
 
     // 2. Set this’s timeout to the given value.
     m_timeout = timeout;
@@ -632,5 +609,38 @@ DOM::ExceptionOr<void> XMLHttpRequest::set_timeout(u32 timeout)
 
 // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-timeout
 u32 XMLHttpRequest::timeout() const { return m_timeout; }
+
+// https://xhr.spec.whatwg.org/#garbage-collection
+bool XMLHttpRequest::must_survive_garbage_collection() const
+{
+    // An XMLHttpRequest object must not be garbage collected
+    // if its state is either opened with the send() flag set, headers received, or loading,
+    // and it has one or more event listeners registered whose type is one of
+    // readystatechange, progress, abort, error, load, timeout, and loadend.
+    if ((m_ready_state == ReadyState::Opened && m_send)
+        || m_ready_state == ReadyState::HeadersReceived
+        || m_ready_state == ReadyState::Loading) {
+        if (has_event_listener(EventNames::readystatechange))
+            return true;
+        if (has_event_listener(EventNames::progress))
+            return true;
+        if (has_event_listener(EventNames::abort))
+            return true;
+        if (has_event_listener(EventNames::error))
+            return true;
+        if (has_event_listener(EventNames::load))
+            return true;
+        if (has_event_listener(EventNames::timeout))
+            return true;
+        if (has_event_listener(EventNames::loadend))
+            return true;
+    }
+
+    // FIXME: If an XMLHttpRequest object is garbage collected while its connection is still open,
+    //        the user agent must terminate the XMLHttpRequest object’s fetch controller.
+    // NOTE: This would go in XMLHttpRequest::finalize().
+
+    return false;
+}
 
 }

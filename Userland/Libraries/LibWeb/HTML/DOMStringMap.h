@@ -7,26 +7,24 @@
 
 #pragma once
 
-#include <LibWeb/Bindings/PlatformObject.h>
+#include <LibWeb/Bindings/LegacyPlatformObject.h>
 #include <LibWeb/Forward.h>
 
 namespace Web::HTML {
 
 // https://html.spec.whatwg.org/multipage/dom.html#domstringmap
-class DOMStringMap final : public Bindings::PlatformObject {
-    WEB_PLATFORM_OBJECT(DOMStringMap, Bindings::PlatformObject);
+class DOMStringMap final : public Bindings::LegacyPlatformObject {
+    WEB_PLATFORM_OBJECT(DOMStringMap, Bindings::LegacyPlatformObject);
 
 public:
     static JS::NonnullGCPtr<DOMStringMap> create(DOM::Element&);
 
     virtual ~DOMStringMap() override;
 
-    Vector<String> supported_property_names() const;
-
     String determine_value_of_named_property(String const&) const;
 
-    DOM::ExceptionOr<void> set_value_of_new_named_property(String const&, String const&);
-    DOM::ExceptionOr<void> set_value_of_existing_named_property(String const&, String const&);
+    WebIDL::ExceptionOr<void> set_value_of_new_named_property(String const&, String const&);
+    WebIDL::ExceptionOr<void> set_value_of_existing_named_property(String const&, String const&);
 
     bool delete_existing_named_property(String const&);
 
@@ -34,6 +32,10 @@ private:
     explicit DOMStringMap(DOM::Element&);
 
     virtual void visit_edges(Cell::Visitor&) override;
+
+    // ^LegacyPlatformObject
+    virtual JS::Value named_item_value(FlyString const&) const override;
+    virtual Vector<String> supported_property_names() const override;
 
     struct NameValuePair {
         String name;
@@ -47,5 +49,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(DOMStringMap, Web::HTML)

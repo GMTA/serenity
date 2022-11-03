@@ -13,7 +13,7 @@
 #include <AK/TypeCasts.h>
 #include <AK/Vector.h>
 #include <LibWeb/DOM/EventTarget.h>
-#include <LibWeb/DOM/ExceptionOr.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::DOM {
 
@@ -81,21 +81,21 @@ public:
     virtual bool is_html_template_element() const { return false; }
     virtual bool is_browsing_context_container() const { return false; }
 
-    ExceptionOr<JS::NonnullGCPtr<Node>> pre_insert(JS::NonnullGCPtr<Node>, JS::GCPtr<Node>);
-    ExceptionOr<JS::NonnullGCPtr<Node>> pre_remove(JS::NonnullGCPtr<Node>);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> pre_insert(JS::NonnullGCPtr<Node>, JS::GCPtr<Node>);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> pre_remove(JS::NonnullGCPtr<Node>);
 
-    ExceptionOr<JS::NonnullGCPtr<Node>> append_child(JS::NonnullGCPtr<Node>);
-    ExceptionOr<JS::NonnullGCPtr<Node>> remove_child(JS::NonnullGCPtr<Node>);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> append_child(JS::NonnullGCPtr<Node>);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> remove_child(JS::NonnullGCPtr<Node>);
 
     void insert_before(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child, bool suppress_observers = false);
     void remove(bool suppress_observers = false);
     void remove_all_children(bool suppress_observers = false);
     u16 compare_document_position(JS::GCPtr<Node> other);
 
-    ExceptionOr<JS::NonnullGCPtr<Node>> replace_child(JS::NonnullGCPtr<Node> node, JS::NonnullGCPtr<Node> child);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> replace_child(JS::NonnullGCPtr<Node> node, JS::NonnullGCPtr<Node> child);
 
     JS::NonnullGCPtr<Node> clone_node(Document* document = nullptr, bool clone_children = false);
-    ExceptionOr<JS::NonnullGCPtr<Node>> clone_node_binding(bool deep);
+    WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> clone_node_binding(bool deep);
 
     // NOTE: This is intended for the JS bindings.
     bool has_child_nodes() const { return has_children(); }
@@ -115,8 +115,6 @@ public:
 
     Document& document() { return *m_document; }
     Document const& document() const { return *m_document; }
-
-    HTML::Window& window() const;
 
     JS::GCPtr<Document> owner_document() const;
 
@@ -158,7 +156,8 @@ public:
     Painting::PaintableBox const* paint_box() const;
     Painting::Paintable const* paintable() const;
 
-    void set_layout_node(Badge<Layout::Node>, Layout::Node*) const;
+    void set_layout_node(Badge<Layout::Node>, JS::NonnullGCPtr<Layout::Node>);
+    void detach_layout_node(Badge<DOM::Document>);
 
     virtual bool is_child_allowed(Node const&) const { return true; }
 
@@ -170,8 +169,6 @@ public:
 
     void invalidate_style();
 
-    bool is_link() const;
-
     void set_document(Badge<Document>, Document&);
 
     virtual EventTarget* get_parent(Event const&) override;
@@ -179,7 +176,7 @@ public:
     template<typename T>
     bool fast_is() const = delete;
 
-    ExceptionOr<void> ensure_pre_insertion_validity(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child) const;
+    WebIDL::ExceptionOr<void> ensure_pre_insertion_validity(JS::NonnullGCPtr<Node> node, JS::GCPtr<Node> child) const;
 
     bool is_host_including_inclusive_ancestor_of(Node const&) const;
 
@@ -625,9 +622,10 @@ protected:
     Node(Document&, NodeType);
 
     virtual void visit_edges(Cell::Visitor&) override;
+    virtual void finalize() override;
 
     JS::GCPtr<Document> m_document;
-    mutable WeakPtr<Layout::Node> m_layout_node;
+    JS::GCPtr<Layout::Node> m_layout_node;
     NodeType m_type { NodeType::INVALID };
     bool m_needs_style_update { false };
     bool m_child_needs_style_update { false };
@@ -650,8 +648,8 @@ private:
     JS::GCPtr<Node> m_last_child;
     JS::GCPtr<Node> m_next_sibling;
     JS::GCPtr<Node> m_previous_sibling;
+
+    JS::GCPtr<NodeList> m_child_nodes;
 };
 
 }
-
-WRAPPER_HACK(Node, Web::DOM)

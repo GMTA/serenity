@@ -652,10 +652,13 @@ ThrowCompletionOr<DateDurationRecord> unbalance_duration_relative(VM& vm, double
             return vm.throw_completion<RangeError>(ErrorType::TemporalMissingStartingPoint, "weeks");
         }
 
-        // b. Repeat, while years ≠ 0,
+        // b. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+        auto* date_add = TRY(Value(calendar).get_method(vm, vm.names.dateAdd));
+
+        // c. Repeat, while years ≠ 0,
         while (years != 0) {
-            // i. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear).
-            auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_year));
+            // i. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear, dateAdd).
+            auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_year, date_add));
 
             // ii. Set relativeTo to moveResult.[[RelativeTo]].
             relative_to = move_result.relative_to.cell();
@@ -667,10 +670,10 @@ ThrowCompletionOr<DateDurationRecord> unbalance_duration_relative(VM& vm, double
             years -= sign;
         }
 
-        // c. Repeat, while months ≠ 0,
+        // d. Repeat, while months ≠ 0,
         while (months != 0) {
-            // i. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-            auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_month));
+            // i. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+            auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_month, date_add));
 
             // ii. Set relativeTo to moveResult.[[RelativeTo]].
             relative_to = move_result.relative_to.cell();
@@ -692,10 +695,13 @@ ThrowCompletionOr<DateDurationRecord> unbalance_duration_relative(VM& vm, double
                 return vm.throw_completion<RangeError>(ErrorType::TemporalMissingStartingPoint, "calendar units");
             }
 
-            // ii. Repeat, while years ≠ 0,
+            // ii. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+            auto* date_add = TRY(Value(calendar).get_method(vm, vm.names.dateAdd));
+
+            // iii. Repeat, while years ≠ 0,
             while (years != 0) {
-                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear).
-                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_year));
+                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear, dateAdd).
+                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_year, date_add));
 
                 // 2. Set relativeTo to moveResult.[[RelativeTo]].
                 relative_to = move_result.relative_to.cell();
@@ -707,10 +713,10 @@ ThrowCompletionOr<DateDurationRecord> unbalance_duration_relative(VM& vm, double
                 years -= sign;
             }
 
-            // iii. Repeat, while months ≠ 0,
+            // iv. Repeat, while months ≠ 0,
             while (months != 0) {
-                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_month));
+                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_month, date_add));
 
                 // 2. Set relativeTo to moveResult.[[RelativeTo]].
                 relative_to = move_result.relative_to.cell();
@@ -722,10 +728,10 @@ ThrowCompletionOr<DateDurationRecord> unbalance_duration_relative(VM& vm, double
                 months -= sign;
             }
 
-            // iv. Repeat, while weeks ≠ 0,
+            // v. Repeat, while weeks ≠ 0,
             while (weeks != 0) {
-                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek).
-                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_week));
+                // 1. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek, dateAdd).
+                auto move_result = TRY(move_relative_date(vm, *calendar, verify_cast<PlainDate>(relative_to.as_object()), *one_week, date_add));
 
                 // 2. Set relativeTo to moveResult.[[RelativeTo]].
                 relative_to = move_result.relative_to.cell();
@@ -783,16 +789,19 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
 
     // 10. If largestUnit is "year", then
     if (largest_unit == "year"sv) {
-        // a. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear).
-        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_year));
+        // a. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+        auto* date_add = TRY(Value(&calendar).get_method(vm, vm.names.dateAdd));
 
-        // b. Let newRelativeTo be moveResult.[[RelativeTo]].
+        // b. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_year, date_add));
+
+        // c. Let newRelativeTo be moveResult.[[RelativeTo]].
         auto* new_relative_to = move_result.relative_to.cell();
 
-        // c. Let oneYearDays be moveResult.[[Days]].
+        // d. Let oneYearDays be moveResult.[[Days]].
         auto one_year_days = move_result.days;
 
-        // d. Repeat, while abs(days) ≥ abs(oneYearDays),
+        // e. Repeat, while abs(days) ≥ abs(oneYearDays),
         while (fabs(days) >= fabs(one_year_days)) {
             // i. Set days to days - oneYearDays.
             days -= one_year_days;
@@ -803,8 +812,8 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             // iii. Set relativeTo to newRelativeTo.
             relative_to = new_relative_to;
 
-            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneYear).
-            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_year));
+            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneYear, dateAdd).
+            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_year, date_add));
 
             // v. Set newRelativeTo to moveResult.[[RelativeTo]].
             new_relative_to = move_result.relative_to.cell();
@@ -813,16 +822,16 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             one_year_days = move_result.days;
         }
 
-        // e. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-        move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month));
+        // f. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+        move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month, date_add));
 
-        // f. Set newRelativeTo to moveResult.[[RelativeTo]].
+        // g. Set newRelativeTo to moveResult.[[RelativeTo]].
         new_relative_to = move_result.relative_to.cell();
 
-        // g. Let oneMonthDays be moveResult.[[Days]].
+        // h. Let oneMonthDays be moveResult.[[Days]].
         auto one_month_days = move_result.days;
 
-        // h. Repeat, while abs(days) ≥ abs(oneMonthDays),
+        // i. Repeat, while abs(days) ≥ abs(oneMonthDays),
         while (fabs(days) >= fabs(one_month_days)) {
             // i. Set days to days - oneMonthDays.
             days -= one_month_days;
@@ -833,8 +842,8 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             // iii. Set relativeTo to newRelativeTo.
             relative_to = new_relative_to;
 
-            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month));
+            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month, date_add));
 
             // v. Set newRelativeTo to moveResult.[[RelativeTo]].
             new_relative_to = move_result.relative_to.cell();
@@ -842,9 +851,6 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             // vi. Set oneMonthDays to moveResult.[[Days]].
             one_month_days = move_result.days;
         }
-
-        // i. Let dateAdd be ? GetMethod(calendar, "dateAdd").
-        auto* date_add = TRY(Value(&calendar).get_method(vm, vm.names.dateAdd));
 
         // j. Set newRelativeTo to ? CalendarDateAdd(calendar, relativeTo, oneYear, undefined, dateAdd).
         new_relative_to = TRY(calendar_date_add(vm, calendar, relative_to, *one_year, nullptr, date_add));
@@ -893,16 +899,19 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
     }
     // 11. Else if largestUnit is "month", then
     else if (largest_unit == "month"sv) {
-        // a. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month));
+        // a. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+        auto* date_add = TRY(Value(&calendar).get_method(vm, vm.names.dateAdd));
 
-        // b. Let newRelativeTo be moveResult.[[RelativeTo]].
+        // b. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month, date_add));
+
+        // c. Let newRelativeTo be moveResult.[[RelativeTo]].
         auto* new_relative_to = move_result.relative_to.cell();
 
-        // c. Let oneMonthDays be moveResult.[[Days]].
+        // d. Let oneMonthDays be moveResult.[[Days]].
         auto one_month_days = move_result.days;
 
-        // d. Repeat, while abs(days) ≥ abs(oneMonthDays),
+        // e. Repeat, while abs(days) ≥ abs(oneMonthDays),
         while (fabs(days) >= fabs(one_month_days)) {
             // i. Set days to days - oneMonthDays.
             days -= one_month_days;
@@ -913,8 +922,8 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             // iii. Set relativeTo to newRelativeTo.
             relative_to = new_relative_to;
 
-            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month));
+            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_month, date_add));
 
             // v. Set newRelativeTo to moveResult.[[RelativeTo]].
             new_relative_to = move_result.relative_to.cell();
@@ -928,16 +937,19 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
         // a. Assert: largestUnit is "week".
         VERIFY(largest_unit == "week"sv);
 
-        // b. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek).
-        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_week));
+        // b. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+        auto* date_add = TRY(Value(&calendar).get_method(vm, vm.names.dateAdd));
 
-        // c. Let newRelativeTo be moveResult.[[RelativeTo]].
+        // c. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_week, date_add));
+
+        // d. Let newRelativeTo be moveResult.[[RelativeTo]].
         auto* new_relative_to = move_result.relative_to.cell();
 
-        // d. Let oneWeekDays be moveResult.[[Days]].
+        // e. Let oneWeekDays be moveResult.[[Days]].
         auto one_week_days = move_result.days;
 
-        // e. Repeat, while abs(days) ≥ abs(oneWeekDays),
+        // f. Repeat, while abs(days) ≥ abs(oneWeekDays),
         while (fabs(days) >= fabs(one_week_days)) {
             // i. Set days to days - oneWeekDays.
             days -= one_week_days;
@@ -948,8 +960,8 @@ ThrowCompletionOr<DateDurationRecord> balance_duration_relative(VM& vm, double y
             // iii. Set relativeTo to newRelativeTo.
             relative_to = new_relative_to;
 
-            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneWeek).
-            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_week));
+            // iv. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneWeek, dateAdd).
+            move_result = TRY(move_relative_date(vm, calendar, *relative_to, *one_week, date_add));
 
             // v. Set newRelativeTo to moveResult.[[RelativeTo]].
             new_relative_to = move_result.relative_to.cell();
@@ -988,10 +1000,15 @@ ThrowCompletionOr<DurationRecord> add_duration(VM& vm, double years1, double mon
         }
 
         // b. Let result be ? BalanceDuration(d1 + d2, h1 + h2, min1 + min2, s1 + s2, ms1 + ms2, mus1 + mus2, ns1 + ns2, largestUnit).
-        VERIFY(trunc(nanoseconds1 + nanoseconds2) == nanoseconds1 + nanoseconds2);
-        if (!isfinite(nanoseconds1 + nanoseconds2))
-            return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidDuration);
-        auto result = TRY(balance_duration(vm, days1 + days2, hours1 + hours2, minutes1 + minutes2, seconds1 + seconds2, milliseconds1 + milliseconds2, microseconds1 + microseconds2, Crypto::SignedBigInteger { nanoseconds1 + nanoseconds2 }, largest_unit));
+        // NOTE: Nanoseconds is the only one that can overflow the safe integer range of a double
+        //       so we have to check for that case.
+        Crypto::SignedBigInteger sum_of_nano_seconds;
+        if (fabs(nanoseconds1 + nanoseconds2) >= MAX_ARRAY_LIKE_INDEX)
+            sum_of_nano_seconds = Crypto::SignedBigInteger { nanoseconds1 }.plus(Crypto::SignedBigInteger { nanoseconds2 });
+        else
+            sum_of_nano_seconds = Crypto::SignedBigInteger { nanoseconds1 + nanoseconds2 };
+
+        auto result = TRY(balance_duration(vm, days1 + days2, hours1 + hours2, minutes1 + minutes2, seconds1 + seconds2, milliseconds1 + milliseconds2, microseconds1 + microseconds2, sum_of_nano_seconds, largest_unit));
 
         // c. Return ! CreateDurationRecord(0, 0, 0, result.[[Days]], result.[[Hours]], result.[[Minutes]], result.[[Seconds]], result.[[Milliseconds]], result.[[Microseconds]], result.[[Nanoseconds]]).
         return MUST(create_duration_record(vm, 0, 0, 0, result.days, result.hours, result.minutes, result.seconds, result.milliseconds, result.microseconds, result.nanoseconds));
@@ -1032,10 +1049,15 @@ ThrowCompletionOr<DurationRecord> add_duration(VM& vm, double years1, double mon
         auto* date_difference = TRY(calendar_date_until(vm, calendar, &relative_to, end, *difference_options));
 
         // k. Let result be ? BalanceDuration(dateDifference.[[Days]], h1 + h2, min1 + min2, s1 + s2, ms1 + ms2, mus1 + mus2, ns1 + ns2, largestUnit).
-        VERIFY(trunc(nanoseconds1 + nanoseconds2) == nanoseconds1 + nanoseconds2);
-        if (!isfinite(nanoseconds1 + nanoseconds2))
-            return vm.throw_completion<RangeError>(ErrorType::TemporalInvalidDuration);
-        auto result = TRY(balance_duration(vm, date_difference->days(), hours1 + hours2, minutes1 + minutes2, seconds1 + seconds2, milliseconds1 + milliseconds2, microseconds1 + microseconds2, Crypto::SignedBigInteger { nanoseconds1 + nanoseconds2 }, largest_unit));
+        // NOTE: Nanoseconds is the only one that can overflow the safe integer range of a double
+        //       so we have to check for that case.
+        Crypto::SignedBigInteger sum_of_nano_seconds;
+        if (fabs(nanoseconds1 + nanoseconds2) >= MAX_ARRAY_LIKE_INDEX)
+            sum_of_nano_seconds = Crypto::SignedBigInteger { nanoseconds1 }.plus(Crypto::SignedBigInteger { nanoseconds2 });
+        else
+            sum_of_nano_seconds = Crypto::SignedBigInteger { nanoseconds1 + nanoseconds2 };
+
+        auto result = TRY(balance_duration(vm, date_difference->days(), hours1 + hours2, minutes1 + minutes2, seconds1 + seconds2, milliseconds1 + milliseconds2, microseconds1 + microseconds2, sum_of_nano_seconds, largest_unit));
 
         // l. Return ? CreateDurationRecord(dateDifference.[[Years]], dateDifference.[[Months]], dateDifference.[[Weeks]], result.[[Days]], result.[[Hours]], result.[[Minutes]], result.[[Seconds]], result.[[Milliseconds]], result.[[Microseconds]], result.[[Nanoseconds]]).
         return MUST(create_duration_record(vm, date_difference->years(), date_difference->months(), date_difference->weeks(), result.days, result.hours, result.minutes, result.seconds, result.milliseconds, result.microseconds, result.nanoseconds));
@@ -1074,11 +1096,11 @@ ThrowCompletionOr<DurationRecord> add_duration(VM& vm, double years1, double mon
     return difference_zoned_date_time(vm, relative_to.nanoseconds(), *end_ns, time_zone, calendar, largest_unit, *Object::create(realm, nullptr));
 }
 
-// 7.5.23 MoveRelativeDate ( calendar, relativeTo, duration ), https://tc39.es/proposal-temporal/#sec-temporal-moverelativedate
-ThrowCompletionOr<MoveRelativeDateResult> move_relative_date(VM& vm, Object& calendar, PlainDate& relative_to, Duration& duration)
+// 7.5.23 MoveRelativeDate ( calendar, relativeTo, duration, dateAdd ), https://tc39.es/proposal-temporal/#sec-temporal-moverelativedate
+ThrowCompletionOr<MoveRelativeDateResult> move_relative_date(VM& vm, Object& calendar, PlainDate& relative_to, Duration& duration, FunctionObject* date_add)
 {
-    // 1. Let newDate be ? CalendarDateAdd(calendar, relativeTo, duration, options).
-    auto* new_date = TRY(calendar_date_add(vm, calendar, &relative_to, duration));
+    // 1. Let newDate be ? CalendarDateAdd(calendar, relativeTo, duration, undefined, dateAdd)
+    auto* new_date = TRY(calendar_date_add(vm, calendar, &relative_to, duration, nullptr, date_add));
 
     // 2. Let days be DaysUntil(relativeTo, newDate).
     auto days = days_until(relative_to, *new_date);
@@ -1256,8 +1278,8 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
         // v. Let oneYear be ! CreateTemporalDuration(sign, 0, 0, 0, 0, 0, 0, 0, 0, 0).
         auto* one_year = MUST(create_temporal_duration(vm, sign, 0, 0, 0, 0, 0, 0, 0, 0, 0));
 
-        // w. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear).
-        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_year));
+        // w. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneYear, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_year, date_add));
 
         // x. Let oneYearDays be moveResult.[[Days]].
         auto one_year_days = move_result.days;
@@ -1310,8 +1332,8 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
         // j. Let oneMonth be ! CreateTemporalDuration(0, sign, 0, 0, 0, 0, 0, 0, 0, 0).
         auto* one_month = MUST(create_temporal_duration(vm, 0, sign, 0, 0, 0, 0, 0, 0, 0, 0));
 
-        // k. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_month));
+        // k. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_month, date_add));
 
         // l. Set relativeTo to moveResult.[[RelativeTo]].
         relative_to = move_result.relative_to.cell();
@@ -1327,8 +1349,8 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
             // ii. Set days to days - oneMonthDays.
             days -= one_month_days;
 
-            // iii. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth).
-            move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_month));
+            // iii. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneMonth, dateAdd).
+            move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_month, date_add));
 
             // iv. Set relativeTo to moveResult.[[RelativeTo]].
             relative_to = move_result.relative_to.cell();
@@ -1360,16 +1382,19 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
         // b. Let oneWeek be ! CreateTemporalDuration(0, 0, sign, 0, 0, 0, 0, 0, 0, 0).
         auto* one_week = MUST(create_temporal_duration(vm, 0, 0, sign, 0, 0, 0, 0, 0, 0, 0));
 
-        // c. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek).
-        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_week));
+        // c. Let dateAdd be ? GetMethod(calendar, "dateAdd").
+        auto* date_add = TRY(Value(calendar).get_method(vm, vm.names.dateAdd));
 
-        // d. Set relativeTo to moveResult.[[RelativeTo]].
+        // d. Let moveResult be ? MoveRelativeDate(calendar, relativeTo, oneWeek, dateAdd).
+        auto move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_week, date_add));
+
+        // e. Set relativeTo to moveResult.[[RelativeTo]].
         relative_to = move_result.relative_to.cell();
 
-        // e. Let oneWeekDays be moveResult.[[Days]].
+        // f. Let oneWeekDays be moveResult.[[Days]].
         auto one_week_days = move_result.days;
 
-        // f. Repeat, while abs(days) ≥ abs(oneWeekDays),
+        // g. Repeat, while abs(days) ≥ abs(oneWeekDays),
         while (fabs(days) >= fabs(one_week_days)) {
             // i. Set weeks to weeks + sign.
             weeks += sign;
@@ -1377,8 +1402,8 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
             // ii. Set days to days - oneWeekDays.
             days -= one_week_days;
 
-            // iii. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneWeek).
-            move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_week));
+            // iii. Set moveResult to ? MoveRelativeDate(calendar, relativeTo, oneWeek, dateAdd).
+            move_result = TRY(move_relative_date(vm, *calendar, *relative_to, *one_week, date_add));
 
             // iv. Set relativeTo to moveResult.[[RelativeTo]].
             relative_to = move_result.relative_to.cell();
@@ -1387,16 +1412,16 @@ ThrowCompletionOr<RoundedDuration> round_duration(VM& vm, double years, double m
             one_week_days = move_result.days;
         }
 
-        // g. Let fractionalWeeks be weeks + days / abs(oneWeekDays).
+        // h. Let fractionalWeeks be weeks + days / abs(oneWeekDays).
         auto fractional_weeks = weeks + days / fabs(one_week_days);
 
-        // h. Set weeks to RoundNumberToIncrement(fractionalWeeks, increment, roundingMode).
+        // i. Set weeks to RoundNumberToIncrement(fractionalWeeks, increment, roundingMode).
         weeks = round_number_to_increment(fractional_weeks, increment, rounding_mode);
 
-        // i. Set remainder to fractionalWeeks - weeks.
+        // j. Set remainder to fractionalWeeks - weeks.
         remainder = fractional_weeks - weeks;
 
-        // j. Set days to 0.
+        // k. Set days to 0.
         days = 0;
     }
     // 12. Else if unit is "day", then
@@ -1572,19 +1597,19 @@ String temporal_duration_to_string(double years, double months, double weeks, do
     // 1. Let sign be ! DurationSign(years, months, weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds).
     auto sign = duration_sign(years, months, weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds);
 
-    // 2. Set microseconds to microseconds + RoundTowardsZero(nanoseconds / 1000).
+    // 2. Set microseconds to microseconds + truncate(nanoseconds / 1000).
     microseconds += trunc(nanoseconds / 1000);
 
     // 3. Set nanoseconds to remainder(nanoseconds, 1000).
     nanoseconds = fmod(nanoseconds, 1000);
 
-    // 4. Set milliseconds to milliseconds + RoundTowardsZero(microseconds / 1000).
+    // 4. Set milliseconds to milliseconds + truncate(microseconds / 1000).
     milliseconds += trunc(microseconds / 1000);
 
     // 5. Set microseconds to remainder(microseconds, 1000).
     microseconds = fmod(microseconds, 1000);
 
-    // 6. Set seconds to seconds + RoundTowardsZero(milliseconds / 1000).
+    // 6. Set seconds to seconds + truncate(milliseconds / 1000).
     seconds += trunc(milliseconds / 1000);
 
     // 7. Set milliseconds to remainder(milliseconds, 1000).

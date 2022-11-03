@@ -4,6 +4,7 @@
 #include <LibGfx/ShareableBitmap.h>
 #include <LibWeb/CSS/PreferredColorScheme.h>
 #include <LibWeb/CSS/Selector.h>
+#include <LibWeb/WebDriver/ExecuteScript.h>
 
 endpoint WebContentServer
 {
@@ -37,6 +38,17 @@ endpoint WebContentServer
     js_console_input(String js_source) =|
     js_console_request_messages(i32 start_index) =|
 
+    get_document_element() => (Optional<i32> node_id)
+    query_selector_all(i32 start_node_id, String selector) => (Optional<Vector<i32>> elements_ids)
+    get_element_attribute(i32 element_id, String name) => (Optional<String> attribute)
+    get_element_property(i32 element_id, String name) => (Optional<String> property)
+    get_active_documents_type() => (String type)
+    get_computed_value_for_element(i32 element_id, String property_name) => (String computed_value)
+    get_element_text(i32 element_id) => (String text)
+    get_element_tag_name(i32 element_id) => (String tag_name)
+
+    webdriver_execute_script(String body, Vector<String> json_arguments, Optional<u64> timeout, bool async) => (Web::WebDriver::ExecuteScriptResultType result_type, String json_result)
+
     run_javascript(String js_source) =|
 
     dump_layout_tree() => (String dump)
@@ -49,9 +61,15 @@ endpoint WebContentServer
     set_preferred_color_scheme(Web::CSS::PreferredColorScheme color_scheme) =|
     set_has_focus(bool has_focus) =|
     set_is_scripting_enabled(bool is_scripting_enabled) =|
+    set_is_webdriver_active(bool is_webdriver_active) =|
+
+    set_window_position(Gfx::IntPoint position) =|
+    set_window_size(Gfx::IntSize size) =|
 
     get_local_storage_entries() => (OrderedHashMap<String,String> entries)
     get_session_storage_entries() => (OrderedHashMap<String,String> entries)
 
     handle_file_return(i32 error, Optional<IPC::File> file, i32 request_id) =|
+
+    set_system_visibility_state(bool visible) =|
 }

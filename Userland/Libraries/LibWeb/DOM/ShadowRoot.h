@@ -29,7 +29,7 @@ public:
     String mode() const { return m_closed ? "closed" : "open"; }
 
     String inner_html() const;
-    ExceptionOr<void> set_inner_html(String const&);
+    WebIDL::ExceptionOr<void> set_inner_html(String const&);
 
 private:
     ShadowRoot(Document&, Element&);
@@ -66,5 +66,3 @@ inline IterationDecision Node::for_each_shadow_including_descendant(Callback cal
 }
 
 }
-
-WRAPPER_HACK(ShadowRoot, Web::DOM)

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
+ * Copyright (c) 2022, Timothy Slater <tslater2006@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -65,6 +66,21 @@ Layer::Layer(Image& image, NonnullRefPtr<Gfx::Bitmap> bitmap, String name)
 
 void Layer::did_modify_bitmap(Gfx::IntRect const& rect)
 {
+    if (!m_scratch_edited_bitmap.is_null()) {
+        for (int y = 0; y < rect.height(); ++y) {
+            for (int x = 0; x < rect.width(); ++x) {
+                Gfx::IntPoint next_point = { rect.left() + x, rect.top() + y };
+                if (!m_scratch_edited_bitmap->rect().contains(next_point))
+                    continue;
+
+                if (this->image().selection().is_selected(next_point.translated(this->location())))
+                    currently_edited_bitmap().set_pixel(next_point, m_scratch_edited_bitmap->get_pixel(next_point));
+                else
+                    m_scratch_edited_bitmap->set_pixel(next_point, currently_edited_bitmap().get_pixel(next_point));
+            }
+        }
+    }
+
     m_image.layer_did_modify_bitmap({}, *this, rect);
     update_cached_bitmap();
 }
@@ -91,6 +107,21 @@ void Layer::set_name(String name)
         return;
     m_name = move(name);
     m_image.layer_did_modify_properties({}, *this);
+}
+
+Gfx::Bitmap& Layer::get_scratch_edited_bitmap()
+{
+    if (this->image().selection().is_empty()) {
+        m_scratch_edited_bitmap = nullptr;
+        return currently_edited_bitmap();
+    }
+
+    if (!m_scratch_edited_bitmap.is_null())
+        return *m_scratch_edited_bitmap;
+
+    m_scratch_edited_bitmap = MUST(currently_edited_bitmap().clone());
+
+    return *m_scratch_edited_bitmap;
 }
 
 RefPtr<Gfx::Bitmap> Layer::try_copy_bitmap(Selection const& selection) const
@@ -142,7 +173,7 @@ void Layer::erase_selection(Selection const& selection)
         for (int x = translated_to_layer_space.left(); x < translated_to_layer_space.left() + translated_to_layer_space.width(); ++x) {
 
             // Selection is still in pre-translated coordinates, account for this by adding the layer's relative location
-            if (selection.is_selected(x + location().x(), y + location().y())) {
+            if (content_bitmap().rect().contains(x, y) && selection.is_selected(x + location().x(), y + location().y())) {
                 content_bitmap().set_pixel(x, y, Color::Transparent);
             }
         }
@@ -158,6 +189,7 @@ ErrorOr<void> Layer::try_set_bitmaps(NonnullRefPtr<Gfx::Bitmap> content, RefPtr<
 
     m_content_bitmap = move(content);
     m_mask_bitmap = move(mask);
+    m_scratch_edited_bitmap = nullptr;
     update_cached_bitmap();
     return {};
 }
@@ -198,7 +230,11 @@ void Layer::resize(Gfx::IntSize const& new_size, Gfx::IntPoint const& new_locati
         auto dst = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, new_size).release_value_but_fixme_should_propagate_errors();
         Gfx::Painter painter(dst);
 
-        painter.draw_scaled_bitmap(dst_rect, *m_content_bitmap, src_rect, 1.0f, scaling_mode);
+        if (scaling_mode == Gfx::Painter::ScalingMode::None) {
+            painter.blit(src_rect.top_left(), *m_content_bitmap, src_rect, 1.0f);
+        } else {
+            painter.draw_scaled_bitmap(dst_rect, *m_content_bitmap, src_rect, 1.0f, scaling_mode);
+        }
 
         m_content_bitmap = move(dst);
     }
@@ -207,7 +243,12 @@ void Layer::resize(Gfx::IntSize const& new_size, Gfx::IntPoint const& new_locati
         auto dst = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, new_size).release_value_but_fixme_should_propagate_errors();
         Gfx::Painter painter(dst);
 
-        painter.draw_scaled_bitmap(dst_rect, *m_mask_bitmap, src_rect, 1.0f, scaling_mode);
+        if (scaling_mode == Gfx::Painter::ScalingMode::None) {
+            painter.blit(src_rect.top_left(), *m_content_bitmap, src_rect, 1.0f);
+        } else {
+            painter.draw_scaled_bitmap(dst_rect, *m_mask_bitmap, src_rect, 1.0f, scaling_mode);
+        }
+
         m_mask_bitmap = move(dst);
     }
 
@@ -274,7 +315,7 @@ void Layer::set_edit_mode(Layer::EditMode mode)
 {
     if (m_edit_mode == mode)
         return;
-
+    m_scratch_edited_bitmap = nullptr;
     m_edit_mode = mode;
 }
 

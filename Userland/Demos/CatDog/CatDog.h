@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#pragma once
+
 #include <AK/NonnullRefPtr.h>
 #include <AK/RefPtr.h>
 #include <LibCore/ElapsedTimer.h>
@@ -14,8 +16,6 @@
 #include <LibGUI/Widget.h>
 #include <LibGfx/Bitmap.h>
 #include <unistd.h>
-
-#pragma once
 
 class CatDog final : public GUI::Widget
     , GUI::MouseTracker {
@@ -126,7 +126,7 @@ private:
 
     CatDog()
         : m_temp_pos { 0, 0 }
-        , m_proc_all(MUST(Core::File::open("/proc/all", Core::OpenMode::ReadOnly)))
+        , m_proc_all(MUST(Core::File::open("/sys/kernel/processes", Core::OpenMode::ReadOnly)))
     {
         set_image_by_main_state();
     }

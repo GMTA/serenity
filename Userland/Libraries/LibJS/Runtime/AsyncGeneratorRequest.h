@@ -7,14 +7,14 @@
 #pragma once
 
 #include <LibJS/Runtime/Completion.h>
-#include <LibJS/Runtime/PromiseReaction.h>
+#include <LibJS/Runtime/PromiseCapability.h>
 
 namespace JS {
 
 // 27.6.3.1 AsyncGeneratorRequest Records, https://tc39.es/ecma262/#sec-asyncgeneratorrequest-records
 struct AsyncGeneratorRequest {
-    Completion completion;        // [[Completion]]
-    PromiseCapability capability; // [[Capability]]
+    Completion completion;                      // [[Completion]]
+    NonnullGCPtr<PromiseCapability> capability; // [[Capability]]
 };
 
 }

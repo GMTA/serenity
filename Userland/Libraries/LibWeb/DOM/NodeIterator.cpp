@@ -4,23 +4,26 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <LibWeb/Bindings/IDLAbstractOperations.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Node.h>
 #include <LibWeb/DOM/NodeIterator.h>
+#include <LibWeb/WebIDL/AbstractOperations.h>
 
 namespace Web::DOM {
 
 NodeIterator::NodeIterator(Node& root)
-    : PlatformObject(root.window().cached_web_prototype("NodeIterator"))
+    : PlatformObject(Bindings::cached_web_prototype(root.realm(), "NodeIterator"))
     , m_root(root)
     , m_reference({ root })
 {
     root.document().register_node_iterator({}, *this);
 }
 
-NodeIterator::~NodeIterator()
+NodeIterator::~NodeIterator() = default;
+
+void NodeIterator::finalize()
 {
+    Base::finalize();
     m_root->document().unregister_node_iterator({}, *this);
 }
 
@@ -41,8 +44,8 @@ JS::NonnullGCPtr<NodeIterator> NodeIterator::create(Node& root, unsigned what_to
     // 1. Let iterator be a new NodeIterator object.
     // 2. Set iterator’s root and iterator’s reference to root.
     // 3. Set iterator’s pointer before reference to true.
-    auto& window_object = root.document().window();
-    auto* iterator = window_object.heap().allocate<NodeIterator>(window_object.realm(), root);
+    auto& realm = root.realm();
+    auto* iterator = realm.heap().allocate<NodeIterator>(realm, root);
 
     // 4. Set iterator’s whatToShow to whatToShow.
     iterator->m_what_to_show = what_to_show;
@@ -130,7 +133,7 @@ JS::ThrowCompletionOr<NodeFilter::Result> NodeIterator::filter(Node& node)
 {
     // 1. If traverser’s active flag is set, then throw an "InvalidStateError" DOMException.
     if (m_active)
-        return throw_completion(InvalidStateError::create(global_object(), "NodeIterator is already active"));
+        return throw_completion(WebIDL::InvalidStateError::create(realm(), "NodeIterator is already active"));
 
     // 2. Let n be node’s nodeType attribute value − 1.
     auto n = node.node_type() - 1;
@@ -148,7 +151,7 @@ JS::ThrowCompletionOr<NodeFilter::Result> NodeIterator::filter(Node& node)
 
     // 6. Let result be the return value of call a user object’s operation with traverser’s filter, "acceptNode", and « node ».
     //    If this throws an exception, then unset traverser’s active flag and rethrow the exception.
-    auto result = Bindings::IDL::call_user_object_operation(m_filter->callback(), "acceptNode", {}, &node);
+    auto result = WebIDL::call_user_object_operation(m_filter->callback(), "acceptNode", {}, &node);
     if (result.is_abrupt()) {
         m_active = false;
         return result;

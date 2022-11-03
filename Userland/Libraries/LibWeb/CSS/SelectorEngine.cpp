@@ -11,8 +11,16 @@
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/Text.h>
 #include <LibWeb/HTML/AttributeNames.h>
+#include <LibWeb/HTML/HTMLAnchorElement.h>
+#include <LibWeb/HTML/HTMLAreaElement.h>
+#include <LibWeb/HTML/HTMLButtonElement.h>
+#include <LibWeb/HTML/HTMLFieldSetElement.h>
 #include <LibWeb/HTML/HTMLHtmlElement.h>
 #include <LibWeb/HTML/HTMLInputElement.h>
+#include <LibWeb/HTML/HTMLOptGroupElement.h>
+#include <LibWeb/HTML/HTMLOptionElement.h>
+#include <LibWeb/HTML/HTMLSelectElement.h>
+#include <LibWeb/HTML/HTMLTextAreaElement.h>
 
 namespace Web::SelectorEngine {
 
@@ -42,6 +50,15 @@ static inline bool matches_lang_pseudo_class(DOM::Element const& element, Vector
         return parts[0].equals_ignoring_case(language);
     }
     return false;
+}
+
+// https://html.spec.whatwg.org/multipage/semantics-other.html#selector-link
+static inline bool matches_link_pseudo_class(DOM::Element const& element)
+{
+    // All a elements that have an href attribute, and all area elements that have an href attribute, must match one of :link and :visited.
+    if (!is<HTML::HTMLAnchorElement>(element) && !is<HTML::HTMLAreaElement>(element))
+        return false;
+    return element.has_attribute(HTML::AttributeNames::href);
 }
 
 static inline bool matches_hover_pseudo_class(DOM::Element const& element)
@@ -163,7 +180,7 @@ static inline bool matches_pseudo_class(CSS::Selector::SimpleSelector::PseudoCla
 {
     switch (pseudo_class.type) {
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Link:
-        return element.is_link();
+        return matches_link_pseudo_class(element);
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Visited:
         // FIXME: Maybe match this selector sometimes?
         return false;
@@ -211,17 +228,14 @@ static inline bool matches_pseudo_class(CSS::Selector::SimpleSelector::PseudoCla
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Lang:
         return matches_lang_pseudo_class(element, pseudo_class.languages);
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Disabled:
-        if (!is<HTML::HTMLInputElement>(element))
-            return false;
-        if (!element.has_attribute(HTML::AttributeNames::disabled))
-            return false;
-        return true;
+        // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-disabled
+        // The :disabled pseudo-class must match any element that is actually disabled.
+        return element.is_actually_disabled();
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Enabled:
-        if (!is<HTML::HTMLInputElement>(element))
-            return false;
-        if (element.has_attribute(HTML::AttributeNames::disabled))
-            return false;
-        return true;
+        // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-enabled
+        // The :enabled pseudo-class must match any button, input, select, textarea, optgroup, option, fieldset element, or form-associated custom element that is not actually disabled.
+        return (is<HTML::HTMLButtonElement>(element) || is<HTML::HTMLInputElement>(element) || is<HTML::HTMLSelectElement>(element) || is<HTML::HTMLTextAreaElement>(element) || is<HTML::HTMLOptGroupElement>(element) || is<HTML::HTMLOptionElement>(element) || is<HTML::HTMLFieldSetElement>(element))
+            && !element.is_actually_disabled();
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Checked:
         return matches_checked_pseudo_class(element);
     case CSS::Selector::SimpleSelector::PseudoClass::Type::Is:
@@ -342,9 +356,9 @@ static inline bool matches(CSS::Selector::SimpleSelector const& component, DOM::
         return element.has_class(component.name());
     case CSS::Selector::SimpleSelector::Type::TagName:
         // See https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors
-        if (is<HTML::HTMLElement>(element) && element.document().document_type() != DOM::Document::Type::XML)
-            return component.name().equals_ignoring_case(element.local_name());
-        return component.name() == element.local_name();
+        if (element.document().document_type() == DOM::Document::Type::HTML)
+            return component.lowercase_name() == element.local_name();
+        return component.name().equals_ignoring_case(element.local_name());
     case CSS::Selector::SimpleSelector::Type::Attribute:
         return matches_attribute(component.attribute(), element);
     case CSS::Selector::SimpleSelector::Type::PseudoClass:

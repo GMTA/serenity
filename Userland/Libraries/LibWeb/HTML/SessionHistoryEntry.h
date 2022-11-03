@@ -30,7 +30,7 @@ struct SessionHistoryEntry {
     AK::URL url;
 
     // document, a Document or null
-    WeakPtr<DOM::Document> document;
+    JS::GCPtr<DOM::Document> document;
 
     // serialized state, which is serialized state or null, initially null
     Optional<String> serialized_state;
@@ -48,6 +48,8 @@ struct SessionHistoryEntry {
 
     // FIXME: persisted user state, which is implementation-defined, initially null
     // NOTE: This is where we could remember the state of form controls, for example.
+
+    JS::GCPtr<BrowsingContext> original_source_browsing_context;
 };
 
 }

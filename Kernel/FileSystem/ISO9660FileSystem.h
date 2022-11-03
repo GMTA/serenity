@@ -308,7 +308,6 @@ public:
     static ErrorOr<NonnullLockRefPtr<FileSystem>> try_create(OpenFileDescription&);
 
     virtual ~ISO9660FS() override;
-    virtual ErrorOr<void> initialize() override;
     virtual StringView class_name() const override { return "ISO9660FS"sv; }
     virtual Inode& root_inode() override;
 
@@ -321,6 +320,11 @@ public:
 
 private:
     ISO9660FS(OpenFileDescription&);
+
+    virtual ErrorOr<void> prepare_to_clear_last_mount() override;
+
+    virtual bool is_initialized_while_locked() override;
+    virtual ErrorOr<void> initialize_while_locked() override;
 
     ErrorOr<void> parse_volume_set();
     ErrorOr<void> create_root_inode();
@@ -347,12 +351,10 @@ public:
     ISO9660FS const& fs() const { return static_cast<ISO9660FS const&>(Inode::fs()); }
 
     // ^Inode
-    virtual ErrorOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, OpenFileDescription*) const override;
     virtual InodeMetadata metadata() const override;
     virtual ErrorOr<void> traverse_as_directory(Function<ErrorOr<void>(FileSystem::DirectoryEntryView const&)>) const override;
     virtual ErrorOr<NonnullLockRefPtr<Inode>> lookup(StringView name) override;
     virtual ErrorOr<void> flush_metadata() override;
-    virtual ErrorOr<size_t> write_bytes(off_t, size_t, UserOrKernelBuffer const& buffer, OpenFileDescription*) override;
     virtual ErrorOr<NonnullLockRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, UserID, GroupID) override;
     virtual ErrorOr<void> add_child(Inode&, StringView name, mode_t) override;
     virtual ErrorOr<void> remove_child(StringView name) override;
@@ -366,6 +368,10 @@ private:
     // bytes large; however, we can read filenames longer than that right now
     // without any problems, so let's allow it anyway.
     static constexpr size_t max_file_identifier_length = 256 - sizeof(ISO::DirectoryRecordHeader);
+
+    // ^Inode
+    virtual ErrorOr<size_t> read_bytes_locked(off_t, size_t, UserOrKernelBuffer& buffer, OpenFileDescription*) const override;
+    virtual ErrorOr<size_t> write_bytes_locked(off_t, size_t, UserOrKernelBuffer const& buffer, OpenFileDescription*) override;
 
     ISO9660Inode(ISO9660FS&, ISO::DirectoryRecordHeader const& record, StringView name);
     static ErrorOr<NonnullLockRefPtr<ISO9660Inode>> try_create_from_directory_record(ISO9660FS&, ISO::DirectoryRecordHeader const& record, StringView name);

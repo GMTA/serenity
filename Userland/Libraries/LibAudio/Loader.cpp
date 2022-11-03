@@ -11,6 +11,26 @@
 
 namespace Audio {
 
+LoaderPlugin::LoaderPlugin(StringView path)
+    : m_path(path)
+{
+}
+
+LoaderPlugin::LoaderPlugin(Bytes buffer)
+    : m_backing_memory(buffer)
+{
+}
+
+MaybeLoaderError LoaderPlugin::initialize()
+{
+    if (m_backing_memory.has_value())
+        m_stream = LOADER_TRY(Core::Stream::MemoryStream::construct(m_backing_memory.value()));
+    else
+        m_stream = LOADER_TRY(Core::Stream::File::open(m_path, Core::Stream::OpenMode::Read));
+
+    return {};
+}
+
 Loader::Loader(NonnullOwnPtr<LoaderPlugin> plugin)
     : m_plugin(move(plugin))
 {
@@ -42,6 +62,9 @@ Result<NonnullOwnPtr<LoaderPlugin>, LoaderError> Loader::try_create(Bytes& buffe
     if (auto initstate = plugin->initialize(); !initstate.is_error())
         return plugin;
     plugin = adopt_own(*new FlacLoaderPlugin(buffer));
+    if (auto initstate = plugin->initialize(); !initstate.is_error())
+        return plugin;
+    plugin = adopt_own(*new MP3LoaderPlugin(buffer));
     if (auto initstate = plugin->initialize(); !initstate.is_error())
         return plugin;
     return LoaderError { "No loader plugin available" };

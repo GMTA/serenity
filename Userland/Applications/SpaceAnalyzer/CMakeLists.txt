@@ -6,10 +6,13 @@ serenity_component(
 compile_gml(SpaceAnalyzer.gml SpaceAnalyzerGML.h space_analyzer_gml)
 
 set(SOURCES
-    main.cpp
     TreeMapWidget.cpp
+    main.cpp
+)
+
+set(GENERATED_SOURCES
     SpaceAnalyzerGML.h
 )
 
 serenity_app(SpaceAnalyzer ICON app-space-analyzer)
-target_link_libraries(SpaceAnalyzer LibDesktop LibGfx LibGUI LibMain)
+target_link_libraries(SpaceAnalyzer PRIVATE LibCore LibDesktop LibGfx LibGUI LibIPC LibMain)

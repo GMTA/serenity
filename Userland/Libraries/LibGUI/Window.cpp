@@ -165,6 +165,7 @@ void Window::show()
         parent_window ? parent_window->window_id() : 0,
         launch_origin_rect);
     m_visible = true;
+    m_visible_for_timer_purposes = true;
 
     apply_icon();
 
@@ -937,9 +938,9 @@ void Window::apply_icon()
     ConnectionToWindowServer::the().async_set_window_icon_bitmap(m_window_id, m_icon->to_shareable_bitmap());
 }
 
-void Window::start_interactive_resize()
+void Window::start_interactive_resize(ResizeDirection resize_direction)
 {
-    ConnectionToWindowServer::the().async_start_window_resize(m_window_id);
+    ConnectionToWindowServer::the().async_start_window_resize(m_window_id, (i32)resize_direction);
 }
 
 Vector<Widget&> Window::focusable_widgets(FocusSource source) const
@@ -1033,6 +1034,18 @@ void Window::set_maximized(bool maximized)
         return;
 
     ConnectionToWindowServer::the().async_set_maximized(m_window_id, maximized);
+}
+
+void Window::set_minimized(bool minimized)
+{
+    if (!is_minimizable())
+        return;
+
+    m_minimized = minimized;
+    if (!is_visible())
+        return;
+
+    ConnectionToWindowServer::the().async_set_minimized(m_window_id, minimized);
 }
 
 void Window::update_min_size()
@@ -1278,6 +1291,13 @@ void Window::flush_pending_paints_immediately()
         return;
     MultiPaintEvent paint_event(move(m_pending_paint_event_rects), size());
     handle_multi_paint_event(paint_event);
+}
+
+void Window::set_always_on_top(bool always_on_top)
+{
+    if (!m_window_id)
+        return;
+    ConnectionToWindowServer::the().set_always_on_top(m_window_id, always_on_top);
 }
 
 }

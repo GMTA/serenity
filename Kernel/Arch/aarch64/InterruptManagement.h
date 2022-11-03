@@ -20,14 +20,16 @@ public:
 
     static u8 acquire_mapped_interrupt_number(u8 original_irq);
 
-    Vector<LockRefPtr<IRQController>> const& controllers();
-    LockRefPtr<IRQController> get_responsible_irq_controller(u8 interrupt_vector);
+    Vector<NonnullLockRefPtr<IRQController>> const& controllers();
+    NonnullLockRefPtr<IRQController> get_responsible_irq_controller(u8 interrupt_vector);
+
+    void enumerate_interrupt_handlers(Function<void(GenericInterruptHandler&)>);
 
 private:
     InterruptManagement() = default;
     void find_controllers();
 
-    Vector<LockRefPtr<IRQController>> m_interrupt_controllers;
+    Vector<NonnullLockRefPtr<IRQController>> m_interrupt_controllers;
 };
 
 }

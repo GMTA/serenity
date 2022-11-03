@@ -18,7 +18,7 @@ public:
     LineBuilder(InlineFormattingContext&, LayoutState&);
     ~LineBuilder();
 
-    void break_line();
+    void break_line(Optional<float> next_item_width = {});
     void append_box(Box const&, float leading_size, float trailing_size, float leading_margin, float trailing_margin);
     void append_text_chunk(TextNode const&, size_t offset_in_node, size_t length_in_node, float leading_size, float trailing_size, float leading_margin, float trailing_margin, float content_width, float content_height);
 
@@ -26,7 +26,7 @@ public:
     bool break_if_needed(float next_item_width)
     {
         if (should_break(next_item_width)) {
-            break_line();
+            break_line(next_item_width);
             return true;
         }
         return false;
@@ -39,11 +39,13 @@ public:
     void remove_last_line_if_empty();
 
     float current_y() const { return m_current_y; }
+    void set_current_y(float y) { m_current_y = y; }
 
-    void adjust_last_line_after_inserting_floating_box(Badge<BlockFormattingContext>, CSS::Float, float space_used_by_float);
+    void recalculate_available_space();
+    float y_for_float_to_be_inserted_here(Box const&);
 
 private:
-    void begin_new_line(bool increment_y);
+    void begin_new_line(bool increment_y, bool is_first_break_in_sequence = true);
 
     bool should_break(float next_item_width);
 

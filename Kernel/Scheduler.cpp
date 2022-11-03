@@ -8,13 +8,12 @@
 #include <AK/ScopeGuard.h>
 #include <AK/Singleton.h>
 #include <AK/Time.h>
-#include <Kernel/Arch/InterruptDisabler.h>
-#include <Kernel/Arch/x86/TrapFrame.h>
+#include <Kernel/Arch/TrapFrame.h>
 #include <Kernel/Debug.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/Panic.h>
 #include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
-#include <Kernel/RTC.h>
 #include <Kernel/Scheduler.h>
 #include <Kernel/Sections.h>
 #include <Kernel/Time/TimeManagement.h>
@@ -50,10 +49,6 @@ struct ThreadReadyQueues {
 static Singleton<SpinlockProtected<ThreadReadyQueues>> g_ready_queues;
 
 static SpinlockProtected<TotalTimeScheduled> g_total_time_scheduled { LockRank::None };
-
-// The Scheduler::current_time function provides a current time for scheduling purposes,
-// which may not necessarily relate to wall time
-u64 (*Scheduler::current_time)();
 
 static void dump_thread_list(bool = false);
 
@@ -309,7 +304,7 @@ void Scheduler::enter_current(Thread& prev_thread)
     VERIFY(g_scheduler_lock.is_locked_by_current_processor());
 
     // We already recorded the scheduled time when entering the trap, so this merely accounts for the kernel time since then
-    auto scheduler_time = Scheduler::current_time();
+    auto scheduler_time = TimeManagement::scheduler_current_time();
     prev_thread.update_time_scheduled(scheduler_time, true, true);
     auto* current_thread = Thread::current();
     current_thread->update_time_scheduled(scheduler_time, true, false);
@@ -366,29 +361,10 @@ Process* Scheduler::colonel()
     return s_colonel_process;
 }
 
-static u64 current_time_tsc()
-{
-    return read_tsc();
-}
-
-static u64 current_time_monotonic()
-{
-    // We always need a precise timestamp here, we cannot rely on a coarse timestamp
-    return (u64)TimeManagement::the().monotonic_time(TimePrecision::Precise).to_nanoseconds();
-}
-
 UNMAP_AFTER_INIT void Scheduler::initialize()
 {
     VERIFY(Processor::is_initialized()); // sanity check
-
-    // Figure out a good scheduling time source
-    if (Processor::current().has_feature(CPUFeature::TSC)) {
-        // TODO: only use if TSC is running at a constant frequency?
-        current_time = current_time_tsc;
-    } else {
-        // TODO: Using HPET is rather slow, can we use any other time source that may be faster?
-        current_time = current_time_monotonic;
-    }
+    VERIFY(TimeManagement::is_initialized());
 
     LockRefPtr<Thread> idle_thread;
     g_finalizer_wait_queue = new WaitQueue;
@@ -448,7 +424,7 @@ void Scheduler::timer_tick(RegisterState const& regs)
         // Because the previous mode when entering/exiting kernel threads never changes
         // we never update the time scheduled. So we need to update it manually on the
         // timer interrupt
-        current_thread->update_time_scheduled(current_time(), true, false);
+        current_thread->update_time_scheduled(TimeManagement::scheduler_current_time(), true, false);
     }
 
     if (current_thread->previous_mode() == Thread::PreviousMode::UserMode && current_thread->should_die() && !current_thread->is_blocked()) {
@@ -499,7 +475,7 @@ void Scheduler::idle_loop(void*)
 {
     auto& proc = Processor::current();
     dbgln("Scheduler[{}]: idle loop running", proc.id());
-    VERIFY(are_interrupts_enabled());
+    VERIFY(Processor::are_interrupts_enabled());
 
     for (;;) {
         proc.idle_begin();
@@ -532,9 +508,16 @@ void dump_thread_list(bool with_stack_traces)
     dbgln("Scheduler thread list for processor {}:", Processor::current_id());
 
     auto get_cs = [](Thread& thread) -> u16 {
+#if ARCH(I386) || ARCH(X86_64)
         if (!thread.current_trap())
             return thread.regs().cs;
         return thread.get_register_dump_from_stack().cs;
+#elif ARCH(AARCH64)
+        (void)thread;
+        return 0;
+#else
+#    error Unknown architecture
+#endif
     };
 
     auto get_eip = [](Thread& thread) -> u32 {

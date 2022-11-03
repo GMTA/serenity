@@ -4,18 +4,17 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <LibJS/Runtime/Realm.h>
+#include <LibJS/Runtime/VM.h>
 #include <LibWeb/DOM/NodeFilter.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::DOM {
 
-JS::NonnullGCPtr<NodeFilter> NodeFilter::create(JS::Realm& realm, Bindings::CallbackType& callback)
+JS::NonnullGCPtr<NodeFilter> NodeFilter::create(JS::Realm& realm, WebIDL::CallbackType& callback)
 {
     return *realm.heap().allocate<NodeFilter>(realm, realm, callback);
 }
 
-NodeFilter::NodeFilter(JS::Realm& realm, Bindings::CallbackType& callback)
+NodeFilter::NodeFilter(JS::Realm& realm, WebIDL::CallbackType& callback)
     : PlatformObject(*realm.intrinsics().object_prototype())
     , m_callback(callback)
 {

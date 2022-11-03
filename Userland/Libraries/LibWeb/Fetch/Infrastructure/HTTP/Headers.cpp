@@ -11,10 +11,13 @@
 #include <AK/GenericLexer.h>
 #include <AK/QuickSort.h>
 #include <AK/ScopeGuard.h>
+#include <LibJS/Heap/Heap.h>
+#include <LibJS/Runtime/VM.h>
 #include <LibRegex/Regex.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Headers.h>
 #include <LibWeb/Infra/ByteSequences.h>
+#include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/MimeSniff/MimeType.h>
 
 namespace Web::Fetch::Infrastructure {
@@ -33,6 +36,19 @@ requires(IsSameIgnoringCV<T, u8>) struct CaseInsensitiveBytesTraits : public Tra
         return AK::case_insensitive_string_hash(reinterpret_cast<char const*>(span.data()), span.size());
     }
 };
+
+ErrorOr<Header> Header::from_string_pair(StringView name, StringView value)
+{
+    return Header {
+        .name = TRY(ByteBuffer::copy(name.bytes())),
+        .value = TRY(ByteBuffer::copy(value.bytes())),
+    };
+}
+
+JS::NonnullGCPtr<HeaderList> HeaderList::create(JS::VM& vm)
+{
+    return { *vm.heap().allocate_without_realm<HeaderList>() };
+}
 
 // https://fetch.spec.whatwg.org/#header-list-contains
 bool HeaderList::contains(ReadonlyBytes name) const
@@ -113,7 +129,7 @@ ErrorOr<Optional<Vector<String>>> HeaderList::get_decode_and_split(ReadonlyBytes
             // 2. Otherwise:
             else {
                 // 1. Assert: the code point at position within input is U+002C (,).
-                VERIFY(lexer.peek(1) == ',');
+                VERIFY(lexer.peek() == ',');
 
                 // 2. Advance position by 1.
                 lexer.ignore(1);
@@ -402,7 +418,7 @@ bool is_cors_safelisted_request_header(Header const& header)
     else if (name.is_one_of_ignoring_case("accept-language"sv, "content-language"sv)) {
         // If value contains a byte that is not in the range 0x30 (0) to 0x39 (9), inclusive, is not in the range 0x41 (A) to 0x5A (Z), inclusive, is not in the range 0x61 (a) to 0x7A (z), inclusive, and is not 0x20 (SP), 0x2A (*), 0x2C (,), 0x2D (-), 0x2E (.), 0x3B (;), or 0x3D (=), then return false.
         if (any_of(value.span(), [](auto byte) {
-                return !(is_ascii_digit(byte) || is_ascii_alpha(byte) || " *,-.;="sv.contains(byte));
+                return !(is_ascii_digit(byte) || is_ascii_alpha(byte) || " *,-.;="sv.contains(static_cast<char>(byte)));
             }))
             return false;
     }
@@ -425,8 +441,16 @@ bool is_cors_safelisted_request_header(Header const& header)
     }
     // `range`
     else if (name.equals_ignoring_case("range"sv)) {
-        // If value is not a simple range header value, then return false.
-        if (!is_simple_range_header_value(value))
+        // 1. Let rangeValue be the result of parsing a single range header value given value.
+        auto range_value = parse_single_range_header_value(value);
+
+        // 2. If rangeValue is failure, then return false.
+        if (!range_value.has_value())
+            return false;
+
+        // 3. If rangeValue[0] is null, then return false.
+        // NOTE: As web browsers have historically not emitted ranges such as `bytes=-500` this algorithm does not safelist them.
+        if (!range_value->start.has_value())
             return false;
     }
     // Otherwise
@@ -612,20 +636,59 @@ bool is_request_body_header_name(ReadonlyBytes header_name)
         "Content-Type"sv);
 }
 
-// TODO: https://fetch.spec.whatwg.org/#extract-header-values
-// TODO: https://fetch.spec.whatwg.org/#extract-header-list-values
+// https://fetch.spec.whatwg.org/#extract-header-values
+ErrorOr<Optional<Vector<ByteBuffer>>> extract_header_values(Header const& header)
+{
+    // FIXME: 1. If parsing header’s value, per the ABNF for header’s name, fails, then return failure.
+    // FIXME: 2. Return one or more values resulting from parsing header’s value, per the ABNF for header’s name.
+    // This always ignores the ABNF rules for now and returns the header value as a single list item.
+    return Vector { TRY(ByteBuffer::copy(header.value)) };
+}
+
+// https://fetch.spec.whatwg.org/#extract-header-list-values
+ErrorOr<Optional<Vector<ByteBuffer>>> extract_header_list_values(ReadonlyBytes name, HeaderList const& list)
+{
+    // 1. If list does not contain name, then return null.
+    if (!list.contains(name))
+        return Optional<Vector<ByteBuffer>> {};
+
+    // FIXME: 2. If the ABNF for name allows a single header and list contains more than one, then return failure.
+    // NOTE: If different error handling is needed, extract the desired header first.
+
+    // 3. Let values be an empty list.
+    auto values = Vector<ByteBuffer> {};
+
+    // 4. For each header header list contains whose name is name:
+    for (auto const& header : list) {
+        if (!StringView { header.name }.equals_ignoring_case(name))
+            continue;
+
+        // 1. Let extract be the result of extracting header values from header.
+        auto extract = TRY(extract_header_values(header));
+
+        // 2. If extract is failure, then return failure.
+        // FIXME: Currently we treat the null return above and failure return as the same thing,
+        //        ErrorOr already signals OOM to the caller.
+        if (!extract.has_value())
+            return Optional<Vector<ByteBuffer>> {};
+
+        // 3. Append each value in extract, in order, to values.
+        values.extend(extract.release_value());
+    }
+
+    // 5. Return values.
+    return values;
+}
 
 // https://fetch.spec.whatwg.org/#simple-range-header-value
-bool is_simple_range_header_value(ReadonlyBytes value)
+Optional<RangeHeaderValue> parse_single_range_header_value(ReadonlyBytes value)
 {
-    // To determine if a byte sequence value is a simple range header value, perform the following steps. They return a boolean.
-
     // 1. Let data be the isomorphic decoding of value.
     auto data = StringView { value };
 
-    // 2. If data does not start with "bytes=", then return false.
+    // 2. If data does not start with "bytes=", then return failure.
     if (!data.starts_with("bytes="sv))
-        return false;
+        return {};
 
     // 3. Let position be a position variable for data, initially pointing at the 6th code point of data.
     auto lexer = GenericLexer { data };
@@ -634,34 +697,42 @@ bool is_simple_range_header_value(ReadonlyBytes value)
     // 4. Let rangeStart be the result of collecting a sequence of code points that are ASCII digits, from data given position.
     auto range_start = lexer.consume_while(is_ascii_digit);
 
-    // FIXME: I believe the case of an empty rangeStart string (`bytes=-`) is not handled,
-    //        and would later fail 'interpreted as decimal number'.
-    if (range_start.is_empty())
-        return false;
+    // 5. Let rangeStartValue be rangeStart, interpreted as decimal number, if rangeStart is not the empty string; otherwise null.
+    auto range_start_value = range_start.to_uint<u64>();
 
-    // 5. If the code point at position within data is not U+002D (-), then return false.
-    // 6. Advance position by 1.
+    // 6. If the code point at position within data is not U+002D (-), then return failure.
+    // 7. Advance position by 1.
     if (!lexer.consume_specific('-'))
-        return false;
+        return {};
 
-    // 7. Let rangeEnd be the result of collecting a sequence of code points that are ASCII digits, from data given position.
+    // 8. Let rangeEnd be the result of collecting a sequence of code points that are ASCII digits, from data given position.
     auto range_end = lexer.consume_while(is_ascii_digit);
 
-    // 8. If position is not past the end of data, then return false.
+    // 9. Let rangeEndValue be rangeEnd, interpreted as decimal number, if rangeEnd is not the empty string; otherwise null.
+    auto range_end_value = range_end.to_uint<u64>();
+
+    // 10. If position is not past the end of data, then return failure.
     if (!lexer.is_eof())
-        return false;
+        return {};
 
-    // 9. If rangeEnd’s length is 0, then return true.
-    // NOTE: The range end can be omitted, e.g., `bytes=0-` is valid.
-    if (range_end.is_empty())
-        return true;
+    // 11. If rangeEndValue and rangeStartValue are null, then return failure.
+    if (!range_end_value.has_value() && !range_start_value.has_value())
+        return {};
 
-    // 10. If rangeStart, interpreted as decimal number, is greater than rangeEnd, interpreted as decimal number, then return false.
-    if (*range_start.to_uint<u64>() > *range_end.to_uint<u64>())
-        return false;
+    // 12. If rangeStartValue and rangeEndValue are numbers, and rangeStartValue is greater than rangeEndValue, then return failure.
+    if (range_start_value.has_value() && range_end_value.has_value() && *range_start_value > *range_end_value)
+        return {};
 
-    // 11. Return true.
-    return true;
+    // 13. Return (rangeStartValue, rangeEndValue).
+    // NOTE: The range end or start can be omitted, e.g., `bytes=0-` or `bytes=-500` are valid ranges.
+    return RangeHeaderValue { move(range_start_value), move(range_end_value) };
+}
+
+// https://fetch.spec.whatwg.org/#default-user-agent-value
+ErrorOr<ByteBuffer> default_user_agent_value()
+{
+    // A default `User-Agent` value is an implementation-defined header value for the `User-Agent` header.
+    return ByteBuffer::copy(default_user_agent.bytes());
 }
 
 }

@@ -21,10 +21,8 @@ class CloseEvent : public DOM::Event {
     WEB_PLATFORM_OBJECT(CloseEvent, DOM::Event);
 
 public:
-    static CloseEvent* create(HTML::Window&, FlyString const& event_name, CloseEventInit const& event_init = {});
-    static CloseEvent* create_with_global_object(HTML::Window&, FlyString const& event_name, CloseEventInit const& event_init);
-
-    CloseEvent(HTML::Window&, FlyString const& event_name, CloseEventInit const& event_init);
+    static CloseEvent* create(JS::Realm&, FlyString const& event_name, CloseEventInit const& event_init = {});
+    static CloseEvent* construct_impl(JS::Realm&, FlyString const& event_name, CloseEventInit const& event_init);
 
     virtual ~CloseEvent() override;
 
@@ -33,11 +31,11 @@ public:
     String reason() const { return m_reason; }
 
 private:
+    CloseEvent(JS::Realm&, FlyString const& event_name, CloseEventInit const& event_init);
+
     bool m_was_clean { false };
     u16 m_code { 0 };
     String m_reason;
 };
 
 }
-
-WRAPPER_HACK(CloseEvent, Web::HTML)

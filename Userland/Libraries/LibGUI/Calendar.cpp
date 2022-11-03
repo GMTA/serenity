@@ -1,11 +1,13 @@
 /*
  * Copyright (c) 2019-2020, Ryan Grieb <ryan.m.grieb@gmail.com>
  * Copyright (c) 2020-2022, the SerenityOS developers.
+ * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/DateConstants.h>
+#include <LibConfig/Client.h>
 #include <LibCore/DateTime.h>
 #include <LibGUI/Calendar.h>
 #include <LibGUI/Painter.h>
@@ -26,6 +28,15 @@ Calendar::Calendar(Core::DateTime date_time, Mode mode)
     : m_selected_date(date_time)
     , m_mode(mode)
 {
+    auto first_day_of_week = Config::read_string("Calendar"sv, "View"sv, "FirstDayOfWeek"sv, "Sunday"sv);
+    m_first_day_of_week = static_cast<DayOfWeek>(day_of_week_index(first_day_of_week));
+
+    auto first_day_of_weekend = Config::read_string("Calendar"sv, "View"sv, "FirstDayOfWeekend"sv, "Saturday"sv);
+    m_first_day_of_weekend = static_cast<DayOfWeek>(day_of_week_index(first_day_of_weekend));
+
+    auto weekend_length = Config::read_i32("Calendar"sv, "View"sv, "WeekendLength"sv, 2);
+    m_weekend_length = weekend_length;
+
     set_fill_with_background_color(true);
 
     for (int i = 0; i < 7; i++) {
@@ -39,6 +50,14 @@ Calendar::Calendar(Core::DateTime date_time, Mode mode)
             Tile tile;
             m_tiles[i].append(move(tile));
         }
+    }
+
+    auto default_view = Config::read_string("Calendar"sv, "View"sv, "DefaultView"sv, "Month"sv);
+    if (default_view == "Year") {
+        m_mode = Year;
+        m_show_days = false;
+        m_show_year = true;
+        m_show_month_year = true;
     }
 
     update_tiles(m_selected_date.year(), m_selected_date.month());
@@ -271,7 +290,7 @@ void Calendar::update_tiles(unsigned view_year, unsigned view_month)
             view_month = i + 1;
 
         auto first_day_of_current_month = Core::DateTime::create(view_year, view_month, 1);
-        unsigned start_of_month = first_day_of_current_month.weekday();
+        unsigned start_of_month = (first_day_of_current_month.weekday() - to_underlying(m_first_day_of_week) + 7) % 7;
         unsigned days_from_previous_month_to_show = start_of_month == 0 ? 7 : start_of_month;
 
         for (unsigned j = 0; j < 42; j++) {
@@ -425,7 +444,8 @@ void Calendar::paint_event(GUI::PaintEvent& event)
                 y_offset,
                 m_days[i].width,
                 16);
-            painter.draw_text(day_rect, m_days[i].name, small_font->bold_variant(), Gfx::TextAlignment::Center, palette().base_text());
+            auto const& day_name = m_days[(i + to_underlying(m_first_day_of_week)) % 7].name;
+            painter.draw_text(day_rect, day_name, small_font->bold_variant(), Gfx::TextAlignment::Center, palette().base_text());
         }
         y_offset += days_of_the_week_rect.height();
         painter.draw_line({ 0, y_offset }, { frame_inner_rect().width(), y_offset }, palette().threed_shadow2(), 1);
@@ -439,6 +459,7 @@ void Calendar::paint_event(GUI::PaintEvent& event)
             if (j > 0)
                 y_offset += m_tiles[0][(j - 1) * 7].height + 1;
             for (int k = 0; k < 7; k++) {
+                bool is_weekend = is_day_in_weekend((DayOfWeek)((k + to_underlying(m_first_day_of_week)) % 7));
                 if (k > 0)
                     x_offset += m_tiles[0][k - 1].width + 1;
                 auto tile_rect = Gfx::IntRect(
@@ -447,10 +468,16 @@ void Calendar::paint_event(GUI::PaintEvent& event)
                     m_tiles[0][i].width,
                     m_tiles[0][i].height);
                 m_tiles[0][i].rect = tile_rect.translated(frame_thickness(), frame_thickness());
-                if (m_tiles[0][i].is_hovered || m_tiles[0][i].is_selected)
-                    painter.fill_rect(tile_rect, palette().hover_highlight());
-                else
-                    painter.fill_rect(tile_rect, palette().base());
+
+                Color background_color = palette().base();
+
+                if (m_tiles[0][i].is_hovered || m_tiles[0][i].is_selected) {
+                    background_color = palette().hover_highlight();
+                } else if (is_weekend) {
+                    background_color = palette().gutter();
+                }
+
+                painter.fill_rect(tile_rect, background_color);
 
                 auto text_alignment = Gfx::TextAlignment::TopRight;
                 auto text_rect = Gfx::IntRect(
@@ -735,4 +762,42 @@ void Calendar::doubleclick_event(GUI::MouseEvent& event)
         }
     }
 }
+
+size_t Calendar::day_of_week_index(String const& day_name)
+{
+    auto const& day_names = AK::long_day_names;
+    return AK::find_index(day_names.begin(), day_names.end(), day_name);
+}
+
+void Calendar::config_string_did_change(String const& domain, String const& group, String const& key, String const& value)
+{
+    if (domain == "Calendar" && group == "View" && key == "FirstDayOfWeek") {
+        m_first_day_of_week = static_cast<DayOfWeek>(day_of_week_index(value));
+        update_tiles(m_view_year, m_view_month);
+    } else if (domain == "Calendar" && group == "View" && key == "FirstDayOfWeekend") {
+        m_first_day_of_weekend = static_cast<DayOfWeek>(day_of_week_index(value));
+        update();
+    }
+}
+
+void Calendar::config_i32_did_change(String const& domain, String const& group, String const& key, i32 value)
+{
+    if (domain == "Calendar" && group == "View" && key == "WeekendLength") {
+        m_weekend_length = value;
+        update();
+    }
+}
+
+bool Calendar::is_day_in_weekend(DayOfWeek day)
+{
+    auto day_index = to_underlying(day);
+    auto weekend_start_index = to_underlying(m_first_day_of_weekend);
+    auto weekend_end_index = weekend_start_index + m_weekend_length;
+
+    if (day_index < weekend_start_index)
+        day_index += 7;
+
+    return day_index < weekend_end_index;
+}
+
 }

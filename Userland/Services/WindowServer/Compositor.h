@@ -36,9 +36,11 @@ struct CompositorScreenData {
     RefPtr<Gfx::Bitmap> m_front_bitmap;
     RefPtr<Gfx::Bitmap> m_back_bitmap;
     RefPtr<Gfx::Bitmap> m_temp_bitmap;
+    RefPtr<Gfx::Bitmap> m_wallpaper_bitmap;
     OwnPtr<Gfx::Painter> m_back_painter;
     OwnPtr<Gfx::Painter> m_front_painter;
     OwnPtr<Gfx::Painter> m_temp_painter;
+    OwnPtr<Gfx::Painter> m_wallpaper_painter;
     RefPtr<Gfx::Bitmap> m_cursor_back_bitmap;
     OwnPtr<Gfx::Painter> m_cursor_back_painter;
     Gfx::IntRect m_last_cursor_rect;
@@ -50,9 +52,9 @@ struct CompositorScreenData {
     bool m_cursor_back_is_valid { false };
     bool m_have_flush_rects { false };
 
-    Gfx::DisjointRectSet m_flush_rects;
-    Gfx::DisjointRectSet m_flush_transparent_rects;
-    Gfx::DisjointRectSet m_flush_special_rects;
+    Gfx::DisjointIntRectSet m_flush_rects;
+    Gfx::DisjointIntRectSet m_flush_transparent_rects;
+    Gfx::DisjointIntRectSet m_flush_special_rects;
 
     Gfx::Painter& overlay_painter() { return *m_temp_painter; }
 
@@ -60,11 +62,13 @@ struct CompositorScreenData {
     void flip_buffers(Screen&);
     void draw_cursor(Screen&, Gfx::IntRect const&);
     bool restore_cursor_back(Screen&, Gfx::IntRect&);
+    void init_wallpaper_bitmap(Screen&);
+    void clear_wallpaper_bitmap();
 
     template<typename F>
     IterationDecision for_each_intersected_flushing_rect(Gfx::IntRect const& intersecting_rect, F f)
     {
-        auto iterate_flush_rects = [&](Gfx::DisjointRectSet const& flush_rects) {
+        auto iterate_flush_rects = [&](Gfx::DisjointIntRectSet const& flush_rects) {
             for (auto& rect : flush_rects.rects()) {
                 auto intersection = intersecting_rect.intersected(rect);
                 if (intersection.is_empty())
@@ -97,7 +101,7 @@ public:
     void invalidate_window();
     void invalidate_screen();
     void invalidate_screen(Gfx::IntRect const&);
-    void invalidate_screen(Gfx::DisjointRectSet const&);
+    void invalidate_screen(Gfx::DisjointIntRectSet const&);
 
     void screen_resolution_changed();
 
@@ -205,12 +209,13 @@ private:
     void change_cursor(Cursor const*);
     void flush(Screen&);
     Gfx::IntPoint window_transition_offset(Window&);
-    void update_animations(Screen&, Gfx::DisjointRectSet& flush_rects);
+    void update_animations(Screen&, Gfx::DisjointIntRectSet& flush_rects);
     void create_window_stack_switch_overlay(WindowStack&);
     void remove_window_stack_switch_overlays();
     void stop_window_stack_switch_overlay_timer();
     void start_window_stack_switch_overlay_timer();
     void finish_window_stack_switch();
+    void update_wallpaper_bitmap();
 
     RefPtr<Core::Timer> m_compose_timer;
     RefPtr<Core::Timer> m_immediate_compose_timer;
@@ -222,10 +227,10 @@ private:
     bool m_overlay_rects_changed { false };
 
     IntrusiveList<&Overlay::m_list_node> m_overlay_list;
-    Gfx::DisjointRectSet m_overlay_rects;
-    Gfx::DisjointRectSet m_dirty_screen_rects;
-    Gfx::DisjointRectSet m_opaque_wallpaper_rects;
-    Gfx::DisjointRectSet m_transparent_wallpaper_rects;
+    Gfx::DisjointIntRectSet m_overlay_rects;
+    Gfx::DisjointIntRectSet m_dirty_screen_rects;
+    Gfx::DisjointIntRectSet m_opaque_wallpaper_rects;
+    Gfx::DisjointIntRectSet m_transparent_wallpaper_rects;
 
     WallpaperMode m_wallpaper_mode { WallpaperMode::Unchecked };
     RefPtr<Gfx::Bitmap> m_wallpaper;

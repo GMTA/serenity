@@ -12,9 +12,11 @@
 
 namespace Web::Layout {
 
-class ImageBox
+class ImageBox final
     : public ReplacedBox
     , public HTML::BrowsingContext::ViewportClient {
+    JS_CELL(ImageBox, ReplacedBox);
+
 public:
     ImageBox(DOM::Document&, DOM::Element&, NonnullRefPtr<CSS::StyleProperties>, ImageLoader const&);
     virtual ~ImageBox() override;
@@ -34,6 +36,9 @@ public:
 private:
     // ^BrowsingContext::ViewportClient
     virtual void browsing_context_did_set_viewport_rect(Gfx::IntRect const&) final;
+
+    // ^JS::Cell
+    virtual void finalize() override;
 
     int preferred_width() const;
     int preferred_height() const;

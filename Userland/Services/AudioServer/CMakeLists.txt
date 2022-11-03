@@ -11,9 +11,12 @@ set(SOURCES
     ConnectionFromClient.cpp
     Mixer.cpp
     main.cpp
+)
+
+set(GENERATED_SOURCES
     AudioServerEndpoint.h
     AudioClientEndpoint.h
 )
 
 serenity_bin(AudioServer)
-target_link_libraries(AudioServer LibCore LibThreading LibIPC LibMain)
+target_link_libraries(AudioServer PRIVATE LibCore LibThreading LibIPC LibMain)

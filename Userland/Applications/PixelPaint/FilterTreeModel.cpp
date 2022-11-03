@@ -14,6 +14,7 @@
 #include "Filters/GaussBlur3.h"
 #include "Filters/GaussBlur5.h"
 #include "Filters/Grayscale.h"
+#include "Filters/HueAndSaturation.h"
 #include "Filters/Invert.h"
 #include "Filters/LaplaceCardinal.h"
 #include "Filters/LaplaceDiagonal.h"
@@ -32,7 +33,7 @@ ErrorOr<NonnullRefPtr<GUI::TreeViewModel>> create_filter_tree_model(ImageEditor*
     auto filter_tree_model = GUI::TreeViewModel::create();
 
     auto add_filter_node = [&]<typename FilterType>(GUI::TreeViewModel::Node& node) {
-        auto filter = adopt_own(*new FilterType(editor));
+        auto filter = make_ref_counted<FilterType>(editor);
         (void)node.add_node<FilterNode>(filter->filter_name(), filter_icon, move(filter));
     };
 
@@ -55,6 +56,7 @@ ErrorOr<NonnullRefPtr<GUI::TreeViewModel>> create_filter_tree_model(ImageEditor*
     add_filter_node.template operator()<Filters::Median>(blur_category);
 
     auto color_category = filter_tree_model->add_node("Color", directory_icon);
+    add_filter_node.template operator()<Filters::HueAndSaturation>(color_category);
     add_filter_node.template operator()<Filters::Grayscale>(color_category);
     add_filter_node.template operator()<Filters::Invert>(color_category);
     add_filter_node.template operator()<Filters::Sepia>(color_category);

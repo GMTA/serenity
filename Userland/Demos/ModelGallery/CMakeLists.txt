@@ -9,9 +9,12 @@ set(SOURCES
     main.cpp
     GalleryWidget.cpp
     BasicModel.cpp
+)
+
+set(GENERATED_SOURCES
     BasicModelTabGML.h
 )
 
 serenity_app(ModelGallery ICON app-model-gallery)
 
-target_link_libraries(ModelGallery LibGUI LibGfx LibMain)
+target_link_libraries(ModelGallery PRIVATE LibCore LibGUI LibGfx LibMain)

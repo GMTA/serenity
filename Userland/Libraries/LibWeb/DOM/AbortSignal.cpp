@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/AbortSignal.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/EventDispatcher.h>
@@ -11,19 +12,19 @@
 
 namespace Web::DOM {
 
-JS::NonnullGCPtr<AbortSignal> AbortSignal::create_with_global_object(HTML::Window& window)
+JS::NonnullGCPtr<AbortSignal> AbortSignal::construct_impl(JS::Realm& realm)
 {
-    return *window.heap().allocate<AbortSignal>(window.realm(), window);
+    return *realm.heap().allocate<AbortSignal>(realm, realm);
 }
 
-AbortSignal::AbortSignal(HTML::Window& window)
-    : EventTarget(window.realm())
+AbortSignal::AbortSignal(JS::Realm& realm)
+    : EventTarget(realm)
 {
-    set_prototype(&window.cached_web_prototype("AbortSignal"));
+    set_prototype(&Bindings::cached_web_prototype(realm, "AbortSignal"));
 }
 
 // https://dom.spec.whatwg.org/#abortsignal-add
-void AbortSignal::add_abort_algorithm(Function<void()> abort_algorithm)
+void AbortSignal::add_abort_algorithm(JS::SafeFunction<void()> abort_algorithm)
 {
     // 1. If signal is aborted, then return.
     if (aborted())
@@ -44,7 +45,7 @@ void AbortSignal::signal_abort(JS::Value reason)
     if (!reason.is_undefined())
         m_abort_reason = reason;
     else
-        m_abort_reason = AbortError::create(global_object(), "Aborted without reason").ptr();
+        m_abort_reason = WebIDL::AbortError::create(realm(), "Aborted without reason").ptr();
 
     // 3. For each algorithm in signal’s abort algorithms: run algorithm.
     for (auto& algorithm : m_abort_algorithms)
@@ -54,15 +55,15 @@ void AbortSignal::signal_abort(JS::Value reason)
     m_abort_algorithms.clear();
 
     // 5. Fire an event named abort at signal.
-    dispatch_event(*Event::create(global_object(), HTML::EventNames::abort));
+    dispatch_event(*Event::create(realm(), HTML::EventNames::abort));
 }
 
-void AbortSignal::set_onabort(Bindings::CallbackType* event_handler)
+void AbortSignal::set_onabort(WebIDL::CallbackType* event_handler)
 {
     set_event_handler_attribute(HTML::EventNames::abort, event_handler);
 }
 
-Bindings::CallbackType* AbortSignal::onabort()
+WebIDL::CallbackType* AbortSignal::onabort()
 {
     return event_handler_attribute(HTML::EventNames::abort);
 }
@@ -81,6 +82,29 @@ void AbortSignal::visit_edges(JS::Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);
     visitor.visit(m_abort_reason);
+}
+
+// https://dom.spec.whatwg.org/#abortsignal-follow
+void AbortSignal::follow(JS::NonnullGCPtr<AbortSignal> parent_signal)
+{
+    // A followingSignal (an AbortSignal) is made to follow a parentSignal (an AbortSignal) by running these steps:
+
+    // 1. If followingSignal is aborted, then return.
+    if (aborted())
+        return;
+
+    // 2. If parentSignal is aborted, then signal abort on followingSignal with parentSignal’s abort reason.
+    if (parent_signal->aborted()) {
+        signal_abort(parent_signal->reason());
+        return;
+    }
+
+    // 3. Otherwise, add the following abort steps to parentSignal:
+    // NOTE: `this` and `parent_signal` are protected by AbortSignal using JS::SafeFunction.
+    parent_signal->add_abort_algorithm([this, parent_signal]() mutable {
+        // 1. Signal abort on followingSignal with parentSignal’s abort reason.
+        signal_abort(parent_signal->reason());
+    });
 }
 
 }

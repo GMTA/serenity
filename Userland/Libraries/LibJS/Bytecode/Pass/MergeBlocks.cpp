@@ -33,13 +33,12 @@ void MergeBlocks::perform(PassPipelineExecutable& executable)
         {
             InstructionStreamIterator it { entry.key->instruction_stream() };
             auto& first_instruction = *it;
-            if (first_instruction.is_terminator()) {
-                if (first_instruction.type() == Instruction::Type::Jump) {
-                    auto replacing_block = &static_cast<Op::Jump const&>(first_instruction).true_target()->block();
-                    if (replacing_block != entry.key)
-                        blocks_to_replace.set(entry.key, replacing_block);
-                    continue;
+            if (first_instruction.type() == Instruction::Type::Jump) {
+                auto const* replacing_block = &static_cast<Op::Jump const&>(first_instruction).true_target()->block();
+                if (replacing_block != entry.key) {
+                    blocks_to_replace.set(entry.key, replacing_block);
                 }
+                continue;
             }
         }
 
@@ -54,7 +53,7 @@ void MergeBlocks::perform(PassPipelineExecutable& executable)
     }
 
     for (auto& entry : blocks_to_replace) {
-        auto replacement = entry.value;
+        auto const* replacement = entry.value;
         for (;;) {
             auto lookup = blocks_to_replace.get(replacement);
             if (!lookup.has_value())
@@ -94,31 +93,37 @@ void MergeBlocks::perform(PassPipelineExecutable& executable)
 
     while (!blocks_to_merge.is_empty()) {
         auto it = blocks_to_merge.begin();
-        auto current_block = *it;
+        auto const* current_block = *it;
         blocks_to_merge.remove(it);
         Vector<BasicBlock const*> successors { current_block };
         for (;;) {
-            auto last = successors.last();
+            auto const* last = successors.last();
             auto entry = cfg.find(last);
             if (entry == cfg.end())
                 break;
-            auto& successor = *entry->value.begin();
+            auto const* successor = *entry->value.begin();
             successors.append(successor);
-            auto it = blocks_to_merge.find(successor);
-            if (it == blocks_to_merge.end())
+
+            if (!blocks_to_merge.remove(successor))
                 break;
-            blocks_to_merge.remove(it);
         }
 
         auto blocks_to_merge_copy = blocks_to_merge;
-        for (auto& last : blocks_to_merge) {
-            auto entry = cfg.find(last);
-            if (entry == cfg.end())
-                continue;
-            auto successor = *entry->value.begin();
-            if (auto it = successors.find(successor); !it.is_end()) {
-                successors.insert(it.index(), last);
-                blocks_to_merge_copy.remove(last);
+        // We need to do the following multiple times, due to it not being
+        // guaranteed, that the blocks are in sequential order
+        bool did_prepend = true;
+        while (did_prepend) {
+            did_prepend = false;
+            for (auto const* last : blocks_to_merge) {
+                auto entry = cfg.find(last);
+                if (entry == cfg.end())
+                    continue;
+                auto const* successor = *entry->value.begin();
+                if (successor == successors.first()) {
+                    successors.prepend(last);
+                    blocks_to_merge_copy.remove(last);
+                    did_prepend = true;
+                }
             }
         }
 
@@ -142,16 +147,24 @@ void MergeBlocks::perform(PassPipelineExecutable& executable)
         for (size_t i = 0; i < successors.size(); ++i) {
             auto& entry = successors[i];
             InstructionStreamIterator it { entry->instruction_stream() };
-            size_t copy_end = 0;
             while (!it.at_end()) {
                 auto& instruction = *it;
                 ++it;
                 if (instruction.is_terminator() && last_successor_index != i)
                     break;
-                copy_end = it.offset();
+                // FIXME: Op::NewBigInt is not trivially copyable, so we cant use
+                //        a simple memcpy to transfer them.
+                //        When this is resolved we can use a single memcpy to copy
+                //        the whole block at once
+                if (instruction.type() == Instruction::Type::NewBigInt) {
+                    new (block.next_slot()) Op::NewBigInt(static_cast<Op::NewBigInt const&>(instruction));
+                    block.grow(sizeof(Op::NewBigInt));
+                } else {
+                    auto instruction_size = instruction.length();
+                    memcpy(block.next_slot(), &instruction, instruction_size);
+                    block.grow(instruction_size);
+                }
             }
-            __builtin_memcpy(block.next_slot(), entry->instruction_stream().data(), copy_end);
-            block.grow(copy_end);
         }
 
         executable.executable.basic_blocks.insert(*first_successor_position, move(new_block));

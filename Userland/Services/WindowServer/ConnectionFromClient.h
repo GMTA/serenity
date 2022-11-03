@@ -109,7 +109,9 @@ private:
     virtual Messages::WindowServer::GetWindowTitleResponse get_window_title(i32) override;
     virtual Messages::WindowServer::IsMaximizedResponse is_maximized(i32) override;
     virtual void set_maximized(i32, bool) override;
-    virtual void start_window_resize(i32) override;
+    virtual Messages::WindowServer::IsMinimizedResponse is_minimized(i32) override;
+    virtual void set_minimized(i32, bool) override;
+    virtual void start_window_resize(i32, i32) override;
     virtual Messages::WindowServer::SetWindowRectResponse set_window_rect(i32, Gfx::IntRect const&) override;
     virtual Messages::WindowServer::GetWindowRectResponse get_window_rect(i32) override;
     virtual void set_window_minimum_size(i32, Gfx::IntSize const&) override;
@@ -185,6 +187,7 @@ private:
     virtual void add_window_stealing_for_client(i32, i32) override;
     virtual void remove_window_stealing_for_client(i32, i32) override;
     virtual void remove_window_stealing(i32) override;
+    virtual void set_always_on_top(i32, bool) override;
     virtual Messages::WindowServer::GetColorUnderCursorResponse get_color_under_cursor() override;
 
     Window* window_from_id(i32 window_id);

@@ -13,6 +13,7 @@
 #include <LibCore/ConfigFile.h>
 #include <LibCore/Directory.h>
 #include <LibCore/File.h>
+#include <LibCore/SessionManagement.h>
 #include <LibCore/SocketAddress.h>
 #include <LibCore/System.h>
 #include <fcntl.h>
@@ -299,7 +300,7 @@ Service::Service(Core::ConfigFile const& config, StringView name)
 
     m_user = config.read_entry(name, "User");
     if (!m_user.is_null()) {
-        auto result = Core::Account::from_name(m_user.characters(), Core::Account::Read::PasswdOnly);
+        auto result = Core::Account::from_name(m_user, Core::Account::Read::PasswdOnly);
         if (result.is_error())
             warnln("Failed to resolve user {}: {}", m_user, result.error());
         else
@@ -322,17 +323,21 @@ Service::Service(Core::ConfigFile const& config, StringView name)
 
         // Need i here to iterate along with all other vectors.
         for (unsigned i = 0; i < socket_paths.size(); i++) {
-            auto const path = Core::Account::parse_path_with_uid(socket_paths.at(i), m_account.has_value() ? m_account.value().uid() : Optional<uid_t> {});
+            auto const path = Core::SessionManagement::parse_path_with_sid(socket_paths.at(i));
+            if (path.is_error()) {
+                // FIXME: better error handling for this case.
+                TODO();
+            }
 
             // Socket path (plus NUL) must fit into the structs sent to the Kernel.
-            VERIFY(path.length() < UNIX_PATH_MAX);
+            VERIFY(path.value().length() < UNIX_PATH_MAX);
 
             // This is done so that the last permission repeats for every other
             // socket. So you can define a single permission, and have it
             // be applied for every socket.
             mode_t permissions = strtol(socket_perms.at(min(socket_perms.size() - 1, (long unsigned)i)).characters(), nullptr, 8) & 0777;
 
-            m_sockets.empend(path, -1, permissions);
+            m_sockets.empend(path.value(), -1, permissions);
         }
     }
 
@@ -414,10 +419,7 @@ ErrorOr<void> Service::determine_account(int fd)
     socklen_t creds_size = sizeof(creds);
     TRY(Core::System::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &creds, &creds_size));
 
-    auto const directory_name = String::formatted("/proc/{}/", creds.pid);
-    auto const stat = TRY(Core::System::stat(directory_name));
-
-    m_account = TRY(Core::Account::from_uid(stat.st_uid, Core::Account::Read::PasswdOnly));
+    m_account = TRY(Core::Account::from_uid(creds.uid, Core::Account::Read::PasswdOnly));
     return {};
 }
 

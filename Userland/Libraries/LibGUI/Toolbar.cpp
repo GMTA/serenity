@@ -27,6 +27,7 @@ Toolbar::Toolbar(Orientation orientation, int button_size)
     , m_button_size(button_size)
 {
     REGISTER_BOOL_PROPERTY("collapsible", is_collapsible, set_collapsible);
+    REGISTER_BOOL_PROPERTY("grouped", is_grouped, set_grouped);
 
     if (m_orientation == Orientation::Horizontal)
         set_fixed_height(button_size);
@@ -50,24 +51,12 @@ private:
         if (action.group() && action.group()->is_exclusive())
             set_exclusive(true);
         set_action(action);
-        set_tooltip(tooltip(action));
         set_focus_policy(FocusPolicy::NoFocus);
         if (action.icon())
             set_icon(action.icon());
         else
             set_text(action.text());
         set_button_style(Gfx::ButtonStyle::Coolbar);
-    }
-    String tooltip(Action const& action) const
-    {
-        StringBuilder builder;
-        builder.append(action.text());
-        if (action.shortcut().is_valid()) {
-            builder.append(" ("sv);
-            builder.append(action.shortcut().to_string());
-            builder.append(')');
-        }
-        return builder.to_string();
     }
 
     virtual void enter_event(Core::Event& event) override
@@ -180,18 +169,19 @@ ErrorOr<void> Toolbar::update_overflow_menu()
     Optional<size_t> marginal_index {};
     auto position { 0 };
     auto is_horizontal { m_orientation == Gfx::Orientation::Horizontal };
-    auto margin { is_horizontal ? layout()->margins().right() : layout()->margins().bottom() };
+    auto margin { is_horizontal ? layout()->margins().horizontal_total() : layout()->margins().vertical_total() };
+    auto spacing { layout()->spacing() };
     auto toolbar_size { is_horizontal ? width() : height() };
 
     for (size_t i = 0; i < m_items.size() - 1; ++i) {
         auto& item = m_items.at(i);
         auto item_size = is_horizontal ? item.widget->width() : item.widget->height();
-        if (position + item_size + m_button_size + margin > toolbar_size) {
+        if (position + item_size + margin > toolbar_size) {
             marginal_index = i;
             break;
         }
         item.widget->set_visible(true);
-        position += item_size;
+        position += item_size + spacing;
     }
 
     if (!marginal_index.has_value()) {
@@ -200,6 +190,28 @@ ErrorOr<void> Toolbar::update_overflow_menu()
             m_overflow_button->set_visible(false);
         }
         return {};
+    }
+
+    if (marginal_index.value() > 0) {
+        for (size_t i = marginal_index.value() - 1; i > 0; --i) {
+            auto& item = m_items.at(i);
+            auto item_size = is_horizontal ? item.widget->width() : item.widget->height();
+            if (position + m_button_size + spacing + margin <= toolbar_size)
+                break;
+            item.widget->set_visible(false);
+            position -= item_size + spacing;
+            marginal_index = i;
+        }
+    }
+
+    if (m_grouped) {
+        for (size_t i = marginal_index.value(); i > 0; --i) {
+            auto& item = m_items.at(i);
+            if (item.type == Item::Type::Separator)
+                break;
+            item.widget->set_visible(false);
+            marginal_index = i;
+        }
     }
 
     if (!m_overflow_action)

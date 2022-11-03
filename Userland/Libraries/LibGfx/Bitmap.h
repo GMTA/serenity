@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Timothy Slater <tslater2006@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -7,6 +8,7 @@
 #pragma once
 
 #include <AK/Forward.h>
+#include <AK/Function.h>
 #include <AK/RefCounted.h>
 #include <LibCore/AnonymousBuffer.h>
 #include <LibGfx/Color.h>
@@ -115,7 +117,7 @@ public:
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> flipped(Gfx::Orientation) const;
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> scaled(int sx, int sy) const;
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> scaled(float sx, float sy) const;
-    ErrorOr<NonnullRefPtr<Gfx::Bitmap>> cropped(Gfx::IntRect) const;
+    ErrorOr<NonnullRefPtr<Gfx::Bitmap>> cropped(Gfx::IntRect, Optional<BitmapFormat> new_bitmap_format = {}) const;
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> to_bitmap_backed_by_anonymous_buffer() const;
     [[nodiscard]] ByteBuffer serialize_to_byte_buffer() const;
 
@@ -241,6 +243,8 @@ public:
     [[nodiscard]] bool visually_equals(Bitmap const&) const;
 
     [[nodiscard]] Optional<Color> solid_color(u8 alpha_threshold = 0) const;
+
+    void flood_visit_from_point(Gfx::IntPoint const& start_point, int threshold, Function<void(Gfx::IntPoint location)> pixel_reached);
 
 private:
     Bitmap(BitmapFormat, IntSize const&, int, BackingStore const&);

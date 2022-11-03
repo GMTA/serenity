@@ -22,6 +22,7 @@
 #include <LibWeb/CSS/Parser/DeclarationOrAtRule.h>
 #include <LibWeb/CSS/Parser/Function.h>
 #include <LibWeb/CSS/Parser/Rule.h>
+#include <LibWeb/CSS/Parser/TokenStream.h>
 #include <LibWeb/CSS/Parser/Tokenizer.h>
 #include <LibWeb/CSS/Ratio.h>
 #include <LibWeb/CSS/Selector.h>
@@ -35,7 +36,7 @@ namespace Web::CSS::Parser {
 class ParsingContext {
 public:
     ParsingContext();
-    explicit ParsingContext(HTML::Window&);
+    explicit ParsingContext(JS::Realm&);
     explicit ParsingContext(DOM::Document const&);
     explicit ParsingContext(DOM::Document const&, AK::URL);
     explicit ParsingContext(DOM::ParentNode&);
@@ -47,78 +48,13 @@ public:
     PropertyID current_property_id() const { return m_current_property_id; }
     void set_current_property_id(PropertyID property_id) { m_current_property_id = property_id; }
 
-    HTML::Window& window_object() const { return m_window_object; }
+    JS::Realm& realm() const { return m_realm; }
 
 private:
-    HTML::Window& m_window_object;
+    JS::Realm& m_realm;
     DOM::Document const* m_document { nullptr };
     PropertyID m_current_property_id { PropertyID::Invalid };
     AK::URL m_url;
-};
-
-template<typename T>
-class TokenStream {
-public:
-    class StateTransaction {
-    public:
-        explicit StateTransaction(TokenStream<T>& token_stream)
-            : m_token_stream(token_stream)
-            , m_saved_iterator_offset(token_stream.m_iterator_offset)
-        {
-        }
-
-        ~StateTransaction()
-        {
-            if (!m_commit)
-                m_token_stream.m_iterator_offset = m_saved_iterator_offset;
-        }
-
-        StateTransaction create_child() { return StateTransaction(*this); }
-
-        void commit()
-        {
-            m_commit = true;
-            if (m_parent)
-                m_parent->commit();
-        }
-
-    private:
-        explicit StateTransaction(StateTransaction& parent)
-            : m_parent(&parent)
-            , m_token_stream(parent.m_token_stream)
-            , m_saved_iterator_offset(parent.m_token_stream.m_iterator_offset)
-        {
-        }
-
-        StateTransaction* m_parent { nullptr };
-        TokenStream<T>& m_token_stream;
-        int m_saved_iterator_offset { 0 };
-        bool m_commit { false };
-    };
-
-    explicit TokenStream(Vector<T> const&);
-    ~TokenStream() = default;
-
-    TokenStream(TokenStream<T> const&) = delete;
-
-    bool has_next_token();
-    T const& next_token();
-    T const& peek_token(int offset = 0);
-    T const& current_token();
-    void reconsume_current_input_token();
-
-    StateTransaction begin_transaction() { return StateTransaction(*this); }
-
-    void skip_whitespace();
-
-    void dump_all_tokens();
-
-private:
-    Vector<T> const& m_tokens;
-    int m_iterator_offset { -1 };
-
-    T make_eof();
-    T m_eof;
 };
 
 class Parser {
@@ -150,6 +86,7 @@ public:
     RefPtr<StyleValue> parse_as_css_value(PropertyID);
 
     static RefPtr<StyleValue> parse_css_value(Badge<StyleComputer>, ParsingContext const&, PropertyID, Vector<ComponentValue> const&);
+    static RefPtr<CalculatedStyleValue> parse_calculated_value(Badge<StyleComputer>, ParsingContext const&, Vector<ComponentValue> const&);
 
 private:
     enum class ParseError {
@@ -240,7 +177,7 @@ private:
     Vector<FontFace::Source> parse_font_face_src(TokenStream<ComponentValue>&);
 
     CSSRule* convert_to_rule(NonnullRefPtr<Rule>);
-    PropertyOwningCSSStyleDeclaration* convert_to_style_declaration(Vector<DeclarationOrAtRule> declarations);
+    PropertyOwningCSSStyleDeclaration* convert_to_style_declaration(Vector<DeclarationOrAtRule> const& declarations);
     Optional<StyleProperty> convert_to_style_property(Declaration const&);
 
     class Dimension {
@@ -314,20 +251,27 @@ private:
     Optional<Ratio> parse_ratio(TokenStream<ComponentValue>&);
     Optional<UnicodeRange> parse_unicode_range(TokenStream<ComponentValue>&);
     Optional<UnicodeRange> parse_unicode_range(StringView);
+    Optional<GridSize> parse_grid_size(ComponentValue const&);
+    Optional<GridMinMax> parse_min_max(Vector<ComponentValue> const&);
+    Optional<GridRepeat> parse_repeat(Vector<ComponentValue> const&);
+    Optional<ExplicitGridTrack> parse_track_sizing_function(ComponentValue const&);
+    Optional<PositionValue> parse_position(TokenStream<ComponentValue>&);
 
     enum class AllowedDataUrlType {
         None,
         Image,
+        Font,
     };
     Optional<AK::URL> parse_url_function(ComponentValue const&, AllowedDataUrlType = AllowedDataUrlType::None);
 
     RefPtr<StyleValue> parse_linear_gradient_function(ComponentValue const&);
+    RefPtr<StyleValue> parse_conic_gradient_function(ComponentValue const&);
 
     ParseErrorOr<NonnullRefPtr<StyleValue>> parse_css_value(PropertyID, TokenStream<ComponentValue>&);
     RefPtr<StyleValue> parse_css_value(ComponentValue const&);
     RefPtr<StyleValue> parse_builtin_value(ComponentValue const&);
     RefPtr<StyleValue> parse_dynamic_value(ComponentValue const&);
-    RefPtr<StyleValue> parse_calculated_value(Vector<ComponentValue> const&);
+    RefPtr<CalculatedStyleValue> parse_calculated_value(Vector<ComponentValue> const&);
     RefPtr<StyleValue> parse_dimension_value(ComponentValue const&);
     RefPtr<StyleValue> parse_numeric_value(ComponentValue const&);
     RefPtr<StyleValue> parse_identifier_value(ComponentValue const&);
@@ -339,6 +283,7 @@ private:
     RefPtr<StyleValue> parse_comma_separated_value_list(Vector<ComponentValue> const&, ParseFunction);
     RefPtr<StyleValue> parse_simple_comma_separated_value_list(Vector<ComponentValue> const&);
 
+    RefPtr<StyleValue> parse_filter_value_list_value(Vector<ComponentValue> const&);
     RefPtr<StyleValue> parse_background_value(Vector<ComponentValue> const&);
     RefPtr<StyleValue> parse_single_background_position_value(TokenStream<ComponentValue>&);
     RefPtr<StyleValue> parse_single_background_repeat_value(TokenStream<ComponentValue>&);

@@ -21,10 +21,9 @@ ImageConstructor::ImageConstructor(JS::Realm& realm)
 void ImageConstructor::initialize(JS::Realm& realm)
 {
     auto& vm = this->vm();
-    auto& window = verify_cast<HTML::Window>(realm.global_object());
-    NativeFunction::initialize(realm);
 
-    define_direct_property(vm.names.prototype, &window.cached_web_prototype("HTMLImageElement"), 0);
+    NativeFunction::initialize(realm);
+    define_direct_property(vm.names.prototype, &cached_web_prototype(realm, "HTMLImageElement"), 0);
     define_direct_property(vm.names.length, JS::Value(0), JS::Attribute::Configurable);
 }
 
@@ -48,13 +47,13 @@ JS::ThrowCompletionOr<JS::Object*> ImageConstructor::construct(FunctionObject&)
     // 3. If width is given, then set an attribute value for img using "width" and width.
     if (vm.argument_count() > 0) {
         u32 width = TRY(vm.argument(0).to_u32(vm));
-        image_element->set_attribute(HTML::AttributeNames::width, String::formatted("{}", width));
+        MUST(image_element->set_attribute(HTML::AttributeNames::width, String::formatted("{}", width)));
     }
 
     // 4. If height is given, then set an attribute value for img using "height" and height.
     if (vm.argument_count() > 1) {
         u32 height = TRY(vm.argument(1).to_u32(vm));
-        image_element->set_attribute(HTML::AttributeNames::height, String::formatted("{}", height));
+        MUST(image_element->set_attribute(HTML::AttributeNames::height, String::formatted("{}", height)));
     }
 
     // 5. Return img.

@@ -14,16 +14,9 @@ fi
 
 set -e
 
-SUDO="sudo"
+SCRIPT_DIR="$(dirname "${0}")"
 
-if [ "$(uname -s)" = "SerenityOS" ]; then
-    SUDO="pls"
-fi
-
-die() {
-    echo "die: $*"
-    exit 1
-}
+. "${SCRIPT_DIR}/.shell_include.sh"
 
 USE_FUSE2FS=0
 
@@ -31,8 +24,19 @@ if [ "$(id -u)" != 0 ]; then
     if [ -x "$FUSE2FS_PATH" ] && $FUSE2FS_PATH --help 2>&1 |grep fakeroot > /dev/null; then
         USE_FUSE2FS=1
     else
-        ${SUDO} -E -- "$0" "$@" || die "this script needs to run as root"
-        exit 0
+        set +e
+        ${SUDO} -E -- sh -c "\"$0\" $* || exit 42"
+        case $? in
+            1)
+                die "this script needs to run as root"
+                ;;
+            42)
+                exit 1
+                ;;
+            *)
+                exit 0
+                ;;
+        esac
     fi
 else
     : "${SUDO_UID:=0}" "${SUDO_GID:=0}"
@@ -55,7 +59,6 @@ else
     fi
 fi
 
-SCRIPT_DIR="$(dirname "${0}")"
 
 # Prepend the toolchain qemu directory so we pick up QEMU from there
 PATH="$SCRIPT_DIR/../Toolchain/Local/qemu/bin:$PATH"

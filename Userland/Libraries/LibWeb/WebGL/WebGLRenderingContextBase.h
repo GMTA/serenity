@@ -10,6 +10,8 @@
 #include <AK/WeakPtr.h>
 #include <AK/Weakable.h>
 #include <LibGL/GLContext.h>
+#include <LibJS/Heap/GCPtr.h>
+#include <LibWeb/Bindings/PlatformObject.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/WebGL/WebGLContextAttributes.h>
 
@@ -62,7 +64,7 @@ public:
     void viewport(GLint x, GLint y, GLsizei width, GLsizei height);
 
 protected:
-    WebGLRenderingContextBase(HTML::Window&, HTML::HTMLCanvasElement& canvas_element, NonnullOwnPtr<GL::GLContext> context, WebGLContextAttributes context_creation_parameters, WebGLContextAttributes actual_context_parameters);
+    WebGLRenderingContextBase(JS::Realm&, HTML::HTMLCanvasElement& canvas_element, NonnullOwnPtr<GL::GLContext> context, WebGLContextAttributes context_creation_parameters, WebGLContextAttributes actual_context_parameters);
 
 private:
     virtual void visit_edges(Cell::Visitor&) override;

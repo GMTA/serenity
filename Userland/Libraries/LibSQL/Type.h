@@ -8,6 +8,7 @@
 
 #include <AK/HashMap.h>
 #include <AK/String.h>
+#include <AK/StringView.h>
 
 namespace SQL {
 
@@ -17,8 +18,7 @@ namespace SQL {
     S("int", 4, Integer, int, sizeof(int))       \
     S("float", 8, Float, double, sizeof(double)) \
     S("bool", 16, Boolean, bool, sizeof(bool))   \
-    S("tuple", 32, Tuple, int, sizeof(int))      \
-    S("array", 64, Array, int, sizeof(int))
+    S("tuple", 32, Tuple, int, sizeof(int))
 
 enum class SQLType {
 #undef __ENUMERATE_SQL_TYPE
@@ -27,13 +27,13 @@ enum class SQLType {
 #undef __ENUMERATE_SQL_TYPE
 };
 
-inline static String SQLType_name(SQLType t)
+constexpr StringView SQLType_name(SQLType t)
 {
     switch (t) {
 #undef __ENUMERATE_SQL_TYPE
 #define __ENUMERATE_SQL_TYPE(name, cardinal, type, impl, size) \
     case SQLType::type:                                        \
-        return name;
+        return name##sv;
         ENUMERATE_SQL_TYPES(__ENUMERATE_SQL_TYPE)
 #undef __ENUMERATE_SQL_TYPE
     default:
@@ -41,7 +41,7 @@ inline static String SQLType_name(SQLType t)
     }
 }
 
-inline static size_t size_of(SQLType t)
+constexpr size_t size_of(SQLType t)
 {
     switch (t) {
 #undef __ENUMERATE_SQL_TYPE
@@ -66,13 +66,13 @@ enum class Order {
 #undef __ENUMERATE_ORDER
 };
 
-inline static String Order_name(Order order)
+constexpr StringView Order_name(Order order)
 {
     switch (order) {
 #undef __ENUMERATE_ORDER
 #define __ENUMERATE_ORDER(order) \
     case Order::order:           \
-        return #order;
+        return #order##sv;
         ENUMERATE_ORDERS(__ENUMERATE_ORDER)
 #undef __ENUMERATE_ORDER
     default:

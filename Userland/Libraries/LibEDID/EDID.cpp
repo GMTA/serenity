@@ -23,7 +23,7 @@ namespace EDID {
 
 // clang doesn't like passing around pointers to members in packed structures,
 // even though we're only using them for arithmetic purposes
-#ifdef __clang__
+#if defined(AK_COMPILER_CLANG)
 #    pragma clang diagnostic ignored "-Waddress-of-packed-member"
 #endif
 
@@ -79,7 +79,6 @@ public:
         if (dtd_start > offsetof(Definitions::ExtensionBlock, checksum) - sizeof(Definitions::DetailedTiming))
             return Error::from_string_literal("CEA 861 extension block has invalid DTD list");
 
-        size_t dtd_index = 0;
         for (size_t offset = dtd_start; offset <= offsetof(Definitions::ExtensionBlock, checksum) - sizeof(Definitions::DetailedTiming); offset += sizeof(Definitions::DetailedTiming)) {
             auto& dtd = *(Definitions::DetailedTiming const*)((u8 const*)m_block + offset);
             if (m_edid.read_host(&dtd.pixel_clock) == 0)
@@ -88,8 +87,6 @@ public:
             IterationDecision decision = callback(Parser::DetailedTiming(m_edid, &dtd));
             if (decision != IterationDecision::Continue)
                 return decision;
-
-            dtd_index++;
         }
         return IterationDecision::Continue;
     }
@@ -201,11 +198,10 @@ ErrorOr<Parser> Parser::from_bytes(ByteBuffer&& bytes)
 }
 
 #ifndef KERNEL
-ErrorOr<Parser> Parser::from_display_connector_device(int display_connector_fd, size_t head)
+ErrorOr<Parser> Parser::from_display_connector_device(int display_connector_fd)
 {
     RawBytes edid_bytes;
     GraphicsHeadEDID edid_info {};
-    edid_info.head_index = head;
     edid_info.bytes = &edid_bytes[0];
     edid_info.bytes_size = sizeof(edid_bytes);
     if (graphics_connector_get_head_edid(display_connector_fd, &edid_info) < 0) {
@@ -229,7 +225,7 @@ ErrorOr<Parser> Parser::from_display_connector_device(int display_connector_fd, 
     return from_bytes(move(edid_byte_buffer));
 }
 
-ErrorOr<Parser> Parser::from_display_connector_device(String const& display_connector_device, size_t head)
+ErrorOr<Parser> Parser::from_display_connector_device(String const& display_connector_device)
 {
     int display_connector_fd = open(display_connector_device.characters(), O_RDWR | O_CLOEXEC);
     if (display_connector_fd < 0) {
@@ -239,7 +235,7 @@ ErrorOr<Parser> Parser::from_display_connector_device(String const& display_conn
     ScopeGuard fd_guard([&] {
         close(display_connector_fd);
     });
-    return from_display_connector_device(display_connector_fd, head);
+    return from_display_connector_device(display_connector_fd);
 }
 #endif
 

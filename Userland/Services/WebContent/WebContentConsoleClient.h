@@ -22,10 +22,17 @@ public:
 
     void handle_input(String const& js_source);
     void send_messages(i32 start_index);
+    void report_exception(JS::Error const&, bool) override;
 
 private:
     virtual void clear() override;
     virtual JS::ThrowCompletionOr<JS::Value> printer(JS::Console::LogLevel log_level, PrinterArguments) override;
+
+    virtual void add_css_style_to_current_message(StringView style) override
+    {
+        m_current_message_style.append(style);
+        m_current_message_style.append(';');
+    }
 
     ConnectionFromClient& m_client;
     WeakPtr<JS::Realm> m_realm;
@@ -48,6 +55,8 @@ private:
         String data;
     };
     Vector<ConsoleOutput> m_message_log;
+
+    StringBuilder m_current_message_style;
 };
 
 }

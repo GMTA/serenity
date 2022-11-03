@@ -19,7 +19,7 @@ using i32 = __INT32_TYPE__;
 using i16 = __INT16_TYPE__;
 using i8 = __INT8_TYPE__;
 
-#ifdef __serenity__
+#ifdef AK_OS_SERENITY
 
 using size_t = __SIZE_TYPE__;
 using ssize_t = MakeSigned<size_t>;
@@ -50,6 +50,10 @@ using pid_t = int;
 using __ptrdiff_t = __PTRDIFF_TYPE__;
 #    endif
 
+#    if defined(AK_OS_WINDOWS)
+using ssize_t = MakeSigned<size_t>;
+using mode_t = unsigned short;
+#    endif
 #endif
 
 using FlatPtr = Conditional<sizeof(void*) == 8, u64, u32>;
@@ -64,6 +68,8 @@ constexpr u64 EiB = KiB * KiB * KiB * KiB * KiB * KiB;
 namespace std { // NOLINT(cert-dcl58-cpp) nullptr_t must be in ::std:: for some analysis tools
 using nullptr_t = decltype(nullptr);
 }
+
+using nullptr_t = std::nullptr_t;
 
 static constexpr FlatPtr explode_byte(u8 b)
 {

@@ -7,7 +7,7 @@
 #pragma once
 
 #include <LibWeb/Bindings/PlatformObject.h>
-#include <LibWeb/DOM/ExceptionOr.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::SVG {
 
@@ -16,21 +16,19 @@ class SVGLength : public Bindings::PlatformObject {
     WEB_PLATFORM_OBJECT(SVGLength, Bindings::PlatformObject);
 
 public:
-    static JS::NonnullGCPtr<SVGLength> create(HTML::Window&, u8 unit_type, float value);
+    static JS::NonnullGCPtr<SVGLength> create(JS::Realm&, u8 unit_type, float value);
     virtual ~SVGLength() override;
 
     u8 unit_type() const { return m_unit_type; }
 
     float value() const { return m_value; }
-    DOM::ExceptionOr<void> set_value(float value);
+    WebIDL::ExceptionOr<void> set_value(float value);
 
 private:
-    SVGLength(HTML::Window&, u8 unit_type, float value);
+    SVGLength(JS::Realm&, u8 unit_type, float value);
 
     u8 m_unit_type { 0 };
     float m_value { 0 };
 };
 
 }
-
-WRAPPER_HACK(SVGLength, Web::SVG)

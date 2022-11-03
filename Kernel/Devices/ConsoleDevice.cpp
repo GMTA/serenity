@@ -4,17 +4,19 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <Kernel/Arch/x86/IO.h>
+#include <AK/Platform.h>
+#if ARCH(I386) || ARCH(X86_64)
+#    include <Kernel/Arch/x86/common/BochsDebugOutput.h>
+#endif
 #include <Kernel/Devices/ConsoleDevice.h>
 #include <Kernel/Devices/DeviceManagement.h>
 #include <Kernel/Locking/Spinlock.h>
 #include <Kernel/Sections.h>
 #include <Kernel/kstdio.h>
 
-// Output bytes to kernel debug port 0xE9 (Bochs console). It's very handy.
-#define CONSOLE_OUT_TO_BOCHS_DEBUG_PORT
+namespace Kernel {
 
-static Kernel::Spinlock g_console_lock { LockRank::None };
+Spinlock g_console_lock { LockRank::None };
 
 UNMAP_AFTER_INIT NonnullLockRefPtr<ConsoleDevice> ConsoleDevice::must_create()
 {
@@ -57,8 +59,8 @@ ErrorOr<size_t> ConsoleDevice::write(OpenFileDescription&, u64, Kernel::UserOrKe
 void ConsoleDevice::put_char(char ch)
 {
     Kernel::SpinlockLocker lock(g_console_lock);
-#ifdef CONSOLE_OUT_TO_BOCHS_DEBUG_PORT
-    IO::out8(IO::BOCHS_DEBUG_PORT, ch);
-#endif
+    dbgputchar(ch);
     m_logbuffer.enqueue(ch);
+}
+
 }

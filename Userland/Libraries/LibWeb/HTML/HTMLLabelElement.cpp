@@ -13,16 +13,14 @@ namespace Web::HTML {
 HTMLLabelElement::HTMLLabelElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLLabelElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLLabelElement"));
 }
 
 HTMLLabelElement::~HTMLLabelElement() = default;
 
-RefPtr<Layout::Node> HTMLLabelElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> HTMLLabelElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
 {
-    auto layout_node = adopt_ref(*new Layout::Label(document(), this, move(style)));
-    layout_node->set_inline(true);
-    return layout_node;
+    return heap().allocate_without_realm<Layout::Label>(document(), this, move(style));
 }
 
 }

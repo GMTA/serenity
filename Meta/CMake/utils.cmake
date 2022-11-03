@@ -2,6 +2,24 @@
 include(${CMAKE_CURRENT_LIST_DIR}/serenity_components.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/code_generators.cmake)
 
+function(serenity_set_implicit_links target_name)
+    # Make sure that CMake is aware of the implicit LibC dependency, and ensure
+    # that we are choosing the correct and updated LibC.
+    # The latter is a problem with Clang especially, since we might have the
+    # slightly outdated stub in the sysroot, but have not yet installed the freshly
+    # built LibC.
+    target_link_libraries(${target_name} PRIVATE LibC)
+
+    # Same goes for -lssp_nonshared, which is required during build time but is not
+    # yet installed in the sysroot. However, we just want to add the link directory
+    # and a dependency here, since actually linking the library is decided on by
+    # passing one of the -fstack-protector options.
+    # -lssp is contained inside LibC, so that case is handled by the above and a linker
+    # script.
+    target_link_directories(${target_name} PRIVATE "$<TARGET_FILE_DIR:ssp_nonshared>")
+    add_dependencies(${target_name} ssp_nonshared)
+endfunction()
+
 function(serenity_install_headers target_name)
     file(GLOB_RECURSE headers RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.h")
     foreach(header ${headers})
@@ -43,6 +61,7 @@ if (NOT COMMAND serenity_lib)
         install(TARGETS ${target_name} DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
         set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${fs_name})
         serenity_generated_sources(${target_name})
+        serenity_set_implicit_links(${target_name})
     endfunction()
 endif()
 
@@ -56,6 +75,7 @@ if (NOT COMMAND serenity_lib_static)
         install(TARGETS ${target_name} DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
         set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${fs_name})
         serenity_generated_sources(${target_name})
+        serenity_set_implicit_links(${target_name})
     endfunction()
 endif()
 
@@ -68,19 +88,7 @@ function(serenity_libc target_name fs_name)
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${fs_name})
     # Avoid creating a dependency cycle between system libraries and the C++ standard library. This is necessary
     # to ensure that initialization functions will be called in the right order (libc++ must come after LibPthread).
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_link_options(${target_name} PRIVATE -static-libstdc++)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang$")
-        target_link_libraries(${target_name} clang_rt.builtins)
-        # FIXME: Implement -static-libstdc++ in the next toolchain update.
-        target_link_options(${target_name} PRIVATE -nostdlib++ -Wl,-Bstatic -lc++ -Wl,-Bdynamic)
-        if (NOT ENABLE_MOLD_LINKER)
-            target_link_options(${target_name} PRIVATE -Wl,--no-dependent-libraries)
-        endif()
-        if (ENABLE_USERSPACE_COVERAGE_COLLECTION)
-            target_link_libraries(${target_name} clang_rt.profile)
-        endif()
-    endif()
+    target_link_options(${target_name} PRIVATE -static-libstdc++)
     target_link_directories(LibC PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
     serenity_generated_sources(${target_name})
 endfunction()
@@ -92,6 +100,7 @@ if (NOT COMMAND serenity_bin)
         set_target_properties(${target_name} PROPERTIES EXCLUDE_FROM_ALL TRUE)
         install(TARGETS ${target_name} RUNTIME DESTINATION bin OPTIONAL)
         serenity_generated_sources(${target_name})
+        serenity_set_implicit_links(${target_name})
     endfunction()
 endif()
 
@@ -108,9 +117,10 @@ function(serenity_test test_src sub_dir)
     add_executable(${test_name} ${TEST_SOURCES})
     add_dependencies(ComponentTests ${test_name})
     set_target_properties(${test_name} PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    target_link_libraries(${test_name} LibTest LibCore)
+    serenity_set_implicit_links(${test_name})
+    target_link_libraries(${test_name} PRIVATE LibTest LibCore)
     foreach(lib ${SERENITY_TEST_LIBS})
-        target_link_libraries(${test_name} ${lib})
+        target_link_libraries(${test_name} PRIVATE ${lib})
     endforeach()
     install(TARGETS ${test_name} RUNTIME DESTINATION usr/Tests/${sub_dir} OPTIONAL)
 endfunction()
@@ -167,8 +177,8 @@ function(embed_resource target section file)
 endfunction()
 
 function(link_with_locale_data target)
-    if (ENABLE_UNICODE_DATABASE_DOWNLOAD)
-        target_link_libraries("${target}" LibLocaleData)
+    if (ENABLE_UNICODE_DATABASE_DOWNLOAD AND SERENITYOS)
+        target_link_libraries("${target}" PRIVATE LibLocaleData)
     endif()
 endfunction()
 
@@ -189,8 +199,8 @@ function(remove_path_if_version_changed version version_file cache_path)
     endif()
 endfunction()
 
-function(invoke_generator name generator version_file prefix header implementation)
-    cmake_parse_arguments(invoke_generator "" "" "arguments" ${ARGN})
+function(invoke_generator name generator version_file header implementation)
+    cmake_parse_arguments(invoke_generator "" "" "arguments;dependencies" ${ARGN})
 
     add_custom_command(
         OUTPUT "${header}" "${implementation}"
@@ -199,11 +209,13 @@ function(invoke_generator name generator version_file prefix header implementati
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${implementation}.tmp" "${implementation}"
         COMMAND "${CMAKE_COMMAND}" -E remove "${header}.tmp" "${implementation}.tmp"
         VERBATIM
-        DEPENDS ${generator} "${version_file}"
+        DEPENDS ${generator} ${invoke_generator_dependencies} "${version_file}"
     )
 
-    add_custom_target("generate_${prefix}${name}" DEPENDS "${header}" "${implementation}")
-    add_dependencies(all_generated "generate_${prefix}${name}")
+    add_custom_target("generate_${name}" DEPENDS "${header}" "${implementation}")
+    add_dependencies(all_generated "generate_${name}")
+    list(APPEND CURRENT_LIB_GENERATED "${name}")
+    set(CURRENT_LIB_GENERATED ${CURRENT_LIB_GENERATED} PARENT_SCOPE)
 endfunction()
 
 function(download_file url path)

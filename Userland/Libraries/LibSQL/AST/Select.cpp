@@ -54,7 +54,7 @@ ResultOr<ResultSet> Select::execute(ExecutionContext& context) const
     Tuple tuple(descriptor);
     Vector<Tuple> rows;
     descriptor->empend("__unity__"sv);
-    tuple.append(Value(SQLType::Boolean, true));
+    tuple.append(Value { true });
     rows.append(tuple);
 
     for (auto& table_descriptor : table_or_subquery_list()) {
@@ -92,8 +92,8 @@ ResultOr<ResultSet> Select::execute(ExecutionContext& context) const
         context.current_row = &row;
 
         if (where_clause()) {
-            auto where_result = TRY(where_clause()->evaluate(context));
-            if (!where_result)
+            auto where_result = TRY(where_clause()->evaluate(context)).to_bool();
+            if (!where_result.has_value() || !where_result.value())
                 continue;
         }
 

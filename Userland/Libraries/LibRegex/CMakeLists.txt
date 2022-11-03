@@ -1,5 +1,4 @@
 set(SOURCES
-    C/Regex.cpp
     RegexByteCode.cpp
     RegexLexer.cpp
     RegexMatcher.cpp
@@ -7,5 +6,9 @@ set(SOURCES
     RegexParser.cpp
 )
 
+if(SERENITYOS)
+    list(APPEND SOURCES C/Regex.cpp)
+endif()
+
 serenity_lib(LibRegex regex)
-target_link_libraries(LibRegex LibC LibCore LibUnicode)
+target_link_libraries(LibRegex PRIVATE LibCore LibUnicode)

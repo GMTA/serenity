@@ -8,10 +8,13 @@
 
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Layout/BlockContainer.h>
+#include <LibWeb/Layout/LayoutPosition.h>
 
 namespace Web::Layout {
 
 class InitialContainingBlock final : public BlockContainer {
+    JS_CELL(InitialContainingBlock, BlockContainer);
+
 public:
     explicit InitialContainingBlock(DOM::Document&, NonnullRefPtr<CSS::StyleProperties>);
     virtual ~InitialContainingBlock() override;

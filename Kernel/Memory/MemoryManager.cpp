@@ -9,14 +9,13 @@
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/StringView.h>
 #include <Kernel/Arch/CPU.h>
-#include <Kernel/Arch/InterruptDisabler.h>
 #include <Kernel/Arch/PageDirectory.h>
 #include <Kernel/Arch/PageFault.h>
 #include <Kernel/Arch/RegisterState.h>
 #include <Kernel/BootInfo.h>
-#include <Kernel/CMOS.h>
 #include <Kernel/FileSystem/Inode.h>
 #include <Kernel/Heap/kmalloc.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/KSyms.h>
 #include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Memory/MemoryManager.h>
@@ -73,8 +72,14 @@ bool MemoryManager::is_initialized()
 
 static UNMAP_AFTER_INIT VirtualRange kernel_virtual_range()
 {
+#if ARCH(AARCH64)
+    // NOTE: We currently identity map the kernel image for aarch64, so the kernel virtual range
+    //       is the complete memory range.
+    return VirtualRange { VirtualAddress((FlatPtr)0), 0x3F000000 };
+#else
     size_t kernel_range_start = kernel_mapping_base + 2 * MiB; // The first 2 MiB are used for mapping the pre-kernel
     return VirtualRange { VirtualAddress(kernel_range_start), KERNEL_PD_END - kernel_range_start };
+#endif
 }
 
 MemoryManager::GlobalData::GlobalData()
@@ -244,7 +249,9 @@ UNMAP_AFTER_INIT void MemoryManager::parse_memory_map()
     // Register used memory regions that we know of.
     m_global_data.with([&](auto& global_data) {
         global_data.used_memory_ranges.ensure_capacity(4);
+#if ARCH(I386) || ARCH(X86_64)
         global_data.used_memory_ranges.append(UsedMemoryRange { UsedMemoryRangeType::LowMemory, PhysicalAddress(0x00000000), PhysicalAddress(1 * MiB) });
+#endif
         global_data.used_memory_ranges.append(UsedMemoryRange { UsedMemoryRangeType::Kernel, PhysicalAddress(virtual_to_low_physical((FlatPtr)start_of_kernel_image)), PhysicalAddress(page_round_up(virtual_to_low_physical((FlatPtr)end_of_kernel_image)).release_value_but_fixme_should_propagate_errors()) });
 
         if (multiboot_flags & 0x4) {
@@ -487,10 +494,8 @@ UNMAP_AFTER_INIT void MemoryManager::initialize_physical_pages()
             auto* pd = reinterpret_cast<PageDirectoryEntry*>(quickmap_page(boot_pd_kernel));
             PageDirectoryEntry& pde = pd[page_directory_index];
 
-            // FIXME: port quickmap_page to aarch64
-#if !ARCH(AARCH64)
             VERIFY(!pde.is_present()); // Nothing should be using this PD yet
-#endif
+
             // We can't use ensure_pte quite yet!
             pde.set_page_table_base(pt_paddr.get());
             pde.set_user_allowed(false);

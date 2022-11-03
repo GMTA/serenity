@@ -36,13 +36,14 @@ class Worker : public DOM::EventTarget {
     WEB_PLATFORM_OBJECT(Worker, DOM::EventTarget);
 
 public:
-    static DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> create(FlyString const& script_url, WorkerOptions const options, DOM::Document& document);
-    static DOM::ExceptionOr<JS::NonnullGCPtr<Worker>> create_with_global_object(HTML::Window& window, FlyString const& script_url, WorkerOptions const options)
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<Worker>> create(FlyString const& script_url, WorkerOptions const options, DOM::Document& document);
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<Worker>> construct_impl(JS::Realm& realm, FlyString const& script_url, WorkerOptions const options)
     {
-        return Worker::create(script_url, options, window.impl().associated_document());
+        auto& window = verify_cast<HTML::Window>(realm.global_object());
+        return Worker::create(script_url, options, window.associated_document());
     }
 
-    DOM::ExceptionOr<void> terminate();
+    WebIDL::ExceptionOr<void> terminate();
 
     void post_message(JS::Value message, JS::Value transfer);
 
@@ -52,9 +53,9 @@ public:
     JS::GCPtr<MessagePort> outside_message_port() { return m_outside_port; }
 
 #undef __ENUMERATE
-#define __ENUMERATE(attribute_name, event_name)         \
-    void set_##attribute_name(Bindings::CallbackType*); \
-    Bindings::CallbackType* attribute_name();
+#define __ENUMERATE(attribute_name, event_name)       \
+    void set_##attribute_name(WebIDL::CallbackType*); \
+    WebIDL::CallbackType* attribute_name();
     ENUMERATE_WORKER_EVENT_HANDLERS(__ENUMERATE)
 #undef __ENUMERATE
 
@@ -78,7 +79,7 @@ private:
 
     NonnullRefPtr<JS::VM> m_worker_vm;
     NonnullOwnPtr<JS::Interpreter> m_interpreter;
-    WeakPtr<WorkerEnvironmentSettingsObject> m_inner_settings;
+    JS::GCPtr<WorkerEnvironmentSettingsObject> m_inner_settings;
     JS::VM::InterpreterExecutionScope m_interpreter_scope;
     RefPtr<WorkerDebugConsoleClient> m_console;
 
@@ -88,13 +89,8 @@ private:
     // NOTE: These are inside the worker VM.
     JS::GCPtr<JS::Realm> m_worker_realm;
     JS::GCPtr<JS::Object> m_worker_scope;
-    // FIXME: This is a mega-hack but necessary because HTML::Window holds all the prototypes and constructors.
-    //        There should be *no* Window object in a Worker context.
-    JS::GCPtr<HTML::Window> m_worker_window;
 
-    void run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_settings, MessagePort& outside_port, WorkerOptions const options);
+    void run_a_worker(AK::URL& url, EnvironmentSettingsObject& outside_settings, MessagePort& outside_port, WorkerOptions const& options);
 };
 
 }
-
-WRAPPER_HACK(Worker, Web::HTML)

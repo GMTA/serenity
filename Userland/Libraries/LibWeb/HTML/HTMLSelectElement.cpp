@@ -5,18 +5,18 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/HTML/HTMLFormElement.h>
 #include <LibWeb/HTML/HTMLOptGroupElement.h>
 #include <LibWeb/HTML/HTMLOptionElement.h>
 #include <LibWeb/HTML/HTMLSelectElement.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::HTML {
 
 HTMLSelectElement::HTMLSelectElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLSelectElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLSelectElement"));
 }
 
 HTMLSelectElement::~HTMLSelectElement() = default;
@@ -42,8 +42,29 @@ JS::GCPtr<HTMLOptionsCollection> const& HTMLSelectElement::options()
     return m_options;
 }
 
+// https://html.spec.whatwg.org/multipage/form-elements.html#dom-select-length
+size_t HTMLSelectElement::length()
+{
+    // The length IDL attribute must return the number of nodes represented by the options collection. On setting, it must act like the attribute of the same name on the options collection.
+    return const_cast<HTMLOptionsCollection&>(*options()).length();
+}
+
+// https://html.spec.whatwg.org/multipage/form-elements.html#dom-select-item
+DOM::Element* HTMLSelectElement::item(size_t index)
+{
+    // The item(index) method must return the value returned by the method of the same name on the options collection, when invoked with the same argument.
+    return const_cast<HTMLOptionsCollection&>(*options()).item(index);
+}
+
+// https://html.spec.whatwg.org/multipage/form-elements.html#dom-select-nameditem
+DOM::Element* HTMLSelectElement::named_item(FlyString const& name)
+{
+    // The namedItem(name) method must return the value returned by the method of the same name on the options collection, when invoked with the same argument.
+    return const_cast<HTMLOptionsCollection&>(*options()).named_item(name);
+}
+
 // https://html.spec.whatwg.org/multipage/form-elements.html#dom-select-add
-DOM::ExceptionOr<void> HTMLSelectElement::add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before)
+WebIDL::ExceptionOr<void> HTMLSelectElement::add(HTMLOptionOrOptGroupElement element, Optional<HTMLElementOrElementIndex> before)
 {
     // Similarly, the add(element, before) method must act like its namesake method on that same options collection.
     return const_cast<HTMLOptionsCollection&>(*options()).add(move(element), move(before));

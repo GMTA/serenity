@@ -61,7 +61,7 @@
     A(Font)                       \
     A(FontDescriptor)             \
     A(FontFamily)                 \
-    A(FontFile1)                  \
+    A(FontFile)                   \
     A(FontFile2)                  \
     A(FontFile3)                  \
     A(Gamma)                      \
@@ -70,6 +70,7 @@
     A(HTO)                        \
     A(ICCBased)                   \
     A(ID)                         \
+    A(Index)                      \
     A(JBIG2Decode)                \
     A(JPXDecode)                  \
     A(Kids)                       \
@@ -81,6 +82,9 @@
     A(Last)                       \
     A(LastChar)                   \
     A(Length)                     \
+    A(Length1)                    \
+    A(Length2)                    \
+    A(Length3)                    \
     A(Linearized)                 \
     A(ML)                         \
     A(Matrix)                     \

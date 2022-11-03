@@ -88,6 +88,7 @@ public:
     virtual ~Card() override = default;
 
     Gfx::IntRect& rect() { return m_rect; }
+    Gfx::IntRect const& rect() const { return m_rect; }
     Gfx::IntPoint position() const { return m_rect.location(); }
     Gfx::IntPoint const& old_position() const { return m_old_position; }
     Rank rank() const { return m_rank; };
@@ -106,9 +107,9 @@ public:
 
     void save_old_position();
 
-    void draw(GUI::Painter&) const;
+    void paint(GUI::Painter&) const;
     void clear(GUI::Painter&, Color const& background_color) const;
-    void clear_and_draw(GUI::Painter&, Color const& background_color);
+    void clear_and_paint(GUI::Painter& painter, Color const& background_color);
 
 private:
     Card(Suit, Rank);
@@ -122,6 +123,14 @@ private:
     bool m_upside_down { false };
     bool m_inverted { false };
 };
+
+enum class Shuffle {
+    No,
+    Yes,
+};
+NonnullRefPtrVector<Card> create_standard_deck(Shuffle);
+NonnullRefPtrVector<Card> create_deck(unsigned full_club_suit_count, unsigned full_diamond_suit_count, unsigned full_heart_suit_count, unsigned full_spade_suit_count, Shuffle);
+void shuffle_deck(NonnullRefPtrVector<Card>&);
 
 }
 

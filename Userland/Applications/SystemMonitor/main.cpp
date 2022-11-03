@@ -191,6 +191,7 @@ public:
                 check(MS_RDONLY, "ro"sv);
                 check(MS_WXALLOWED, "wxallowed"sv);
                 check(MS_AXALLOWED, "axallowed"sv);
+                check(MS_NOREGULAR, "noregular"sv);
                 if (builder.string_view().is_empty())
                     return String("defaults");
                 return builder.to_string();
@@ -201,7 +202,7 @@ public:
             df_fields.empend("total_inode_count", "Total inodes", Gfx::TextAlignment::CenterRight);
             df_fields.empend("block_size", "Block size", Gfx::TextAlignment::CenterRight);
 
-            fs_table_view.set_model(MUST(GUI::SortingProxyModel::create(GUI::JsonArrayModel::create("/proc/df", move(df_fields)))));
+            fs_table_view.set_model(MUST(GUI::SortingProxyModel::create(GUI::JsonArrayModel::create("/sys/kernel/df", move(df_fields)))));
 
             fs_table_view.set_column_painting_delegate(3, make<ProgressbarPaintingDelegate>());
 
@@ -242,8 +243,10 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     TRY(Core::System::unveil("/etc/passwd", "r"));
     TRY(Core::System::unveil("/res", "r"));
     TRY(Core::System::unveil("/proc", "r"));
+    TRY(Core::System::unveil("/sys/kernel", "r"));
     TRY(Core::System::unveil("/dev", "r"));
     TRY(Core::System::unveil("/bin", "r"));
+    TRY(Core::System::unveil("/bin/Escalator", "x"));
     TRY(Core::System::unveil("/usr/lib", "r"));
 
     // This directory only exists if ports are installed
@@ -293,15 +296,12 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     auto& process_table_view = *process_table_container.find_child_of_type_named<GUI::TreeView>("process_table");
     process_table_view.set_model(TRY(GUI::SortingProxyModel::create(process_model)));
-    for (auto column = 0; column < ProcessModel::Column::__Count; ++column)
-        process_table_view.set_column_visible(column, false);
-    process_table_view.set_column_visible(ProcessModel::Column::PID, true);
-    process_table_view.set_column_visible(ProcessModel::Column::TID, true);
-    process_table_view.set_column_visible(ProcessModel::Column::Name, true);
-    process_table_view.set_column_visible(ProcessModel::Column::CPU, true);
-    process_table_view.set_column_visible(ProcessModel::Column::User, true);
-    process_table_view.set_column_visible(ProcessModel::Column::Virtual, true);
-    process_table_view.set_column_visible(ProcessModel::Column::DirtyPrivate, true);
+
+    for (auto column = 0; column < ProcessModel::Column::__Count; ++column) {
+        process_table_view.set_column_visible(column,
+            Config::read_bool("SystemMonitor"sv, "ProcessTableColumns"sv, process_model->column_name(column),
+                process_model->is_default_column(column)));
+    }
 
     process_table_view.set_key_column_and_sort_order(ProcessModel::Column::CPU, GUI::SortOrder::Descending);
     process_model->update();
@@ -449,6 +449,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     make_frequency_action(5);
 
     auto& help_menu = window->add_menu("&Help");
+    help_menu.add_action(GUI::CommonActions::make_command_palette_action(window));
     help_menu.add_action(GUI::CommonActions::make_about_action("System Monitor", app_icon, window));
 
     process_table_view.on_activation = [&](auto&) {
@@ -490,7 +491,15 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     else if (args_tab_view == "network")
         tabwidget.set_active_widget(tabwidget.find_descendant_of_type_named<GUI::Widget>("network"));
 
-    return app->exec();
+    int exec = app->exec();
+
+    // When exiting the application, save the configuration of the columns
+    // to be loaded the next time the application is opened.
+    auto& process_table_header = process_table_view.column_header();
+    for (auto column = 0; column < ProcessModel::Column::__Count; ++column)
+        Config::write_bool("SystemMonitor"sv, "ProcessTableColumns"sv, process_model->column_name(column), process_table_header.is_section_visible(column));
+
+    return exec;
 }
 
 ErrorOr<NonnullRefPtr<GUI::Window>> build_process_window(pid_t pid)

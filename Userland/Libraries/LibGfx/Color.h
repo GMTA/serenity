@@ -235,6 +235,8 @@ public:
 #endif
     }
 
+    Color mixed_with(Color const& other, float weight) const;
+
     Color interpolate(Color const& other, float weight) const noexcept
     {
         u8 r = red() + round_to<u8>(static_cast<float>(other.red() - red()) * weight);
@@ -251,6 +253,15 @@ public:
             green() * other.green() / 255,
             blue() * other.blue() / 255,
             alpha() * other.alpha() / 255);
+    }
+
+    constexpr float distance_squared_to(Color const& other) const
+    {
+        int a = other.red() - red();
+        int b = other.green() - green();
+        int c = other.blue() - blue();
+        int d = other.alpha() - alpha();
+        return (a * a + b * b + c * c + d * d) / (4.0f * 255.0f * 255.0f);
     }
 
     constexpr u8 luminosity() const

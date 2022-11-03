@@ -12,7 +12,17 @@ namespace Kernel::Memory {
 
 ErrorOr<NonnullLockRefPtr<SharedInodeVMObject>> SharedInodeVMObject::try_create_with_inode(Inode& inode)
 {
-    size_t size = inode.size();
+    if (inode.size() == 0)
+        return EINVAL;
+    return try_create_with_inode_and_range(inode, 0, inode.size());
+}
+
+ErrorOr<NonnullLockRefPtr<SharedInodeVMObject>> SharedInodeVMObject::try_create_with_inode_and_range(Inode& inode, u64 offset, size_t range_size)
+{
+    // Note: To ensure further allocation of a Region with this VMObject will not complain
+    // on "smaller" VMObject than the requested Region, we simply take the max size between both values.
+    auto size = max(inode.size(), (offset + range_size));
+    VERIFY(size > 0);
     if (auto shared_vmobject = inode.shared_vmobject())
         return shared_vmobject.release_nonnull();
     auto new_physical_pages = TRY(VMObject::try_create_physical_pages(size));
@@ -53,7 +63,6 @@ ErrorOr<void> SharedInodeVMObject::sync(off_t offset_in_pages, size_t pages)
         u8 page_buffer[PAGE_SIZE];
         MM.copy_physical_page(*physical_page, page_buffer);
 
-        MutexLocker locker(m_inode->m_inode_lock);
         TRY(m_inode->write_bytes(page_index * PAGE_SIZE, PAGE_SIZE, UserOrKernelBuffer::for_kernel_buffer(page_buffer), nullptr));
     }
 

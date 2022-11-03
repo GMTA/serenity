@@ -52,6 +52,7 @@ public:
         UnixSocketWriteBytes,
         IPv4SocketReadBytes,
         IPv4SocketWriteBytes,
+        Command,
         __Count
     };
 
@@ -71,6 +72,7 @@ public:
     virtual Vector<GUI::ModelIndex> matches(StringView, unsigned = MatchesFlag::AllMatching, GUI::ModelIndex const& = GUI::ModelIndex()) override;
     virtual bool is_column_sortable(int column_index) const override { return column_index != Column::Icon; }
     void update();
+    bool is_default_column(int index) const;
 
     struct CpuInfo {
         u32 id;
@@ -104,6 +106,7 @@ private:
         bool kernel { false };
         String executable { "" };
         String name { "" };
+        String command { "" };
         uid_t uid { 0 };
         String state { "" };
         String user { "" };
@@ -148,6 +151,7 @@ private:
             this->kernel = other.kernel;
             this->executable = other.executable;
             this->name = other.name;
+            this->command = other.command;
             this->uid = other.uid;
             this->state = other.state;
             this->user = other.user;

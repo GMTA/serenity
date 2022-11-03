@@ -13,8 +13,8 @@
 #include <AK/RefPtr.h>
 #include <LibWeb/Bindings/LegacyPlatformObject.h>
 #include <LibWeb/CSS/CSSRule.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/Forward.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::CSS {
 
@@ -23,10 +23,9 @@ class CSSRuleList : public Bindings::LegacyPlatformObject {
     WEB_PLATFORM_OBJECT(CSSRuleList, Bindings::LegacyPlatformObject);
 
 public:
-    static CSSRuleList* create(HTML::Window&, JS::MarkedVector<CSSRule*> const&);
-    static CSSRuleList* create_empty(HTML::Window&);
+    static CSSRuleList* create(JS::Realm&, JS::MarkedVector<CSSRule*> const&);
+    static CSSRuleList* create_empty(JS::Realm&);
 
-    explicit CSSRuleList(HTML::Window&);
     ~CSSRuleList() = default;
 
     CSSRule const* item(size_t index) const
@@ -57,19 +56,19 @@ public:
     virtual bool is_supported_property_index(u32 index) const override;
     virtual JS::Value item_value(size_t index) const override;
 
-    DOM::ExceptionOr<void> remove_a_css_rule(u32 index);
-    DOM::ExceptionOr<unsigned> insert_a_css_rule(Variant<StringView, CSSRule*>, u32 index);
+    WebIDL::ExceptionOr<void> remove_a_css_rule(u32 index);
+    WebIDL::ExceptionOr<unsigned> insert_a_css_rule(Variant<StringView, CSSRule*>, u32 index);
 
     void for_each_effective_style_rule(Function<void(CSSStyleRule const&)> const& callback) const;
     // Returns whether the match state of any media queries changed after evaluation.
     bool evaluate_media_queries(HTML::Window const&);
 
 private:
+    explicit CSSRuleList(JS::Realm&);
+
     virtual void visit_edges(Cell::Visitor&) override;
 
     Vector<CSSRule&> m_rules;
 };
 
 }
-
-WRAPPER_HACK(CSSRuleList, Web::CSS)

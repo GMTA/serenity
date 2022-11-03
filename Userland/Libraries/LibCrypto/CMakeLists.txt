@@ -6,6 +6,7 @@ set(SOURCES
     ASN1/PEM.cpp
     Authentication/GHash.cpp
     Authentication/Poly1305.cpp
+    BigFraction/BigFraction.cpp
     BigInt/Algorithms/BitwiseOperations.cpp
     BigInt/Algorithms/Division.cpp
     BigInt/Algorithms/GCD.cpp
@@ -32,4 +33,4 @@ set(SOURCES
 )
 
 serenity_lib(LibCrypto crypto)
-target_link_libraries(LibCrypto LibC LibCore)
+target_link_libraries(LibCrypto PRIVATE LibCore)

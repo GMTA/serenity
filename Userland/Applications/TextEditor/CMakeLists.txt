@@ -8,11 +8,14 @@ serenity_component(
 compile_gml(TextEditorWindow.gml TextEditorWindowGML.h text_editor_window_gml)
 
 set(SOURCES
-    main.cpp
     FileArgument.cpp
     MainWidget.cpp
+    main.cpp
+)
+
+set(GENERATED_SOURCES
     TextEditorWindowGML.h
 )
 
 serenity_app(TextEditor ICON app-text-editor)
-target_link_libraries(TextEditor LibWebView LibWeb LibMarkdown LibGUI LibShell LibRegex LibDesktop LibCpp LibJS LibSQL LibFileSystemAccessClient LibConfig LibMain)
+target_link_libraries(TextEditor PRIVATE LibCore LibWebView LibWeb LibMarkdown LibGfx LibGUI LibShell LibRegex LibDesktop LibCpp LibJS LibSQL LibSyntax LibFileSystemAccessClient LibConfig LibMain)

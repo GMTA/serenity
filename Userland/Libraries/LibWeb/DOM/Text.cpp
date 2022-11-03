@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/Range.h>
 #include <LibWeb/DOM/Text.h>
 #include <LibWeb/HTML/HTMLInputElement.h>
+#include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Layout/TextNode.h>
 
@@ -15,13 +17,13 @@ namespace Web::DOM {
 Text::Text(Document& document, String const& data)
     : CharacterData(document, NodeType::TEXT_NODE, data)
 {
-    set_prototype(&window().cached_web_prototype("Text"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "Text"));
 }
 
 Text::Text(Document& document, NodeType type, String const& data)
     : CharacterData(document, type, data)
 {
-    set_prototype(&window().cached_web_prototype("Text"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "Text"));
 }
 
 void Text::visit_edges(Cell::Visitor& visitor)
@@ -31,9 +33,11 @@ void Text::visit_edges(Cell::Visitor& visitor)
 }
 
 // https://dom.spec.whatwg.org/#dom-text-text
-JS::NonnullGCPtr<Text> Text::create_with_global_object(HTML::Window& window, String const& data)
+JS::NonnullGCPtr<Text> Text::construct_impl(JS::Realm& realm, String const& data)
 {
-    return *window.heap().allocate<Text>(window.realm(), window.associated_document(), data);
+    // The new Text(data) constructor steps are to set this’s data to data and this’s node document to current global object’s associated Document.
+    auto& window = verify_cast<HTML::Window>(HTML::current_global_object());
+    return *realm.heap().allocate<Text>(realm, window.associated_document(), data);
 }
 
 void Text::set_owner_input_element(Badge<HTML::HTMLInputElement>, HTML::HTMLInputElement& input_element)
@@ -43,14 +47,14 @@ void Text::set_owner_input_element(Badge<HTML::HTMLInputElement>, HTML::HTMLInpu
 
 // https://dom.spec.whatwg.org/#dom-text-splittext
 // https://dom.spec.whatwg.org/#concept-text-split
-ExceptionOr<JS::NonnullGCPtr<Text>> Text::split_text(size_t offset)
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Text>> Text::split_text(size_t offset)
 {
     // 1. Let length be node’s length.
     auto length = this->length();
 
     // 2. If offset is greater than length, then throw an "IndexSizeError" DOMException.
     if (offset > length)
-        return DOM::IndexSizeError::create(global_object(), "Split offset is greater than length");
+        return WebIDL::IndexSizeError::create(realm(), "Split offset is greater than length");
 
     // 3. Let count be length minus offset.
     auto count = length - offset;
@@ -72,25 +76,25 @@ ExceptionOr<JS::NonnullGCPtr<Text>> Text::split_text(size_t offset)
         // 2. For each live range whose start node is node and start offset is greater than offset, set its start node to new node and decrease its start offset by offset.
         for (auto& range : Range::live_ranges()) {
             if (range->start_container() == this && range->start_offset() > offset)
-                range->set_start(*new_node, range->start_offset() - offset);
+                TRY(range->set_start(*new_node, range->start_offset() - offset));
         }
 
         // 3. For each live range whose end node is node and end offset is greater than offset, set its end node to new node and decrease its end offset by offset.
         for (auto& range : Range::live_ranges()) {
             if (range->end_container() == this && range->end_offset() > offset)
-                range->set_end(*new_node, range->end_offset() - offset);
+                TRY(range->set_end(*new_node, range->end_offset() - offset));
         }
 
         // 4. For each live range whose start node is parent and start offset is equal to the index of node plus 1, increase its start offset by 1.
         for (auto& range : Range::live_ranges()) {
             if (range->start_container() == this && range->start_offset() == index() + 1)
-                range->set_start(*range->start_container(), range->start_offset() + 1);
+                TRY(range->set_start(*range->start_container(), range->start_offset() + 1));
         }
 
         // 5. For each live range whose end node is parent and end offset is equal to the index of node plus 1, increase its end offset by 1.
         for (auto& range : Range::live_ranges()) {
             if (range->end_container() == parent.ptr() && range->end_offset() == index() + 1) {
-                range->set_end(*range->end_container(), range->end_offset() + 1);
+                TRY(range->set_end(*range->end_container(), range->end_offset() + 1));
             }
         }
     }

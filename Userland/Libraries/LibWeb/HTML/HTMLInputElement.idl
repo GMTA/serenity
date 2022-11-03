@@ -1,9 +1,13 @@
 #import <HTML/HTMLElement.idl>
 #import <HTML/HTMLFormElement.idl>
+#import <FileAPI/FileList.idl>
 
+// https://html.spec.whatwg.org/multipage/input.html#htmlinputelement
+[Exposed=Window]
 interface HTMLInputElement : HTMLElement {
 
     readonly attribute HTMLFormElement? form;
+    attribute FileList? files;
 
     [Reflect] attribute DOMString accept;
     [Reflect] attribute DOMString alt;
@@ -33,5 +37,7 @@ interface HTMLInputElement : HTMLElement {
 
     [Reflect] attribute DOMString align;
     [Reflect=usemap] attribute DOMString useMap;
+
+    undefined showPicker();
 
 };

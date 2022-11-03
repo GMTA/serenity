@@ -12,18 +12,16 @@
 #include <AK/URL.h>
 #include <AK/Weakable.h>
 #include <LibWeb/DOM/EventTarget.h>
-#include <LibWeb/DOM/ExceptionOr.h>
+#include <LibWeb/Fetch/BodyInit.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Headers.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Statuses.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/MimeSniff/MimeType.h>
 #include <LibWeb/URL/URLSearchParams.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 #include <LibWeb/XHR/XMLHttpRequestEventTarget.h>
 
 namespace Web::XHR {
-
-// https://fetch.spec.whatwg.org/#typedefdef-xmlhttprequestbodyinit
-using XMLHttpRequestBodyInit = Variant<JS::Handle<FileAPI::Blob>, JS::Handle<JS::Object>, JS::Handle<URL::URLSearchParams>, String>;
 
 class XMLHttpRequest final : public XMLHttpRequestEventTarget {
     WEB_PLATFORM_OBJECT(XMLHttpRequest, XMLHttpRequestEventTarget);
@@ -37,36 +35,37 @@ public:
         Done = 4,
     };
 
-    static JS::NonnullGCPtr<XMLHttpRequest> create_with_global_object(HTML::Window&);
+    static JS::NonnullGCPtr<XMLHttpRequest> construct_impl(JS::Realm&);
 
     virtual ~XMLHttpRequest() override;
 
     ReadyState ready_state() const { return m_ready_state; };
     Fetch::Infrastructure::Status status() const { return m_status; };
-    DOM::ExceptionOr<String> response_text() const;
-    DOM::ExceptionOr<JS::Value> response();
+    WebIDL::ExceptionOr<String> response_text() const;
+    WebIDL::ExceptionOr<JS::Value> response();
     Bindings::XMLHttpRequestResponseType response_type() const { return m_response_type; }
 
-    DOM::ExceptionOr<void> open(String const& method, String const& url);
-    DOM::ExceptionOr<void> open(String const& method, String const& url, bool async, String const& username = {}, String const& password = {});
-    DOM::ExceptionOr<void> send(Optional<XMLHttpRequestBodyInit> body);
+    WebIDL::ExceptionOr<void> open(String const& method, String const& url);
+    WebIDL::ExceptionOr<void> open(String const& method, String const& url, bool async, String const& username = {}, String const& password = {});
+    WebIDL::ExceptionOr<void> send(Optional<Fetch::XMLHttpRequestBodyInit> body);
 
-    DOM::ExceptionOr<void> set_request_header(String const& header, String const& value);
-    void set_response_type(Bindings::XMLHttpRequestResponseType type) { m_response_type = type; }
+    WebIDL::ExceptionOr<void> set_request_header(String const& header, String const& value);
+    WebIDL::ExceptionOr<void> set_response_type(Bindings::XMLHttpRequestResponseType);
 
     String get_response_header(String const& name) { return m_response_headers.get(name).value_or({}); }
     String get_all_response_headers() const;
 
-    Bindings::CallbackType* onreadystatechange();
-    void set_onreadystatechange(Bindings::CallbackType*);
+    WebIDL::CallbackType* onreadystatechange();
+    void set_onreadystatechange(WebIDL::CallbackType*);
 
-    DOM::ExceptionOr<void> override_mime_type(String const& mime);
+    WebIDL::ExceptionOr<void> override_mime_type(String const& mime);
 
-    DOM::ExceptionOr<void> set_timeout(u32 timeout);
+    WebIDL::ExceptionOr<void> set_timeout(u32 timeout);
     u32 timeout() const;
 
 private:
     virtual void visit_edges(Cell::Visitor&) override;
+    virtual bool must_survive_garbage_collection() const override;
 
     void set_ready_state(ReadyState);
     void set_status(Fetch::Infrastructure::Status status) { m_status = status; }
@@ -112,5 +111,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(XMLHttpRequest, Web::XHR)

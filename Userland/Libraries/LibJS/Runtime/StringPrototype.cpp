@@ -28,6 +28,7 @@
 #include <LibJS/Runtime/Value.h>
 #include <LibLocale/Locale.h>
 #include <LibUnicode/CharacterTypes.h>
+#include <LibUnicode/Normalize.h>
 #include <string.h>
 
 namespace JS {
@@ -548,46 +549,71 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::concat)
 // 22.1.3.24 String.prototype.substring ( start, end ), https://tc39.es/ecma262/#sec-string.prototype.substring
 JS_DEFINE_NATIVE_FUNCTION(StringPrototype::substring)
 {
+    // 1. Let O be ? RequireObjectCoercible(this value).
+    // 2. Let S be ? ToString(O).
     auto string = TRY(utf16_string_from(vm));
+
+    // 3. Let len be the length of S.
     auto string_length = static_cast<double>(string.length_in_code_units());
 
+    // 4. Let intStart be ? ToIntegerOrInfinity(start).
     auto start = TRY(vm.argument(0).to_integer_or_infinity(vm));
+    // 5. If end is undefined, let intEnd be len; else let intEnd be ? ToIntegerOrInfinity(end).
     auto end = string_length;
     if (!vm.argument(1).is_undefined())
         end = TRY(vm.argument(1).to_integer_or_infinity(vm));
 
+    // 6. Let finalStart be the result of clamping intStart between 0 and len.
     size_t final_start = clamp(start, static_cast<double>(0), string_length);
+    // 7. Let finalEnd be the result of clamping intEnd between 0 and len.
     size_t final_end = clamp(end, static_cast<double>(0), string_length);
 
+    // 8. Let from be min(finalStart, finalEnd).
     size_t from = min(final_start, final_end);
+    // 9. Let to be max(finalStart, finalEnd).
     size_t to = max(final_start, final_end);
 
+    // 10. Return the substring of S from from to to.
     return js_string(vm, string.substring_view(from, to - from));
 }
 
 // B.2.2.1 String.prototype.substr ( start, length ), https://tc39.es/ecma262/#sec-string.prototype.substr
 JS_DEFINE_NATIVE_FUNCTION(StringPrototype::substr)
 {
+    // 1. Let O be ? RequireObjectCoercible(this value).
+    // 2. Let S be ? ToString(O).
     auto string = TRY(utf16_string_from(vm));
+
+    // 3. Let size be the length of S.
     auto size = string.length_in_code_units();
 
+    // 4. Let intStart be ? ToIntegerOrInfinity(start).
     auto int_start = TRY(vm.argument(0).to_integer_or_infinity(vm));
+
+    // 5. If intStart is -∞, set intStart to 0.
     if (Value(int_start).is_negative_infinity())
         int_start = 0;
+    // 6. Else if intStart < 0, set intStart to max(size + intStart, 0).
     else if (int_start < 0)
         int_start = max(size + int_start, 0);
+    // 7. Else, set intStart to min(intStart, size).
+    else
+        int_start = min(int_start, size);
 
+    // 8. If length is undefined, let intLength be size; otherwise let intLength be ? ToIntegerOrInfinity(length).
     auto length = vm.argument(1);
-
     auto int_length = length.is_undefined() ? size : TRY(length.to_integer_or_infinity(vm));
-    if (Value(int_start).is_positive_infinity() || (int_length <= 0) || Value(int_length).is_positive_infinity())
-        return js_string(vm, String::empty());
 
+    // 9. Set intLength to the result of clamping intLength between 0 and size.
+    int_length = clamp(int_length, 0, size);
+
+    // 10. Let intEnd be min(intStart + intLength, size).
     auto int_end = min((i32)(int_start + int_length), size);
 
     if (int_start >= int_end)
         return js_string(vm, String::empty());
 
+    // 11. Return the substring of S from intStart to intEnd.
     return js_string(vm, string.substring_view(int_start, int_end - int_start));
 }
 
@@ -748,23 +774,33 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::last_index_of)
 // 22.1.3.1 String.prototype.at ( index ), https://tc39.es/ecma262/#sec-string.prototype.at
 JS_DEFINE_NATIVE_FUNCTION(StringPrototype::at)
 {
+    // 1. Let O be ? ToObject(this value).
     auto string = TRY(utf16_string_from(vm));
+    // 2. Let len be ? LengthOfArrayLike(O).
     auto length = string.length_in_code_units();
 
+    // 3. Let relativeIndex be ? ToIntegerOrInfinity(index).
     auto relative_index = TRY(vm.argument(0).to_integer_or_infinity(vm));
     if (Value(relative_index).is_infinity())
         return js_undefined();
 
     Checked<size_t> index { 0 };
+    // 4. If relativeIndex ≥ 0, then
     if (relative_index >= 0) {
+        // a. Let k be relativeIndex.
         index += relative_index;
-    } else {
+    }
+    // 5. Else,
+    else {
+        // a. Let k be len + relativeIndex.
         index += length;
         index -= -relative_index;
     }
+    // 6. If k < 0 or k ≥ len, return undefined.
     if (index.has_overflow() || index.value() >= length)
         return js_undefined();
 
+    // 7. Return ? Get(O, ! ToString(𝔽(k))).
     return js_string(vm, string.substring_view(index.value(), 1));
 }
 
@@ -790,7 +826,7 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::match)
 
     auto string = TRY(this_object.to_utf16_string(vm));
 
-    auto* rx = TRY(regexp_create(vm, regexp, js_undefined()));
+    auto rx = TRY(regexp_create(vm, regexp, js_undefined()));
     return TRY(Value(rx).invoke(vm, *vm.well_known_symbol_match(), js_string(vm, move(string))));
 }
 
@@ -814,7 +850,7 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::match_all)
 
     auto string = TRY(this_object.to_utf16_string(vm));
 
-    auto* rx = TRY(regexp_create(vm, regexp, js_string(vm, "g")));
+    auto rx = TRY(regexp_create(vm, regexp, js_string(vm, "g")));
     return TRY(Value(rx).invoke(vm, *vm.well_known_symbol_match_all(), js_string(vm, move(string))));
 }
 
@@ -836,8 +872,9 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::normalize)
     if (!form.is_one_of("NFC"sv, "NFD"sv, "NFKC"sv, "NFKD"sv))
         return vm.throw_completion<RangeError>(ErrorType::InvalidNormalizationForm, form);
 
-    // FIXME: 6. Let ns be the String value that is the result of normalizing S into the normalization form named by f as specified in https://unicode.org/reports/tr15/.
-    auto ns = string;
+    // 6. Let ns be the String value that is the result of normalizing S into the normalization form named by f as specified in https://unicode.org/reports/tr15/.
+    auto unicode_form = Unicode::normalization_form_from_string(form);
+    auto ns = Unicode::normalize(string, unicode_form);
 
     // 7. return ns.
     return js_string(vm, move(ns));
@@ -966,7 +1003,7 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::search)
 
     auto string = TRY(this_object.to_utf16_string(vm));
 
-    auto* rx = TRY(regexp_create(vm, regexp, js_undefined()));
+    auto rx = TRY(regexp_create(vm, regexp, js_undefined()));
     return TRY(Value(rx).invoke(vm, *vm.well_known_symbol_search(), js_string(vm, move(string))));
 }
 

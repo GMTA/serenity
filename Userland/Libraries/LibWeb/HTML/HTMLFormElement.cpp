@@ -25,7 +25,7 @@ namespace Web::HTML {
 HTMLFormElement::HTMLFormElement(DOM::Document& document, DOM::QualifiedName qualified_name)
     : HTMLElement(document, move(qualified_name))
 {
-    set_prototype(&window().cached_web_prototype("HTMLFormElement"));
+    set_prototype(&Bindings::cached_web_prototype(realm(), "HTMLFormElement"));
 }
 
 HTMLFormElement::~HTMLFormElement() = default;
@@ -73,7 +73,7 @@ void HTMLFormElement::submit_form(JS::GCPtr<HTMLElement> submitter, bool from_su
 
         SubmitEventInit event_init {};
         event_init.submitter = submitter_button;
-        auto submit_event = SubmitEvent::create(document().window(), EventNames::submit, event_init);
+        auto submit_event = SubmitEvent::create(realm(), EventNames::submit, event_init);
         submit_event->set_bubbles(true);
         submit_event->set_cancelable(true);
         bool continue_ = dispatch_event(*submit_event);
@@ -96,8 +96,8 @@ void HTMLFormElement::submit_form(JS::GCPtr<HTMLElement> submitter, bool from_su
         return;
     }
 
-    if (url.protocol() == "file") {
-        if (document().url().protocol() != "file") {
+    if (url.scheme() == "file") {
+        if (document().url().scheme() != "file") {
             dbgln("Failed to submit form: Security violation: {} may not submit to {}", document().url(), url);
             return;
         }
@@ -105,7 +105,7 @@ void HTMLFormElement::submit_form(JS::GCPtr<HTMLElement> submitter, bool from_su
             dbgln("Failed to submit form: Unsupported form method '{}' for URL: {}", method(), url);
             return;
         }
-    } else if (url.protocol() != "http" && url.protocol() != "https") {
+    } else if (url.scheme() != "http" && url.scheme() != "https") {
         dbgln("Failed to submit form: Unsupported protocol for URL: {}", url);
         return;
     }
@@ -128,7 +128,7 @@ void HTMLFormElement::submit_form(JS::GCPtr<HTMLElement> submitter, bool from_su
         auto body = url_encode(parameters, AK::URL::PercentEncodeSet::ApplicationXWWWFormUrlencoded).to_byte_buffer();
         request.set_method("POST");
         request.set_header("Content-Type", "application/x-www-form-urlencoded");
-        request.set_body(body);
+        request.set_body(move(body));
     }
 
     if (auto* page = document().page())

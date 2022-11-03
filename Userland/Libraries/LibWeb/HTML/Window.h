@@ -13,11 +13,13 @@
 #include <AK/TypeCasts.h>
 #include <AK/URL.h>
 #include <LibJS/Heap/Heap.h>
-#include <LibWeb/Bindings/CrossOriginAbstractOperations.h>
+#include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/EventTarget.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/AnimationFrameCallbackDriver.h>
+#include <LibWeb/HTML/CrossOrigin/CrossOriginPropertyDescriptorMap.h>
 #include <LibWeb/HTML/GlobalEventHandlers.h>
+#include <LibWeb/HTML/Scripting/ImportMap.h>
 #include <LibWeb/HTML/WindowEventHandlers.h>
 
 namespace Web::HTML {
@@ -25,7 +27,7 @@ namespace Web::HTML {
 class IdleCallback;
 
 // https://html.spec.whatwg.org/#timerhandler
-using TimerHandler = Variant<JS::Handle<Bindings::CallbackType>, String>;
+using TimerHandler = Variant<JS::Handle<WebIDL::CallbackType>, String>;
 
 class Window final
     : public DOM::EventTarget
@@ -54,10 +56,15 @@ public:
 
     JS::ThrowCompletionOr<size_t> document_tree_child_browsing_context_count() const;
 
+    ImportMap const& import_map() const { return m_import_map; }
+
+    bool import_maps_allowed() const { return m_import_maps_allowed; }
+    void set_import_maps_allowed(bool import_maps_allowed) { m_import_maps_allowed = import_maps_allowed; }
+
     void alert_impl(String const&);
     bool confirm_impl(String const&);
     String prompt_impl(String const&, String const&);
-    i32 request_animation_frame_impl(Bindings::CallbackType& js_callback);
+    i32 request_animation_frame_impl(WebIDL::CallbackType& js_callback);
     void cancel_animation_frame_impl(i32);
     bool has_animation_frame_callbacks() const { return m_animation_frame_callback_driver.has_callbacks(); }
 
@@ -66,7 +73,7 @@ public:
     void clear_timeout_impl(i32);
     void clear_interval_impl(i32);
 
-    void queue_microtask_impl(Bindings::CallbackType& callback);
+    void queue_microtask_impl(WebIDL::CallbackType& callback);
 
     int inner_width() const;
     int inner_height() const;
@@ -101,28 +108,34 @@ public:
     int screen_x() const;
     int screen_y() const;
 
-    Selection::Selection* get_selection_impl();
+    int outer_width() const;
+    int outer_height() const;
 
     JS::NonnullGCPtr<HTML::Storage> local_storage();
     JS::NonnullGCPtr<HTML::Storage> session_storage();
 
-    Window* parent();
+    // https://html.spec.whatwg.org/multipage/browsers.html#dom-parent
+    WindowProxy* parent();
 
-    DOM::ExceptionOr<void> post_message_impl(JS::Value, String const& target_origin);
+    WebIDL::ExceptionOr<void> post_message_impl(JS::Value, String const& target_origin);
 
     String name() const;
     void set_name(String const&);
 
     void start_an_idle_period();
 
-    u32 request_idle_callback_impl(Bindings::CallbackType& callback);
+    u32 request_idle_callback_impl(WebIDL::CallbackType& callback);
     void cancel_idle_callback_impl(u32);
 
     AnimationFrameCallbackDriver& animation_frame_callback_driver() { return m_animation_frame_callback_driver; }
 
+    // https://html.spec.whatwg.org/multipage/interaction.html#transient-activation
+    bool has_transient_activation() const;
+
+    void initialize_web_interfaces(Badge<WindowEnvironmentSettingsObject>);
+
 private:
     explicit Window(JS::Realm&);
-    virtual void initialize(JS::Realm&) override;
 
     virtual void visit_edges(Cell::Visitor&) override;
 
@@ -148,9 +161,16 @@ private:
     IDAllocator m_timer_id_allocator;
     HashMap<int, JS::NonnullGCPtr<Timer>> m_timers;
 
+    // https://html.spec.whatwg.org/multipage/webappapis.html#concept-window-import-map
+    ImportMap m_import_map;
+
+    // https://html.spec.whatwg.org/multipage/webappapis.html#import-maps-allowed
+    bool m_import_maps_allowed { true };
+
     JS::GCPtr<HighResolutionTime::Performance> m_performance;
     JS::GCPtr<Crypto::Crypto> m_crypto;
     JS::GCPtr<CSS::Screen> m_screen;
+    JS::GCPtr<HTML::Navigator> m_navigator;
 
     AnimationFrameCallbackDriver m_animation_frame_callback_driver;
 
@@ -167,46 +187,18 @@ public:
     Bindings::LocationObject* location_object() { return m_location_object; }
     Bindings::LocationObject const* location_object() const { return m_location_object; }
 
-    JS::Object* web_prototype(String const& class_name) { return m_prototypes.get(class_name).value_or(nullptr); }
-    JS::NativeFunction* web_constructor(String const& class_name) { return m_constructors.get(class_name).value_or(nullptr); }
-
-    JS::Object& cached_web_prototype(String const& class_name);
-
-    template<typename T>
-    JS::Object& ensure_web_prototype(String const& class_name)
-    {
-        auto it = m_prototypes.find(class_name);
-        if (it != m_prototypes.end())
-            return *it->value;
-        auto& realm = shape().realm();
-        auto* prototype = heap().allocate<T>(realm, realm);
-        m_prototypes.set(class_name, prototype);
-        return *prototype;
-    }
-
-    template<typename T>
-    JS::NativeFunction& ensure_web_constructor(String const& class_name)
-    {
-        auto it = m_constructors.find(class_name);
-        if (it != m_constructors.end())
-            return *it->value;
-        auto& realm = shape().realm();
-        auto* constructor = heap().allocate<T>(realm, realm);
-        m_constructors.set(class_name, constructor);
-        define_direct_property(class_name, JS::Value(constructor), JS::Attribute::Writable | JS::Attribute::Configurable);
-        return *constructor;
-    }
-
     virtual JS::ThrowCompletionOr<bool> internal_set_prototype_of(JS::Object* prototype) override;
 
-    Bindings::CrossOriginPropertyDescriptorMap const& cross_origin_property_descriptor_map() const { return m_cross_origin_property_descriptor_map; }
-    Bindings::CrossOriginPropertyDescriptorMap& cross_origin_property_descriptor_map() { return m_cross_origin_property_descriptor_map; }
+    CrossOriginPropertyDescriptorMap const& cross_origin_property_descriptor_map() const { return m_cross_origin_property_descriptor_map; }
+    CrossOriginPropertyDescriptorMap& cross_origin_property_descriptor_map() { return m_cross_origin_property_descriptor_map; }
 
 private:
     JS_DECLARE_NATIVE_FUNCTION(length_getter);
     JS_DECLARE_NATIVE_FUNCTION(top_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(document_getter);
+
+    JS_DECLARE_NATIVE_FUNCTION(frame_element_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(location_getter);
     JS_DECLARE_NATIVE_FUNCTION(location_setter);
@@ -226,6 +218,10 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(inner_width_getter);
     JS_DECLARE_NATIVE_FUNCTION(inner_height_getter);
 
+    JS_DECLARE_NATIVE_FUNCTION(window_getter);
+    JS_DECLARE_NATIVE_FUNCTION(frames_getter);
+    JS_DECLARE_NATIVE_FUNCTION(self_getter);
+
     JS_DECLARE_NATIVE_FUNCTION(parent_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(device_pixel_ratio_getter);
@@ -239,6 +235,9 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(screen_y_getter);
     JS_DECLARE_NATIVE_FUNCTION(screen_left_getter);
     JS_DECLARE_NATIVE_FUNCTION(screen_top_getter);
+
+    JS_DECLARE_NATIVE_FUNCTION(outer_width_getter);
+    JS_DECLARE_NATIVE_FUNCTION(outer_height_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(post_message);
 
@@ -278,15 +277,10 @@ private:
 
     Bindings::LocationObject* m_location_object { nullptr };
 
-    HashMap<String, JS::Object*> m_prototypes;
-    HashMap<String, JS::NativeFunction*> m_constructors;
-
     // [[CrossOriginPropertyDescriptorMap]], https://html.spec.whatwg.org/multipage/browsers.html#crossoriginpropertydescriptormap
-    Bindings::CrossOriginPropertyDescriptorMap m_cross_origin_property_descriptor_map;
+    CrossOriginPropertyDescriptorMap m_cross_origin_property_descriptor_map;
 };
 
 void run_animation_frame_callbacks(DOM::Document&, double now);
 
 }
-
-WRAPPER_HACK(Window, Web::HTML)

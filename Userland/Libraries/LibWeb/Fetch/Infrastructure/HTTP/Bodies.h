@@ -13,6 +13,7 @@
 #include <AK/Variant.h>
 #include <LibJS/Heap/Handle.h>
 #include <LibWeb/FileAPI/Blob.h>
+#include <LibWeb/Streams/ReadableStream.h>
 
 namespace Web::Fetch::Infrastructure {
 
@@ -21,20 +22,21 @@ class Body final {
 public:
     using SourceType = Variant<Empty, ByteBuffer, JS::Handle<FileAPI::Blob>>;
 
-    struct ReadableStreamDummy { };
+    explicit Body(JS::Handle<Streams::ReadableStream>);
+    Body(JS::Handle<Streams::ReadableStream>, SourceType, Optional<u64>);
 
-    explicit Body(ReadableStreamDummy);
-    Body(ReadableStreamDummy, SourceType, Optional<u64>);
-
-    [[nodiscard]] ReadableStreamDummy const& stream() { return m_stream; }
+    [[nodiscard]] JS::NonnullGCPtr<Streams::ReadableStream> stream() const { return *m_stream; }
     [[nodiscard]] SourceType const& source() const { return m_source; }
     [[nodiscard]] Optional<u64> const& length() const { return m_length; }
+
+    [[nodiscard]] WebIDL::ExceptionOr<Body> clone() const;
+
+    [[nodiscard]] JS::NonnullGCPtr<JS::PromiseCapability> fully_read_as_promise() const;
 
 private:
     // https://fetch.spec.whatwg.org/#concept-body-stream
     // A stream (a ReadableStream object).
-    // FIXME: Just a placeholder for now.
-    ReadableStreamDummy m_stream;
+    JS::Handle<Streams::ReadableStream> m_stream;
 
     // https://fetch.spec.whatwg.org/#concept-body-source
     // A source (null, a byte sequence, a Blob object, or a FormData object), initially null.
@@ -51,5 +53,7 @@ struct BodyWithType {
     Body body;
     Optional<ByteBuffer> type;
 };
+
+WebIDL::ExceptionOr<Body> byte_sequence_as_body(JS::Realm&, ReadonlyBytes);
 
 }

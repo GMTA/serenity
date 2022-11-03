@@ -9,18 +9,19 @@ compile_gml(Theme.gml ThemeWidgetGML.h theme_widget_gml)
 compile_gml(Highlight.gml HighlightWidgetGML.h highlight_widget_gml)
 
 set(SOURCES
-    main.cpp
     DoubleClickArrowWidget.cpp
     HighlightPreviewWidget.cpp
     HighlightWidget.cpp
-    HighlightWidgetGML.h
     MouseWidget.cpp
-    MouseWidget.h
-    MouseWidgetGML.h
     ThemeWidget.cpp
-    ThemeWidget.h
+    main.cpp
+)
+
+set(GENERATED_SOURCES
+    HighlightWidgetGML.h
+    MouseWidgetGML.h
     ThemeWidgetGML.h
 )
 
 serenity_app(MouseSettings ICON app-mouse)
-target_link_libraries(MouseSettings LibGUI LibMain)
+target_link_libraries(MouseSettings PRIVATE LibCore LibGfx LibGUI LibIPC LibMain)

@@ -17,7 +17,7 @@ class TreeBuilder {
 public:
     TreeBuilder();
 
-    RefPtr<Layout::Node> build(DOM::Node&);
+    JS::GCPtr<Layout::Node> build(DOM::Node&);
 
 private:
     struct Context {
@@ -40,7 +40,14 @@ private:
     void generate_missing_child_wrappers(NodeWithStyle& root);
     void generate_missing_parents(NodeWithStyle& root);
 
-    RefPtr<Layout::Node> m_layout_root;
+    enum class AppendOrPrepend {
+        Append,
+        Prepend,
+    };
+    void insert_node_into_inline_or_block_ancestor(Layout::Node&, CSS::Display, AppendOrPrepend);
+    void create_pseudo_element_if_needed(DOM::Element&, CSS::Selector::PseudoElement, AppendOrPrepend);
+
+    JS::GCPtr<Layout::Node> m_layout_root;
     Vector<Layout::NodeWithStyle&> m_ancestor_stack;
 };
 

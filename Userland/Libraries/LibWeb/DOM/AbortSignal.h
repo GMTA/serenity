@@ -10,7 +10,6 @@
 #include <AK/Weakable.h>
 #include <LibWeb/DOM/EventTarget.h>
 #include <LibWeb/Forward.h>
-#include <LibWeb/HTML/Window.h>
 
 namespace Web::DOM {
 
@@ -19,11 +18,11 @@ class AbortSignal final : public EventTarget {
     WEB_PLATFORM_OBJECT(AbortSignal, EventTarget);
 
 public:
-    static JS::NonnullGCPtr<AbortSignal> create_with_global_object(HTML::Window&);
+    static JS::NonnullGCPtr<AbortSignal> construct_impl(JS::Realm&);
 
     virtual ~AbortSignal() override = default;
 
-    void add_abort_algorithm(Function<void()>);
+    void add_abort_algorithm(JS::SafeFunction<void()>);
 
     // https://dom.spec.whatwg.org/#dom-abortsignal-aborted
     // An AbortSignal object is aborted when its abort reason is not undefined.
@@ -31,16 +30,18 @@ public:
 
     void signal_abort(JS::Value reason);
 
-    void set_onabort(Bindings::CallbackType*);
-    Bindings::CallbackType* onabort();
+    void set_onabort(WebIDL::CallbackType*);
+    WebIDL::CallbackType* onabort();
 
     // https://dom.spec.whatwg.org/#dom-abortsignal-reason
     JS::Value reason() const { return m_abort_reason; }
 
     JS::ThrowCompletionOr<void> throw_if_aborted() const;
 
+    void follow(JS::NonnullGCPtr<AbortSignal> parent_signal);
+
 private:
-    explicit AbortSignal(HTML::Window&);
+    explicit AbortSignal(JS::Realm&);
 
     virtual void visit_edges(JS::Cell::Visitor&) override;
 
@@ -50,9 +51,7 @@ private:
 
     // https://dom.spec.whatwg.org/#abortsignal-abort-algorithms
     // FIXME: This should be a set.
-    Vector<Function<void()>> m_abort_algorithms;
+    Vector<JS::SafeFunction<void()>> m_abort_algorithms;
 };
 
 }
-
-WRAPPER_HACK(AbortSignal, Web::DOM)

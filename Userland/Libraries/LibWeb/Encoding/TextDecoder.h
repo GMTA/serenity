@@ -11,8 +11,8 @@
 #include <LibJS/Forward.h>
 #include <LibTextCodec/Decoder.h>
 #include <LibWeb/Bindings/PlatformObject.h>
-#include <LibWeb/DOM/ExceptionOr.h>
 #include <LibWeb/Forward.h>
+#include <LibWeb/WebIDL/ExceptionOr.h>
 
 namespace Web::Encoding {
 
@@ -21,11 +21,11 @@ class TextDecoder : public Bindings::PlatformObject {
     WEB_PLATFORM_OBJECT(TextDecoder, Bindings::PlatformObject);
 
 public:
-    static DOM::ExceptionOr<JS::NonnullGCPtr<TextDecoder>> create_with_global_object(HTML::Window&, FlyString encoding);
+    static WebIDL::ExceptionOr<JS::NonnullGCPtr<TextDecoder>> construct_impl(JS::Realm&, FlyString encoding);
 
     virtual ~TextDecoder() override;
 
-    DOM::ExceptionOr<String> decode(JS::Handle<JS::Object> const&) const;
+    WebIDL::ExceptionOr<String> decode(JS::Handle<JS::Object> const&) const;
 
     FlyString const& encoding() const { return m_encoding; }
     bool fatal() const { return m_fatal; }
@@ -33,7 +33,7 @@ public:
 
 private:
     // https://encoding.spec.whatwg.org/#dom-textdecoder
-    TextDecoder(HTML::Window&, TextCodec::Decoder&, FlyString encoding, bool fatal, bool ignore_bom);
+    TextDecoder(JS::Realm&, TextCodec::Decoder&, FlyString encoding, bool fatal, bool ignore_bom);
 
     TextCodec::Decoder& m_decoder;
     FlyString m_encoding;
@@ -42,5 +42,3 @@ private:
 };
 
 }
-
-WRAPPER_HACK(TextDecoder, Web::Encoding)

@@ -19,7 +19,7 @@ namespace AK {
 // NOTE: This is similar to the LibC macro EOF = -1.
 constexpr u32 end_of_file = 0xFFFFFFFF;
 
-constexpr bool is_url_code_point(u32 code_point)
+static bool is_url_code_point(u32 code_point)
 {
     // FIXME: [...] and code points in the range U+00A0 to U+10FFFD, inclusive, excluding surrogates and noncharacters.
     return is_ascii_alphanumeric(code_point) || code_point >= 0xA0 || "!$&'()*+,-./:;=?@_~"sv.contains(code_point);
@@ -32,9 +32,9 @@ static void report_validation_error(SourceLocation const& location = SourceLocat
 
 static Optional<String> parse_opaque_host(StringView input)
 {
-    auto forbidden_host_code_points_excluding_percent = "\0\t\n\r #/:<>?@[\\]^|"sv;
-    for (auto code_point : forbidden_host_code_points_excluding_percent) {
-        if (input.contains(code_point)) {
+    auto forbidden_host_characters_excluding_percent = "\0\t\n\r #/:<>?@[\\]^|"sv;
+    for (auto character : forbidden_host_characters_excluding_percent) {
+        if (input.contains(character)) {
             report_validation_error();
             return {};
         }
@@ -72,9 +72,9 @@ static Optional<String> parse_host(StringView input, bool is_not_special = false
     // FIXME: Let asciiDomain be the result of running domain to ASCII on domain.
     auto& ascii_domain = domain;
 
-    auto forbidden_host_code_points = "\0\t\n\r #%/:<>?@[\\]^|"sv;
-    for (auto code_point : forbidden_host_code_points) {
-        if (ascii_domain.view().contains(code_point)) {
+    auto forbidden_host_characters = "\0\t\n\r #%/:<>?@[\\]^|"sv;
+    for (auto character : forbidden_host_characters) {
+        if (ascii_domain.view().contains(character)) {
             report_validation_error();
             return {};
         }
@@ -84,11 +84,12 @@ static Optional<String> parse_host(StringView input, bool is_not_special = false
     return ipv4_host;
 }
 
+// https://url.spec.whatwg.org/#start-with-a-windows-drive-letter
 constexpr bool starts_with_windows_drive_letter(StringView input)
 {
     if (input.length() < 2)
         return false;
-    if (!is_ascii_alpha(input[0]) && !(input[1] == ':' || input[1] == '|'))
+    if (!is_ascii_alpha(input[0]) || !(input[1] == ':' || input[1] == '|'))
         return false;
     if (input.length() == 2)
         return true;

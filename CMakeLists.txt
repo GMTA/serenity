@@ -18,7 +18,7 @@ endif()
 
 # Check for toolchain mismatch, user might need to rebuild toolchain
 set(GCC_VERSION "12.2.0")
-set(LLVM_VERSION "14.0.1")
+set(LLVM_VERSION "15.0.3")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(EXPECTED_COMPILER_VERSION "${GCC_VERSION}")
 else()
@@ -182,13 +182,17 @@ if (ENABLE_COMPILETIME_FORMAT_CHECK)
     add_compile_definitions(ENABLE_COMPILETIME_FORMAT_CHECK)
 endif()
 
+if("${SERENITY_ARCH}" STREQUAL "aarch64")
+    # FIXME: re-enable this warning
+    add_compile_options(-Wno-type-limits)
+endif()
+
 add_link_options(-Wno-unused-command-line-argument)
 
 include_directories(.)
 include_directories(Userland/Libraries)
 include_directories(Userland/Libraries/LibC)
 include_directories(Userland/Libraries/LibCrypt)
-include_directories(Userland/Libraries/LibM)
 include_directories(Userland/Libraries/LibSystem)
 include_directories(Userland/Services)
 include_directories(Userland)
@@ -224,20 +228,22 @@ endif()
 
 add_subdirectory(AK)
 add_subdirectory(Kernel)
-if(NOT "${SERENITY_ARCH}" STREQUAL "aarch64")
-    if (ENABLE_MOLD_LINKER)
-        add_link_options(-fuse-ld=mold)
-    endif()
 
+if (ENABLE_MOLD_LINKER)
+    add_link_options(-fuse-ld=mold)
+endif()
+
+if(NOT "${SERENITY_ARCH}" STREQUAL "aarch64")
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang$" OR ENABLE_MOLD_LINKER)
         add_link_options(LINKER:--pack-dyn-relocs=relr)
     else()
         add_link_options(LINKER:-z,pack-relative-relocs)
     endif()
-
-    add_subdirectory(Userland)
-    add_subdirectory(Tests)
 endif()
+
+add_subdirectory(Userland)
+add_subdirectory(Tests)
+
 if (ENABLE_COMPILETIME_HEADER_CHECK)
     add_subdirectory(Meta/HeaderCheck)
 endif()
@@ -245,12 +251,11 @@ endif()
 export_components("${CMAKE_BINARY_DIR}/components.ini")
 
 # it seems like cmake cannot uncompress *.gz files... only ZIP/tar.gz.
-# Lets download the uncompressed versions. 
+# Lets download the uncompressed versions.
 # https://gitlab.kitware.com/cmake/cmake/-/issues/23054
 
 set(PCI_IDS_FILE pci.ids)
 set(PCI_IDS_URL https://pci-ids.ucw.cz/v2.2/${PCI_IDS_FILE})
-set(PCI_IDS_PATH ${CMAKE_BINARY_DIR}/${PCI_IDS_FILE})
 set(PCI_IDS_INSTALL_PATH ${CMAKE_INSTALL_DATAROOTDIR}/${PCI_IDS_FILE})
 
 if(ENABLE_PCI_IDS_DOWNLOAD AND NOT EXISTS ${CMAKE_STAGING_PREFIX}/${PCI_IDS_INSTALL_PATH} )
@@ -259,9 +264,8 @@ endif()
 
 set(USB_IDS_FILE usb.ids)
 set(USB_IDS_URL http://www.linux-usb.org/${USB_IDS_FILE})
-set(USB_IDS_PATH ${CMAKE_BINARY_DIR}/${USB_IDS_FILE})
 set(USB_IDS_INSTALL_PATH ${CMAKE_INSTALL_DATAROOTDIR}/${USB_IDS_FILE})
 
-if(ENABLE_USB_IDS_DOWNLOAD AND NOT EXISTS "${CMAKE_STAGING_PREFIX}/${USB_IDS_PATH}")
-    download_file("${USB_IDS_URL}" "${CMAKE_STAGING_PREFIX}/${USB_IDS_PATH}")
+if(ENABLE_USB_IDS_DOWNLOAD AND NOT EXISTS "${CMAKE_STAGING_PREFIX}/${USB_IDS_INSTALL_PATH}")
+    download_file("${USB_IDS_URL}" "${CMAKE_STAGING_PREFIX}/${USB_IDS_INSTALL_PATH}")
 endif()

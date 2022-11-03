@@ -16,7 +16,7 @@ class SVGSVGElement final : public SVGGraphicsElement {
     WEB_PLATFORM_OBJECT(SVGSVGElement, SVGGraphicsElement);
 
 public:
-    virtual RefPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
 
     virtual void apply_presentational_hints(CSS::StyleProperties&) const override;
 
@@ -43,5 +43,3 @@ template<>
 inline bool Node::fast_is<SVG::SVGSVGElement>() const { return is_svg_svg_element(); }
 
 }
-
-WRAPPER_HACK(SVGSVGElement, Web::SVG)

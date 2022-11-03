@@ -4,7 +4,7 @@ with pkgs;
 stdenv.mkDerivation {
   name = "cpp-env";
   nativeBuildInputs = [
-    gcc11
+    gcc12
     curl
     cmake
     mpfr
@@ -18,20 +18,15 @@ stdenv.mkDerivation {
     unzip
     texinfo
     # Example Build-time Additional Dependencies
-    pkgconfig
+    pkg-config
   ];
   buildInputs = [
     # Example Run-time Additional Dependencies
     openssl
     xlibsWrapper
     qemu
-    # e2fsprogs needs some optional parameter to activate fuse2fs with which
-    # the qemu image will be mounted without root access.
-    (e2fsprogs.overrideAttrs (oldAttrs: {
-      buildInputs = oldAttrs.buildInputs ++ [ pkgs.fuse ];
-    }))
-    # glibc
+    e2fsprogs
   ];
-  
+
   hardeningDisable = [ "format" "fortify" ];
 }

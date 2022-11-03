@@ -7,9 +7,9 @@
 #include <AK/JsonArraySerializer.h>
 #include <AK/JsonObjectSerializer.h>
 #include <AK/JsonValue.h>
-#include <Kernel/Arch/InterruptDisabler.h>
 #include <Kernel/FileSystem/Custody.h>
 #include <Kernel/FileSystem/ProcFS.h>
+#include <Kernel/InterruptDisabler.h>
 #include <Kernel/KBufferBuilder.h>
 #include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Memory/MemoryManager.h>
@@ -112,7 +112,7 @@ ErrorOr<NonnullLockRefPtr<Inode>> Process::lookup_children_directory(ProcFS cons
 
 ErrorOr<size_t> Process::procfs_get_child_proccess_link(ProcessID child_pid, KBufferBuilder& builder) const
 {
-    TRY(builder.appendff("/proc/{}", child_pid.value()));
+    TRY(builder.appendff("../../{}", child_pid.value()));
     return builder.length();
 }
 
