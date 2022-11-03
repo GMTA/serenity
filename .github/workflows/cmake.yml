@@ -32,6 +32,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      # Pull requests can trail behind `master` and the check executes a checkout based on the original event's SHA-1 hash,
+      # so we need to rebase it before continuing. We gain a stabler `master` at the cost of reproducibility.
+      - name: Rebase on top of master
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git remote add --fetch upstream https://github.com/${{ github.repository }}
+          git config --global user.name gh-workflow
+          git config --global user.email no-reply@serenityos.org
+          git rebase upstream/master
+
       # Set default Python to python 3.x, and set Python path such that pip install works properly
       - uses: actions/setup-python@v2
 
