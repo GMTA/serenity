@@ -319,3 +319,39 @@ TEST_CASE(0011_tex_env_combine_with_constant_color)
     context->present();
     expect_bitmap_equals_reference(context->frontbuffer(), "0011_tex_env_combine_with_constant_color"sv);
 }
+
+TEST_CASE(0012_decal_texture_with_alpha)
+{
+    auto context = create_testing_context(64, 64);
+
+    // Load a red checkerboard pattern with transparent corners
+    GLuint texture_id;
+    glGenTextures(1, &texture_id);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    u32 texture_data[] = { 0xFF0000FF, 0xFF000000, 0xFF000000, 0xFF0000FF };
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, texture_data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Draw a blue rectangle with tex env in decal mode
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor3f(0.f, 1.f, 0.f);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.f, 0.f);
+    glVertex2f(-1.f, -1.f);
+    glTexCoord2f(1.f, 0.f);
+    glVertex2f(1.f, -1.f);
+    glTexCoord2f(1.f, 1.f);
+    glVertex2f(1.f, 1.f);
+    glTexCoord2f(0.f, 1.f);
+    glVertex2f(-1.f, 1.f);
+    glEnd();
+
+    EXPECT_EQ(glGetError(), 0u);
+
+    context->present();
+    expect_bitmap_equals_reference(context->frontbuffer(), "0012_decal_texture_with_alpha"sv);
+}

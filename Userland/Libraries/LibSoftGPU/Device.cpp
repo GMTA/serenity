@@ -1330,6 +1330,7 @@ ALWAYS_INLINE void Device::shade_fragments(PixelQuad& quad)
             current_color.set_x(mix(current_color.x(), texel.x(), dst_alpha));
             current_color.set_y(mix(current_color.y(), texel.y(), dst_alpha));
             current_color.set_z(mix(current_color.z(), texel.z(), dst_alpha));
+            current_color.set_w(dst_alpha);
             break;
         }
         case GPU::TextureEnvMode::Modulate:
