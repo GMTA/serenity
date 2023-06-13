@@ -409,6 +409,7 @@ if (BUILD_LAGOM)
         PDF
         Regex
         SoftGPU
+        SPIRV
         SQL
         Syntax
         TextCodec
@@ -623,6 +624,7 @@ if (BUILD_LAGOM)
             LibLocale
             LibMarkdown
             LibPDF
+            LibSPIRV
             LibSQL
             LibTextCodec
             LibTTF
