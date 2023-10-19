@@ -226,21 +226,9 @@ public:
         SignMode sign_mode = SignMode::OnlyIfNeeded);
 
 #ifndef KERNEL
-    ErrorOr<void> put_f80(
-        long double value,
-        u8 base = 10,
-        bool upper_case = false,
-        bool zero_pad = false,
-        bool use_separator = false,
-        Align align = Align::Right,
-        size_t min_width = 0,
-        size_t precision = 6,
-        char fill = ' ',
-        SignMode sign_mode = SignMode::OnlyIfNeeded,
-        RealNumberDisplayMode = RealNumberDisplayMode::Default);
-
-    ErrorOr<void> put_f64(
-        double value,
+    template<FloatingPoint T>
+    ErrorOr<void> put_floating_point(
+        T value,
         u8 base = 10,
         bool upper_case = false,
         bool zero_pad = false,

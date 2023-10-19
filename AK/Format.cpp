@@ -470,8 +470,9 @@ static ErrorOr<void> round_up_digits(StringBuilder& digits_builder)
     return digits_builder.try_append(digits_buffer);
 }
 
-ErrorOr<void> FormatBuilder::put_f64(
-    double value,
+template<FloatingPoint T>
+ErrorOr<void> FormatBuilder::put_floating_point(
+    T value,
     u8 base,
     bool upper_case,
     bool zero_pad,
@@ -487,7 +488,7 @@ ErrorOr<void> FormatBuilder::put_f64(
     FormatBuilder format_builder { string_builder };
 
     if (isnan(value) || isinf(value)) [[unlikely]] {
-        if (value < 0.0)
+        if (value < static_cast<T>(0))
             TRY(string_builder.try_append('-'));
         else if (sign_mode == SignMode::Always)
             TRY(string_builder.try_append('+'));
@@ -502,7 +503,7 @@ ErrorOr<void> FormatBuilder::put_f64(
         return {};
     }
 
-    bool is_negative = value < 0.0;
+    bool is_negative = value < static_cast<T>(0);
     if (is_negative)
         value = -value;
 
@@ -513,18 +514,18 @@ ErrorOr<void> FormatBuilder::put_f64(
         // FIXME: This is a terrible approximation but doing it properly would be a lot of work. If someone is up for that, a good
         // place to start would be the following video from CppCon 2019:
         // https://youtu.be/4P_kbF0EbZM (Stephan T. Lavavej “Floating-Point <charconv>: Making Your Code 10x Faster With C++17's Final Boss”)
-        double epsilon = 0.5;
+        long double epsilon = static_cast<T>(.5);
         if (!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint) {
             for (size_t i = 0; i < precision; ++i)
-                epsilon /= 10.0;
+                epsilon /= static_cast<T>(10);
         }
 
         for (size_t digit = 0; digit < precision; ++digit) {
             if (!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint && value - static_cast<i64>(value) < epsilon)
                 break;
 
-            value *= 10.0;
-            epsilon *= 10.0;
+            value *= static_cast<T>(10);
+            epsilon *= static_cast<T>(10);
 
             if (digit == 0)
                 TRY(string_builder.try_append('.'));
@@ -535,83 +536,21 @@ ErrorOr<void> FormatBuilder::put_f64(
     }
 
     // Round up if the following decimal is 5 or higher
-    if (static_cast<u64>(value * 10.0) % 10 >= 5)
-        TRY(round_up_digits(string_builder));
-
-    return put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), zero_pad ? '0' : fill);
-}
-
-ErrorOr<void> FormatBuilder::put_f80(
-    long double value,
-    u8 base,
-    bool upper_case,
-    bool zero_pad,
-    bool use_separator,
-    Align align,
-    size_t min_width,
-    size_t precision,
-    char fill,
-    SignMode sign_mode,
-    RealNumberDisplayMode display_mode)
-{
-    StringBuilder string_builder;
-    FormatBuilder format_builder { string_builder };
-
-    if (isnan(value) || isinf(value)) [[unlikely]] {
-        if (value < 0.0l)
-            TRY(string_builder.try_append('-'));
-        else if (sign_mode == SignMode::Always)
-            TRY(string_builder.try_append('+'));
-        else if (sign_mode == SignMode::Reserved)
-            TRY(string_builder.try_append(' '));
-
-        if (isnan(value))
-            TRY(string_builder.try_append(upper_case ? "NAN"sv : "nan"sv));
-        else
-            TRY(string_builder.try_append(upper_case ? "INF"sv : "inf"sv));
-        TRY(put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill));
-        return {};
-    }
-
-    bool is_negative = value < 0.0l;
-    if (is_negative)
-        value = -value;
-
-    TRY(format_builder.put_u64(static_cast<u64>(value), base, false, upper_case, false, use_separator, Align::Right, 0, ' ', sign_mode, is_negative));
-    value -= static_cast<u64>(value);
-
-    if (precision > 0) {
-        // FIXME: This is a terrible approximation but doing it properly would be a lot of work. If someone is up for that, a good
-        // place to start would be the following video from CppCon 2019:
-        // https://youtu.be/4P_kbF0EbZM (Stephan T. Lavavej “Floating-Point <charconv>: Making Your Code 10x Faster With C++17's Final Boss”)
-        long double epsilon = 0.5l;
-        if (!!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint) {
-            for (size_t i = 0; i < precision; ++i)
-                epsilon /= 10.0l;
-        }
-
-        for (size_t digit = 0; digit < precision; ++digit) {
-            if (!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint && value - static_cast<i64>(value) < epsilon)
-                break;
-
-            value *= 10.0l;
-            epsilon *= 10.0l;
-
-            if (digit == 0)
-                TRY(string_builder.try_append('.'));
-            TRY(string_builder.try_append('0' + (static_cast<u8>(value) % 10)));
-
-            value -= static_cast<u8>(value);
-        }
-    }
-
-    // Round up if the following decimal is 5 or higher
-    if (static_cast<u64>(value * 10.0l) % 10 >= 5)
+    if (static_cast<u64>(value * static_cast<T>(10)) % 10 >= 5)
         TRY(round_up_digits(string_builder));
 
     TRY(put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), zero_pad ? '0' : fill));
     return {};
 }
+
+template ErrorOr<void> FormatBuilder::put_floating_point(float value, u8 base, bool upper_case, bool zero_pad, bool use_separator,
+    Align align, size_t min_width, size_t precision, char fill, SignMode sign_mode, RealNumberDisplayMode display_mode);
+
+template ErrorOr<void> FormatBuilder::put_floating_point(double value, u8 base, bool upper_case, bool zero_pad, bool use_separator,
+    Align align, size_t min_width, size_t precision, char fill, SignMode sign_mode, RealNumberDisplayMode display_mode);
+
+template ErrorOr<void> FormatBuilder::put_floating_point(long double value, u8 base, bool upper_case, bool zero_pad, bool use_separator,
+    Align align, size_t min_width, size_t precision, char fill, SignMode sign_mode, RealNumberDisplayMode display_mode);
 #endif
 
 ErrorOr<void> FormatBuilder::put_hexdump(ReadonlyBytes bytes, size_t width, char fill)
@@ -881,7 +820,7 @@ ErrorOr<void> Formatter<long double>::format(FormatBuilder& builder, long double
     m_width = m_width.value_or(0);
     m_precision = m_precision.value_or(6);
 
-    return builder.put_f80(value, base, upper_case, m_zero_pad, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
+    return builder.put_floating_point(value, base, upper_case, m_zero_pad, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
 }
 
 ErrorOr<void> Formatter<double>::format(FormatBuilder& builder, double value)
@@ -907,7 +846,7 @@ ErrorOr<void> Formatter<double>::format(FormatBuilder& builder, double value)
     m_width = m_width.value_or(0);
     m_precision = m_precision.value_or(6);
 
-    return builder.put_f64(value, base, upper_case, m_zero_pad, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
+    return builder.put_floating_point(value, base, upper_case, m_zero_pad, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
 }
 
 ErrorOr<void> Formatter<float>::format(FormatBuilder& builder, float value)
