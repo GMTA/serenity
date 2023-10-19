@@ -538,13 +538,14 @@ ErrorOr<void> FormatBuilder::put_f64(
     if (static_cast<u64>(value * 10.0) % 10 >= 5)
         TRY(round_up_digits(string_builder));
 
-    return put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill);
+    return put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), zero_pad ? '0' : fill);
 }
 
 ErrorOr<void> FormatBuilder::put_f80(
     long double value,
     u8 base,
     bool upper_case,
+    bool zero_pad,
     bool use_separator,
     Align align,
     size_t min_width,
@@ -584,13 +585,13 @@ ErrorOr<void> FormatBuilder::put_f80(
         // place to start would be the following video from CppCon 2019:
         // https://youtu.be/4P_kbF0EbZM (Stephan T. Lavavej “Floating-Point <charconv>: Making Your Code 10x Faster With C++17's Final Boss”)
         long double epsilon = 0.5l;
-        if (display_mode != RealNumberDisplayMode::FixedPoint) {
+        if (!!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint) {
             for (size_t i = 0; i < precision; ++i)
                 epsilon /= 10.0l;
         }
 
         for (size_t digit = 0; digit < precision; ++digit) {
-            if (display_mode != RealNumberDisplayMode::FixedPoint && value - static_cast<i64>(value) < epsilon)
+            if (!zero_pad && display_mode != RealNumberDisplayMode::FixedPoint && value - static_cast<i64>(value) < epsilon)
                 break;
 
             value *= 10.0l;
@@ -608,7 +609,7 @@ ErrorOr<void> FormatBuilder::put_f80(
     if (static_cast<u64>(value * 10.0l) % 10 >= 5)
         TRY(round_up_digits(string_builder));
 
-    TRY(put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill));
+    TRY(put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), zero_pad ? '0' : fill));
     return {};
 }
 #endif
@@ -880,7 +881,7 @@ ErrorOr<void> Formatter<long double>::format(FormatBuilder& builder, long double
     m_width = m_width.value_or(0);
     m_precision = m_precision.value_or(6);
 
-    return builder.put_f80(value, base, upper_case, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
+    return builder.put_f80(value, base, upper_case, m_zero_pad, m_use_separator, m_align, m_width.value(), m_precision.value(), m_fill, m_sign_mode, real_number_display_mode);
 }
 
 ErrorOr<void> Formatter<double>::format(FormatBuilder& builder, double value)

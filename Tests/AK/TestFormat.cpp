@@ -284,6 +284,15 @@ TEST_CASE(floating_point_numbers)
     EXPECT_EQ(DeprecatedString::formatted("{:x>5.1}", 1.12), "xx1.1");
 }
 
+TEST_CASE(floating_point_zero_padding)
+{
+    EXPECT_EQ(DeprecatedString::formatted("{:07.2f}", 1.23), "1.23000");
+    EXPECT_EQ(DeprecatedString::formatted("{:>07.2f}", 1.23), "0001.23");
+
+    EXPECT_EQ(DeprecatedString::formatted("{:07.2f}", 1.23L), "1.23000");
+    EXPECT_EQ(DeprecatedString::formatted("{:>07.2f}", 1.23L), "0001.23");
+}
+
 TEST_CASE(no_precision_no_trailing_number)
 {
     EXPECT_EQ(DeprecatedString::formatted("{:.0}", 0.1), "0");
