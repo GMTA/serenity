@@ -265,6 +265,7 @@ TEST_CASE(floating_point_numbers)
     EXPECT_EQ(DeprecatedString::formatted("{:.30f}", 1.0), "1.000000000000000000000000000000");
     EXPECT_EQ(DeprecatedString::formatted("{:.30f}", 1.5), "1.500000000000000000000000000000");
     EXPECT_EQ(DeprecatedString::formatted("{:.30f}", -2.0), "-2.000000000000000000000000000000");
+    EXPECT_EQ(DeprecatedString::formatted("{:.25f}", -123.456), "-123.4560000000000030695446185");
 
     EXPECT_EQ(DeprecatedString::formatted("{:.0f}", 1.4), "1");
     EXPECT_EQ(DeprecatedString::formatted("{:.0f}", 1.5), "2");

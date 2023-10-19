@@ -507,7 +507,7 @@ ErrorOr<void> FormatBuilder::put_f64(
         value = -value;
 
     TRY(format_builder.put_u64(static_cast<u64>(value), base, false, upper_case, false, use_separator, Align::Right, 0, ' ', sign_mode, is_negative));
-    value -= static_cast<i64>(value);
+    value -= static_cast<u64>(value);
 
     if (precision > 0) {
         // FIXME: This is a terrible approximation but doing it properly would be a lot of work. If someone is up for that, a good
@@ -526,13 +526,11 @@ ErrorOr<void> FormatBuilder::put_f64(
             value *= 10.0;
             epsilon *= 10.0;
 
-            if (value > NumericLimits<u32>::max())
-                value -= static_cast<u64>(value) - (static_cast<u64>(value) % 10);
-
             if (digit == 0)
                 TRY(string_builder.try_append('.'));
+            TRY(string_builder.try_append('0' + (static_cast<u8>(value) % 10)));
 
-            TRY(string_builder.try_append('0' + (static_cast<u32>(value) % 10)));
+            value -= static_cast<u8>(value);
         }
     }
 
@@ -579,7 +577,7 @@ ErrorOr<void> FormatBuilder::put_f80(
         value = -value;
 
     TRY(format_builder.put_u64(static_cast<u64>(value), base, false, upper_case, false, use_separator, Align::Right, 0, ' ', sign_mode, is_negative));
-    value -= static_cast<i64>(value);
+    value -= static_cast<u64>(value);
 
     if (precision > 0) {
         // FIXME: This is a terrible approximation but doing it properly would be a lot of work. If someone is up for that, a good
@@ -598,13 +596,11 @@ ErrorOr<void> FormatBuilder::put_f80(
             value *= 10.0l;
             epsilon *= 10.0l;
 
-            if (value > NumericLimits<u32>::max())
-                value -= static_cast<u64>(value) - (static_cast<u64>(value) % 10);
-
             if (digit == 0)
                 TRY(string_builder.try_append('.'));
+            TRY(string_builder.try_append('0' + (static_cast<u8>(value) % 10)));
 
-            TRY(string_builder.try_append('0' + (static_cast<u32>(value) % 10)));
+            value -= static_cast<u8>(value);
         }
     }
 
@@ -615,7 +611,6 @@ ErrorOr<void> FormatBuilder::put_f80(
     TRY(put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill));
     return {};
 }
-
 #endif
 
 ErrorOr<void> FormatBuilder::put_hexdump(ReadonlyBytes bytes, size_t width, char fill)
